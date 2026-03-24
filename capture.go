@@ -305,12 +305,13 @@ func StartCapture(dev deviceInfo, width, height, fps, quality int, buf *FrameBuf
 // CaptureManager manages the lifecycle of capture devices, handling
 // automatic detection, connection, and reconnection.
 type CaptureManager struct {
-	Filter  string
-	Width   int
-	Height  int
-	FPS     int
-	Quality int
-	Buf     *FrameBuffer
+	Filter         string
+	Width          int
+	Height         int
+	FPS            int
+	Quality        int
+	Buf            *FrameBuffer
+	AudioBroadcast *AudioBroadcaster
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -320,17 +321,18 @@ type CaptureManager struct {
 }
 
 // NewCaptureManager creates a new CaptureManager.
-func NewCaptureManager(filter string, width, height, fps, quality int, buf *FrameBuffer) *CaptureManager {
+func NewCaptureManager(filter string, width, height, fps, quality int, buf *FrameBuffer, ab *AudioBroadcaster) *CaptureManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &CaptureManager{
-		Filter:  filter,
-		Width:   width,
-		Height:  height,
-		FPS:     fps,
-		Quality: quality,
-		Buf:     buf,
-		ctx:     ctx,
-		cancel:  cancel,
+		Filter:         filter,
+		Width:          width,
+		Height:         height,
+		FPS:            fps,
+		Quality:        quality,
+		Buf:            buf,
+		AudioBroadcast: ab,
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 }
 
@@ -383,12 +385,42 @@ func (cm *CaptureManager) Run() {
 		retryDelay = 2 * time.Second
 		cm.Buf.SetStatus(StatusConnected)
 
-		// Wait for disconnect or shutdown.
+		// Start audio capture (optional — failure is non-fatal).
+		var audioDone <-chan struct{}
+		var audioCancel context.CancelFunc
+		if cm.AudioBroadcast != nil {
+			audioDev, found := DetectAudioDevice(cm.Filter)
+			if found {
+				audioCtx, ac := context.WithCancel(cm.ctx)
+				audioCancel = ac
+				ad, err := StartAudioCapture(audioCtx, audioDev, cm.AudioBroadcast)
+				if err != nil {
+					log.Printf("audio capture failed on %q: %v (continuing without audio)", audioDev.Name, err)
+					audioCancel()
+				} else {
+					audioDone = ad
+					log.Printf("audio capture started on %q", audioDev.Name)
+				}
+			}
+		}
+
+		// Wait for video disconnect or shutdown.
 		select {
 		case <-done:
 			log.Printf("device %q disconnected", dev.Name)
 		case <-cm.ctx.Done():
+			if audioCancel != nil {
+				audioCancel()
+			}
 			return
+		}
+
+		// Stop audio when video disconnects.
+		if audioCancel != nil {
+			audioCancel()
+		}
+		if audioDone != nil {
+			<-audioDone
 		}
 
 		select {

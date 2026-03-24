@@ -31,7 +31,8 @@ func main() {
 
 	// Set up capture manager (handles detect → capture → reconnect loop).
 	buf := &FrameBuffer{}
-	cm := NewCaptureManager(*device, *width, *height, *fps, *quality, buf)
+	ab := NewAudioBroadcaster()
+	cm := NewCaptureManager(*device, *width, *height, *fps, *quality, buf, ab)
 
 	// Try an initial detect for the startup banner, but don't exit on failure.
 	dev, err := DetectDevice(*device)
@@ -74,12 +75,13 @@ func main() {
 		deviceName = dev.Name
 	}
 	srv := &Server{
-		Source:  buf,
-		Device:  deviceName,
-		Width:   *width,
-		Height:  *height,
-		FPS:     *fps,
-		Quality: *quality,
+		Source:         buf,
+		Device:         deviceName,
+		Width:          *width,
+		Height:         *height,
+		FPS:            *fps,
+		Quality:        *quality,
+		AudioBroadcast: ab,
 	}
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", listenPort),
