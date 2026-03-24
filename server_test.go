@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"image"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,16 +13,24 @@ import (
 )
 
 type fakeSource struct {
-	frame  []byte
-	status CaptureStatus
+	frame    []byte
+	rawFrame []byte
+	cropRect image.Rectangle
+	status   CaptureStatus
 }
 
-func (f *fakeSource) Latest() []byte       { return f.frame }
-func (f *fakeSource) Status() CaptureStatus { return f.status }
+func (f *fakeSource) Latest() []byte            { return f.frame }
+func (f *fakeSource) LatestRaw() []byte          { return f.rawFrame }
+func (f *fakeSource) Status() CaptureStatus      { return f.status }
+func (f *fakeSource) CropRect() image.Rectangle  { return f.cropRect }
 
 func newTestServer() (*Server, http.Handler) {
 	s := &Server{
-		Source:  &fakeSource{frame: testJPEG(320, 240), status: StatusConnected},
+		Source: &fakeSource{
+			frame:    testJPEG(320, 240),
+			rawFrame: testJPEG(1920, 1080),
+			status:   StatusConnected,
+		},
 		Device:  "Test Device",
 		Width:   1920,
 		Height:  1080,
@@ -51,7 +60,7 @@ func TestIndexHandler(t *testing.T) {
 	if !strings.Contains(hdr.Get("Content-Type"), "text/html") {
 		t.Errorf("expected text/html, got %s", hdr.Get("Content-Type"))
 	}
-	for _, link := range []string{"/view", "/stream", "/snapshot", "/health"} {
+	for _, link := range []string{"/view", "/stream", "/snapshot", "/raw-stream", "/raw-snapshot", "/health"} {
 		if !strings.Contains(body, link) {
 			t.Errorf("index page missing link to %s", link)
 		}
@@ -148,6 +157,68 @@ func TestHealthStatus(t *testing.T) {
 				t.Errorf("device field present=%v, want %v", hasDevice, tt.wantDevice)
 			}
 		})
+	}
+}
+
+func TestRawSnapshotHandler(t *testing.T) {
+	_, mux := newTestServer()
+	code, hdr, body := get(t, mux, "/raw-snapshot")
+
+	if code != 200 {
+		t.Errorf("expected 200, got %d", code)
+	}
+	if ct := hdr.Get("Content-Type"); ct != "image/jpeg" {
+		t.Errorf("expected image/jpeg, got %s", ct)
+	}
+	if len(body) < 2 || body[0] != 0xFF || body[1] != 0xD8 {
+		t.Error("raw snapshot is not a valid JPEG")
+	}
+}
+
+func TestRawStreamHandler(t *testing.T) {
+	_, mux := newTestServer()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	w := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		mux.ServeHTTP(w, httptest.NewRequest("GET", "/raw-stream", nil).WithContext(ctx))
+		close(done)
+	}()
+	<-done
+
+	resp := w.Result()
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(resp.Header.Get("Content-Type"), "multipart/x-mixed-replace") {
+		t.Errorf("expected multipart/x-mixed-replace, got %s", resp.Header.Get("Content-Type"))
+	}
+	if !strings.Contains(string(body), "--frame") {
+		t.Error("raw stream response missing MJPEG boundary")
+	}
+}
+
+func TestHealthCropRect(t *testing.T) {
+	s := &Server{
+		Source: &fakeSource{
+			status:   StatusConnected,
+			cropRect: image.Rect(520, 0, 1400, 1080),
+		},
+		Device: "Test Device", Width: 1920, Height: 1080, FPS: 30,
+	}
+	_, _, body := get(t, NewMux(s), "/health")
+
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(body), &data); err != nil {
+		t.Fatalf("bad JSON: %v", err)
+	}
+	crop, ok := data["crop"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected crop field in health response")
+	}
+	if crop["x"] != float64(520) || crop["width"] != float64(880) {
+		t.Errorf("unexpected crop values: %v", crop)
 	}
 }
 

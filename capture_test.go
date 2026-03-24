@@ -9,6 +9,84 @@ import (
 	"testing"
 )
 
+// makeImage creates a w×h RGBA image filled with fillColor, then draws a
+// rectangle of contentColor within the given content bounds.
+func makeImage(w, h int, fillColor, contentColor color.RGBA, content image.Rectangle) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			img.Set(x, y, fillColor)
+		}
+	}
+	for y := content.Min.Y; y < content.Max.Y; y++ {
+		for x := content.Min.X; x < content.Max.X; x++ {
+			img.Set(x, y, contentColor)
+		}
+	}
+	return img
+}
+
+func TestDetectContentRectFullImage(t *testing.T) {
+	// All bright pixels — no black bars at all.
+	img := makeImage(1920, 1080, color.RGBA{200, 200, 200, 255}, color.RGBA{200, 200, 200, 255}, image.Rect(0, 0, 1920, 1080))
+	got := detectContentRect(img, cropThreshold)
+	want := image.Rect(0, 0, 1920, 1080)
+	if got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestDetectContentRectPillarbox(t *testing.T) {
+	// Black bars on left (0-520) and right (1400-1920), content in middle.
+	black := color.RGBA{0, 0, 0, 255}
+	bright := color.RGBA{200, 200, 200, 255}
+	img := makeImage(1920, 1080, black, bright, image.Rect(520, 0, 1400, 1080))
+	got := detectContentRect(img, cropThreshold)
+	if got.Min.X != 520 || got.Max.X != 1400 || got.Min.Y != 0 || got.Max.Y != 1080 {
+		t.Errorf("got %v, want (520,0)-(1400,1080)", got)
+	}
+}
+
+func TestDetectContentRectLetterbox(t *testing.T) {
+	// Black bars on top (0-140) and bottom (940-1080), content in middle.
+	black := color.RGBA{0, 0, 0, 255}
+	bright := color.RGBA{200, 200, 200, 255}
+	img := makeImage(1920, 1080, black, bright, image.Rect(0, 140, 1920, 940))
+	got := detectContentRect(img, cropThreshold)
+	if got.Min.Y != 140 || got.Max.Y != 940 || got.Min.X != 0 || got.Max.X != 1920 {
+		t.Errorf("got %v, want (0,140)-(1920,940)", got)
+	}
+}
+
+func TestDetectContentRectAllBlack(t *testing.T) {
+	// Entirely black image — should return full bounds (no crop).
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	got := detectContentRect(img, cropThreshold)
+	want := image.Rect(0, 0, 1920, 1080)
+	if got != want {
+		t.Errorf("got %v, want %v (full bounds for all-black)", got, want)
+	}
+}
+
+func TestFrameBufferDualStorage(t *testing.T) {
+	fb := &FrameBuffer{}
+	cropped := testJPEG(880, 1080)
+	raw := testJPEG(1920, 1080)
+	rect := image.Rect(520, 0, 1400, 1080)
+
+	fb.UpdateBoth(cropped, raw, rect)
+
+	if got := fb.Latest(); !bytes.Equal(got, cropped) {
+		t.Error("Latest() should return cropped frame")
+	}
+	if got := fb.LatestRaw(); !bytes.Equal(got, raw) {
+		t.Error("LatestRaw() should return raw frame")
+	}
+	if got := fb.CropRect(); got != rect {
+		t.Errorf("CropRect() = %v, want %v", got, rect)
+	}
+}
+
 func testJPEG(w, h int) []byte {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	for y := 0; y < h; y++ {

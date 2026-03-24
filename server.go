@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"image"
 	"log"
 	"net/http"
 	"time"
@@ -28,6 +29,8 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/view", s.handleView)
 	mux.HandleFunc("/stream", s.handleStream)
 	mux.HandleFunc("/snapshot", s.handleSnapshot)
+	mux.HandleFunc("/raw-stream", s.handleRawStream)
+	mux.HandleFunc("/raw-snapshot", s.handleRawSnapshot)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/audio", s.handleAudio)
 	return mux
@@ -51,8 +54,10 @@ a { color: #0066cc; }
 <h1>Roadie</h1>
 <ul>
 <li><a href="/view">/view</a> — watch the live feed in your browser</li>
-<li><a href="/stream">/stream</a> — raw MJPEG stream</li>
-<li><a href="/snapshot">/snapshot</a> — grab a single frame (JPEG)</li>
+<li><a href="/stream">/stream</a> — MJPEG stream (auto-cropped)</li>
+<li><a href="/snapshot">/snapshot</a> — single frame (auto-cropped JPEG)</li>
+<li><a href="/raw-stream">/raw-stream</a> — MJPEG stream (uncropped)</li>
+<li><a href="/raw-snapshot">/raw-snapshot</a> — single frame (uncropped JPEG)</li>
 <li><a href="/health">/health</a> — service status (JSON)</li>
 </ul>
 </body>
@@ -304,6 +309,49 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	w.Write(frame)
 }
 
+func (s *Server) handleRawStream(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+	w.Header().Set("Cache-Control", "no-cache")
+
+	interval := time.Duration(float64(time.Second) / float64(s.FPS))
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		default:
+			frame := s.Source.LatestRaw()
+			if frame == nil {
+				time.Sleep(interval)
+				continue
+			}
+
+			fmt.Fprintf(w, "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n", len(frame))
+			if _, err := w.Write(frame); err != nil {
+				return
+			}
+			fmt.Fprint(w, "\r\n")
+
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+
+			time.Sleep(interval)
+		}
+	}
+}
+
+func (s *Server) handleRawSnapshot(w http.ResponseWriter, r *http.Request) {
+	frame := s.Source.LatestRaw()
+	if frame == nil {
+		http.Error(w, "no frame available", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(frame)))
+	w.Write(frame)
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -322,6 +370,15 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		resp["device"] = s.Device
 		resp["resolution"] = fmt.Sprintf("%dx%d", s.Width, s.Height)
 		resp["fps"] = s.FPS
+	}
+	cropRect := s.Source.CropRect()
+	if cropRect != (image.Rectangle{}) && cropRect != image.Rect(0, 0, s.Width, s.Height) {
+		resp["crop"] = map[string]interface{}{
+			"x":      cropRect.Min.X,
+			"y":      cropRect.Min.Y,
+			"width":  cropRect.Dx(),
+			"height": cropRect.Dy(),
+		}
 	}
 	if s.AudioBroadcast != nil && s.AudioBroadcast.IsActive() {
 		p := s.AudioBroadcast.Params()
