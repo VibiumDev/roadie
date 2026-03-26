@@ -1,18 +1,20 @@
 # 🚐 Roadie
 
+Roadie sets up your equipment.
+
 ## The Problem
 
 Setting up a new machine requires someone to physically sit in front of it, click through the OS setup assistant, install dependencies, and configure the system. This doesn't scale. If you're managing a fleet of machines, you need zero-touch provisioning.
 
-The catch-22: you can't automate macOS setup *with software on the Mac* because the software isn't installed yet. The OS isn't even fully configured. There's no SSH, no VNC, no remote desktop — just a screen showing "Select Your Language" and a USB keyboard/mouse waiting for input.
+The problem: you can't automate device setup *with software on the device* because the software isn't installed yet. The OS isn't even fully configured. There's no SSH, no VNC, no remote desktop. All you have is a screen showing "Select Your Language" and a USB keyboard/mouse waiting for input.
 
 ## What Roadie Does
 
-Roadie solves the capture side of this problem. It's a Go binary that grabs video from an HDMI-to-USB capture dongle and serves it over HTTP — turning a remote machine's physical display into a web page. An AI agent (or a human) can view the screen in a browser, grab individual frames for vision analysis, and eventually send keyboard/mouse input back to the machine.
+Roadie uses one device to set up another. It grabs video from an HDMI-to-USB capture dongle and serves it over HTTP, turning a remote device's physical display into a web page. An AI agent (or a human) can view the screen in a browser, grab individual frames for vision analysis, and eventually send keyboard/mouse input back to the device.
 
 ### Why not MDM?
 
-Mobile Device Management (MDM) tools let you configure and control devices remotely over the network. They exist, but they're complex to set up and only work with specific platforms. The goal here is different: use AI to run setup on *any* device that supports KVM (video output + keyboard/mouse input) — Macs, PCs, mobile devices, servers, embedded devices, anything with an HDMI port.
+Mobile Device Management (MDM) tools let you configure and control devices remotely over the network. They're great for ongoing management, but complex to set up and limited to specific platforms. Roadie tackles the initial setup part: use AI to bootstrap *any* device that supports KVM (video output + keyboard/mouse input): Macs, PCs, mobile devices, servers, embedded devices, anything with an HDMI port.
 
 ## Quick Start
 
@@ -25,12 +27,12 @@ Open `http://localhost:8080/view` or `http://roadie.local:8080/view` (Bonjour).
 
 ## Features
 
-- **Auto-detection** — finds external capture devices, skips built-in cameras
-- **Hot-swap** — plug/unplug devices without restarting
-- **Auto-crop** — detects and removes black bars from HDMI capture (pillarbox/letterbox)
-- **Audio streaming** — optional PCM audio over WebSocket
-- **Bonjour/mDNS** — discoverable as `roadie.local` on your network
-- **Resilient** — automatic reconnection with exponential backoff, signal loss detection
+- **Auto-detection**: finds external capture devices, skips built-in cameras
+- **Hot-swap**: plug/unplug devices without restarting
+- **Auto-crop**: detects and removes black bars from HDMI capture (pillarbox/letterbox)
+- **Audio streaming**: optional PCM audio over WebSocket
+- **Bonjour/mDNS**: discoverable as `roadie.local` on your network
+- **Resilient**: automatic reconnection with exponential backoff, signal loss detection
 
 ## Endpoints
 
