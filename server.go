@@ -20,6 +20,7 @@ type Server struct {
 	FPS            int
 	Quality        int
 	AudioBroadcast *AudioBroadcaster
+	SourceType     string // "hardware" or "http"
 }
 
 // NewMux wires up all HTTP routes and returns a handler.
@@ -366,6 +367,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]interface{}{"status": status}
+	if s.SourceType != "" {
+		resp["source_type"] = s.SourceType
+	}
 	if status == "ok" || status == "no_signal" {
 		resp["device"] = s.Device
 		resp["resolution"] = fmt.Sprintf("%dx%d", s.Width, s.Height)

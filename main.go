@@ -15,6 +15,7 @@ import (
 
 func main() {
 	device := flag.String("device", "", "device name substring (auto-detect if empty)")
+	source := flag.String("source", "", "HTTP MJPEG source URL (e.g. http://host:8080/raw-stream)")
 	port := flag.Int("port", 0, "HTTP server port (default: auto, starting at 8080)")
 	width := flag.Int("width", 1920, "capture width")
 	height := flag.Int("height", 1080, "capture height")
@@ -23,30 +24,53 @@ func main() {
 	name := flag.String("name", "roadie", "Bonjour service name")
 	flag.Parse()
 
-	// Start the AVFoundation device observer so the driver manager stays
-	// in sync with hardware (auto-registers on plug, auto-unregisters on unplug).
-	if err := InitObserver(); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  Device observer failed: %v\n", err)
+	if *source != "" && *device != "" {
+		log.Fatal("--source and --device are mutually exclusive")
 	}
 
-	// Set up capture manager (handles detect → capture → reconnect loop).
 	buf := &FrameBuffer{}
-	ab := NewAudioBroadcaster()
-	cm := NewCaptureManager(*device, *width, *height, *fps, *quality, buf, ab)
+	var ab *AudioBroadcaster
+	var sourceType string
+	var deviceName string
+	var shutdownFunc func()
 
-	// Try an initial detect for the startup banner, but don't exit on failure.
-	dev, err := DetectDevice(*device)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "⚠️  No capture device found — will keep trying in the background")
-		fmt.Fprintln(os.Stderr, "   Plug in an HDMI-to-USB capture dongle to start streaming.")
-		fmt.Fprintln(os.Stderr, "")
+	if *source != "" {
+		// HTTP MJPEG source mode.
+		sourceType = "http"
+		deviceName = *source
+		mgr := NewHTTPSourceManager(*source, *quality, buf)
+		shutdownFunc = mgr.Shutdown
+		fmt.Printf("📡 HTTP source: %s\n", *source)
+		go mgr.Run()
 	} else {
-		fmt.Printf("📺 Found %q capture device\n", dev.Name)
-		fmt.Printf("🎬 Capturing at %dx%d @ %dfps\n", *width, *height, *fps)
-	}
+		// Hardware capture mode.
+		sourceType = "hardware"
+		ab = NewAudioBroadcaster()
 
-	go cm.Run()
+		// Start the AVFoundation device observer so the driver manager stays
+		// in sync with hardware (auto-registers on plug, auto-unregisters on unplug).
+		if err := InitObserver(); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️  Device observer failed: %v\n", err)
+		}
+
+		cm := NewCaptureManager(*device, *width, *height, *fps, *quality, buf, ab)
+		shutdownFunc = cm.Shutdown
+
+		// Try an initial detect for the startup banner, but don't exit on failure.
+		dev, err := DetectDevice(*device)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "⚠️  No capture device found — will keep trying in the background")
+			fmt.Fprintln(os.Stderr, "   Plug in an HDMI-to-USB capture dongle to start streaming.")
+			fmt.Fprintln(os.Stderr, "")
+		} else {
+			deviceName = dev.Name
+			fmt.Printf("📺 Found %q capture device\n", dev.Name)
+			fmt.Printf("🎬 Capturing at %dx%d @ %dfps\n", *width, *height, *fps)
+		}
+
+		go cm.Run()
+	}
 
 	// Find available port.
 	listenPort := *port
@@ -70,10 +94,6 @@ func main() {
 	fmt.Printf("🌐 http://%s.local:%d\n", *name, listenPort)
 
 	// Start HTTP server.
-	deviceName := ""
-	if err == nil {
-		deviceName = dev.Name
-	}
 	srv := &Server{
 		Source:         buf,
 		Device:         deviceName,
@@ -82,6 +102,7 @@ func main() {
 		FPS:            *fps,
 		Quality:        *quality,
 		AudioBroadcast: ab,
+		SourceType:     sourceType,
 	}
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", listenPort),
@@ -101,7 +122,7 @@ func main() {
 	<-done
 	fmt.Println("\nShutting down...")
 
-	cm.Shutdown()
+	shutdownFunc()
 
 	if mdnsShutdown != nil {
 		mdnsShutdown()

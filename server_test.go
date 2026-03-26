@@ -31,11 +31,12 @@ func newTestServer() (*Server, http.Handler) {
 			rawFrame: testJPEG(1920, 1080),
 			status:   StatusConnected,
 		},
-		Device:  "Test Device",
-		Width:   1920,
-		Height:  1080,
-		FPS:     30,
-		Quality: 80,
+		Device:     "Test Device",
+		Width:      1920,
+		Height:     1080,
+		FPS:        30,
+		Quality:    80,
+		SourceType: "hardware",
 	}
 	return s, NewMux(s)
 }
@@ -219,6 +220,38 @@ func TestHealthCropRect(t *testing.T) {
 	}
 	if crop["x"] != float64(520) || crop["width"] != float64(880) {
 		t.Errorf("unexpected crop values: %v", crop)
+	}
+}
+
+func TestHealthSourceType(t *testing.T) {
+	tests := []struct {
+		name       string
+		sourceType string
+		want       string
+	}{
+		{"hardware", "hardware", "hardware"},
+		{"http", "http", "http"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Server{
+				Source:     &fakeSource{status: StatusConnected},
+				Device:     "Test Device",
+				Width:      1920,
+				Height:     1080,
+				FPS:        30,
+				SourceType: tt.sourceType,
+			}
+			_, _, body := get(t, NewMux(s), "/health")
+
+			var data map[string]interface{}
+			if err := json.Unmarshal([]byte(body), &data); err != nil {
+				t.Fatalf("bad JSON: %v", err)
+			}
+			if data["source_type"] != tt.want {
+				t.Errorf("source_type = %v, want %q", data["source_type"], tt.want)
+			}
+		})
 	}
 }
 
