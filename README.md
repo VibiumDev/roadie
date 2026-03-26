@@ -60,8 +60,8 @@ Open `http://localhost:8080/view` or `http://roadie.local:8080/view` (Bonjour).
 
 ## Requirements
 
-- macOS (AVFoundation)
-- Go 1.25+
+- macOS or Linux (AVFoundation on macOS, V4L2 on Linux)
+- Go 1.21+, Python 3.10+
 - UVC-compatible HDMI-to-USB capture dongle
 
 ## Build

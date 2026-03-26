@@ -1,4 +1,4 @@
-# Binary
+# Build artifacts
 roadie
 
 # Go binaries and plugins
@@ -18,9 +18,14 @@ go.work.sum
 # Environment
 .env
 
+# Python venv
+.venv/
+
 # Scratch files
-errors.txt
+scrap.txt
+
+# Images
 *.jpeg
 
-# OS
+# macOS
 .DS_Store
