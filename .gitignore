@@ -1,0 +1,26 @@
+# Binary
+roadie
+
+# Go binaries and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+
+# Go workspace
+go.work
+go.work.sum
+
+# Environment
+.env
+
+# Scratch files
+errors.txt
+*.jpeg
+
+# OS
+.DS_Store
