@@ -8,9 +8,7 @@ The catch-22: you can't automate macOS setup *with software on the Mac* because 
 
 ## What Roadie does
 
-Roadie solves the capture side of this problem. It's a Go binary that grabs video from an HDMI-to-USB capture dongle and serves it over HTTP — turning a remote machine's physical display into a web page. An AI agent (or a human) can view the screen in a browser, grab individual frames for vision analysis, and eventually send keyboard/mouse input back to the machine.
-
-v0.1 is video capture and serving only. No mouse, no keyboard, no QT Py integration yet. Just "plug in a capture dongle, run `roadie`, open a browser, see the remote screen."
+Roadie solves this with a USB KVM approach. It's a Go binary that grabs video from an HDMI-to-USB capture dongle and serves it over HTTP — turning a remote machine's physical display into a web page. A pair of QT Py RP2040 boards act as a USB HID device, sending keyboard and mouse input to the target. An AI agent (or a human) can view the screen in a browser, grab individual frames for vision analysis, and send keyboard/mouse input back to the machine — all over HTTP/WebSocket.
 
 ## Usage
 
@@ -344,8 +342,8 @@ roadie/
 
 ## What v0.1 does NOT include
 
-- Mouse/keyboard input (QT Py integration) — that's next
-- WebSocket or WebRTC — MJPEG is fine for now
+- ~~Mouse/keyboard input (QT Py integration)~~ — done (Phase 3D)
+- WebSocket or WebRTC — MJPEG is fine for now (WebSocket used for audio + HID control)
 - Authentication — runs on a trusted local network
 - TLS — same reason
 - Recording or frame storage

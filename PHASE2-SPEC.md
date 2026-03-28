@@ -30,7 +30,7 @@ usb_hid.enable((usb_hid.Device.KEYBOARD, device))
 ```
 
 ### board/hid/code.py
-- UART receiver on TX/RX pins (D6/D7) at 115200 baud
+- UART receiver on TX/RX pins (D6/D7) at 921600 baud
 - Buffers incoming bytes until a full 32-byte message is received
 - Sends 2-byte response (status + echo seq) immediately after processing
 - Blinks green NeoPixel on each ping received
@@ -53,7 +53,7 @@ usb_cdc.enable(console=True, data=True)
 The `usb_cdc` data port provides a separate serial channel for commands from the host, keeping the REPL available for debugging.
 
 ### board/relay/code.py
-- UART sender on TX/RX pins (D6/D7) at 115200 baud
+- UART sender on TX/RX pins (D6/D7) at 921600 baud
 - Sends PING every 1 second, reads 2-byte response
 - Flushes stale UART bytes before each send
 - Blinks red NeoPixel on successful pong
@@ -70,8 +70,8 @@ After flashing and connecting UART wires, each board blinks its NeoPixel once pe
 - **relay** (📥 IN): red blink on each successful pong
 
 Connect to the serial REPL to see messages:
-- Linux: `screen /dev/ttyACM0 115200`
-- macOS: `screen /dev/tty.usbmodem* 115200`
+- Linux: `screen /dev/ttyACM0 921600`
+- macOS: `screen /dev/tty.usbmodem* 921600`
 
 ---
 
