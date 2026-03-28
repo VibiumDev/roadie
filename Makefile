@@ -1,6 +1,4 @@
 BINARY = roadie
-BOARD_DIR = board
-CIRCUITPY = /Volumes/CIRCUITPY
 
 .PHONY: build test setup flash-relay flash-hid flash-relay-quick flash-hid-quick clean
 
@@ -11,26 +9,19 @@ test:
 	go test -v ./...
 
 setup:
-	python3 -m venv .venv
-	.venv/bin/pip install circup adafruit-circuitpython-hid
+	python3 board/install.py --setup-only
 
 flash-relay:
-	@test -d $(CIRCUITPY) || (echo "CircuitPython board not found at $(CIRCUITPY)" && exit 1)
-	cp $(BOARD_DIR)/shared/*.py $(CIRCUITPY)/lib/
-	cp $(BOARD_DIR)/relay/*.py $(CIRCUITPY)/
+	python3 board/install.py relay
 
 flash-hid:
-	@test -d $(CIRCUITPY) || (echo "CircuitPython board not found at $(CIRCUITPY)" && exit 1)
-	cp $(BOARD_DIR)/shared/*.py $(CIRCUITPY)/lib/
-	cp $(BOARD_DIR)/hid/*.py $(CIRCUITPY)/
+	python3 board/install.py hid
 
 flash-relay-quick:
-	@test -d $(CIRCUITPY) || (echo "CircuitPython board not found at $(CIRCUITPY)" && exit 1)
-	cp $(BOARD_DIR)/relay/code.py $(CIRCUITPY)/code.py
+	python3 board/install.py relay --skip-firmware
 
 flash-hid-quick:
-	@test -d $(CIRCUITPY) || (echo "CircuitPython board not found at $(CIRCUITPY)" && exit 1)
-	cp $(BOARD_DIR)/hid/code.py $(CIRCUITPY)/code.py
+	python3 board/install.py hid --skip-firmware
 
 clean:
 	rm -f $(BINARY)
