@@ -1,8 +1,8 @@
-# shared I2C protocol constants and helpers
-# used by both relay (controller) and hid (target) boards
+# shared protocol constants and helpers
+# used by both relay and hid boards over UART
 
-I2C_ADDR = 0x42
 MSG_SIZE = 32
+BAUD = 115200
 
 # command types
 CMD_NOOP          = 0x00
@@ -15,12 +15,13 @@ CMD_MOUSE_MOVE    = 0x20
 CMD_MOUSE_CLICK   = 0x21
 CMD_MOUSE_PRESS   = 0x22
 CMD_MOUSE_RELEASE = 0x23
-CMD_ACK           = 0xFF
 
-# status codes
+# status codes (returned in 2-byte response)
 STATUS_OK   = 0x00
 STATUS_ERR  = 0x01
 STATUS_BUSY = 0x02
+
+RESP_SIZE = 2
 
 
 def pack_msg(cmd, seq, payload=b""):
@@ -40,3 +41,8 @@ def unpack_msg(buf):
     length = buf[2]
     payload = bytes(buf[3:3 + length])
     return cmd, seq, payload
+
+
+def pack_resp(status, seq):
+    """Pack a 2-byte response."""
+    return bytes([status, seq])
