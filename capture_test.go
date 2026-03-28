@@ -99,6 +99,31 @@ func testJPEG(w, h int) []byte {
 	return buf.Bytes()
 }
 
+func TestFrameBufferUpdateCropped(t *testing.T) {
+	fb := &FrameBuffer{}
+	raw := testJPEG(1920, 1080)
+	cropped1 := testJPEG(880, 1080)
+	rect := image.Rect(520, 0, 1400, 1080)
+
+	// Set initial state with both.
+	fb.UpdateBoth(cropped1, raw, rect)
+
+	// Update only cropped.
+	cropped2 := testJPEG(600, 1080)
+	rect2 := image.Rect(660, 0, 1260, 1080)
+	fb.UpdateCropped(cropped2, rect2)
+
+	if got := fb.Latest(); !bytes.Equal(got, cropped2) {
+		t.Error("Latest() should return updated cropped frame")
+	}
+	if got := fb.LatestRaw(); !bytes.Equal(got, raw) {
+		t.Error("LatestRaw() should still return original raw frame")
+	}
+	if got := fb.CropRect(); got != rect2 {
+		t.Errorf("CropRect() = %v, want %v", got, rect2)
+	}
+}
+
 func TestFrameBufferLatestNil(t *testing.T) {
 	fb := &FrameBuffer{}
 	if got := fb.Latest(); got != nil {
@@ -166,6 +191,69 @@ func TestFrameBufferClear(t *testing.T) {
 	}
 	if fb.Status() != StatusDisconnected {
 		t.Errorf("expected %q after Clear, got %q", StatusDisconnected, fb.Status())
+	}
+}
+
+func TestIsMajorCropChangeFirstDetection(t *testing.T) {
+	full := image.Rect(0, 0, 1920, 1080)
+	newRect := image.Rect(520, 0, 1400, 1080)
+	if !isMajorCropChange(image.Rectangle{}, newRect, full) {
+		t.Error("expected true for first detection (zero activeCrop)")
+	}
+}
+
+func TestIsMajorCropChangeSmallShift(t *testing.T) {
+	full := image.Rect(0, 0, 1920, 1080)
+	active := image.Rect(520, 0, 1400, 1080)
+	// Shift by a few pixels — area stays the same.
+	shifted := image.Rect(522, 0, 1402, 1080)
+	if isMajorCropChange(active, shifted, full) {
+		t.Error("expected false for small shift with same area")
+	}
+}
+
+func TestIsMajorCropChangeLargeArea(t *testing.T) {
+	full := image.Rect(0, 0, 1920, 1080)
+	active := image.Rect(520, 0, 1400, 1080)
+	// Jump to full frame — large area change.
+	if !isMajorCropChange(active, full, full) {
+		t.Error("expected true for large area change")
+	}
+}
+
+func TestIsMajorCropChangeAspectFlip(t *testing.T) {
+	full := image.Rect(0, 0, 1920, 1080)
+	landscape := image.Rect(0, 140, 1920, 940) // 1920x800 landscape
+	portrait := image.Rect(660, 0, 1260, 1080)  // 600x1080 portrait
+	if !isMajorCropChange(landscape, portrait, full) {
+		t.Error("expected true for landscape→portrait flip")
+	}
+	if !isMajorCropChange(portrait, landscape, full) {
+		t.Error("expected true for portrait→landscape flip")
+	}
+}
+
+func TestFrameBufferQuality(t *testing.T) {
+	fb := &FrameBuffer{}
+	// Default (never set) should return 80.
+	if got := fb.Quality(); got != 80 {
+		t.Errorf("default quality: got %d, want 80", got)
+	}
+	fb.SetQuality(50)
+	if got := fb.Quality(); got != 50 {
+		t.Errorf("after SetQuality(50): got %d, want 50", got)
+	}
+}
+
+func TestFrameBufferQualityClamping(t *testing.T) {
+	fb := &FrameBuffer{}
+	fb.SetQuality(10)
+	if got := fb.Quality(); got != 30 {
+		t.Errorf("below min: got %d, want 30", got)
+	}
+	fb.SetQuality(100)
+	if got := fb.Quality(); got != 95 {
+		t.Errorf("above max: got %d, want 95", got)
 	}
 }
 

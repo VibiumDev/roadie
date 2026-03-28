@@ -49,6 +49,7 @@ func main() {
 	}
 
 	buf := &FrameBuffer{}
+	buf.SetQuality(*quality)
 	var ab *AudioBroadcaster
 	var sourceType string
 	var deviceName string
@@ -58,7 +59,7 @@ func main() {
 		// HTTP MJPEG source mode.
 		sourceType = "http"
 		deviceName = *source
-		mgr := NewHTTPSourceManager(*source, *quality, buf)
+		mgr := NewHTTPSourceManager(*source, buf)
 		shutdownFunc = mgr.Shutdown
 		fmt.Printf("📡 HTTP source: %s\n", *source)
 		go mgr.Run()
@@ -73,7 +74,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "⚠️  Device observer failed: %v\n", err)
 		}
 
-		cm := NewCaptureManager(*device, *width, *height, *fps, *quality, buf, ab)
+		cm := NewCaptureManager(*device, *width, *height, *fps, buf, ab)
 		shutdownFunc = cm.Shutdown
 
 		// Try an initial detect for the startup banner, but don't exit on failure.
@@ -116,11 +117,11 @@ func main() {
 	// Start HTTP server.
 	srv := &Server{
 		Source:         buf,
+		Buf:            buf,
 		Device:         deviceName,
 		Width:          *width,
 		Height:         *height,
 		FPS:            *fps,
-		Quality:        *quality,
 		AudioBroadcast: ab,
 		SourceType:     sourceType,
 	}

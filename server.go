@@ -14,11 +14,11 @@ import (
 // Server holds the state needed by HTTP handlers.
 type Server struct {
 	Source         FrameSource
+	Buf            *FrameBuffer
 	Device         string
 	Width          int
 	Height         int
 	FPS            int
-	Quality        int
 	AudioBroadcast *AudioBroadcaster
 	SourceType     string // "hardware" or "http"
 }
@@ -33,6 +33,8 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/raw-stream", s.handleRawStream)
 	mux.HandleFunc("/raw-snapshot", s.handleRawSnapshot)
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/settings", s.handleSettings)
+	mux.HandleFunc("/api/settings", s.handleAPISettings)
 	mux.HandleFunc("/audio", s.handleAudio)
 	return mux
 }
@@ -60,6 +62,7 @@ a { color: #0066cc; }
 <li><a href="/raw-stream">/raw-stream</a> — MJPEG stream (uncropped)</li>
 <li><a href="/raw-snapshot">/raw-snapshot</a> — single frame (uncropped JPEG)</li>
 <li><a href="/health">/health</a> — service status (JSON)</li>
+<li><a href="/settings">/settings</a> — adjust quality and view device info</li>
 </ul>
 </body>
 </html>`)
@@ -78,6 +81,13 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
   <button id="unmute" style="position:fixed; bottom:20px; right:20px; z-index:20; background:rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:10px 14px; font-size:1.4em; cursor:pointer; display:none; line-height:1;" title="Toggle audio">
     &#x1F507;
   </button>
+  <div id="qpanel" style="position:fixed; bottom:20px; left:20px; z-index:20; display:flex; align-items:center; gap:8px;">
+    <button id="qbtn" style="background:rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:10px 14px; font-size:1.4em; cursor:pointer; line-height:1;" title="Quality">&#x2699;</button>
+    <div id="qslider" style="display:none; background:rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:8px 12px; align-items:center; gap:8px;">
+      <input id="qrange" type="range" min="30" max="95" style="width:120px; vertical-align:middle;">
+      <span id="qval" style="color:#fff; font-family:monospace; font-size:0.9em; min-width:2em; text-align:right;"></span>
+    </div>
+  </div>
   <script>
   (function(){
     var img = document.getElementById('feed');
@@ -261,6 +271,43 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         startAudio();
       }
     };
+
+    // --- Quality slider ---
+    var qbtn = document.getElementById('qbtn');
+    var qslider = document.getElementById('qslider');
+    var qrange = document.getElementById('qrange');
+    var qval = document.getElementById('qval');
+    var qTimer = null;
+    var qHideTimer = null;
+
+    fetch('/api/settings').then(function(r){ return r.json(); }).then(function(d){
+      qrange.value = d.quality;
+      qval.textContent = d.quality;
+    });
+
+    qbtn.onclick = function() {
+      var vis = qslider.style.display !== 'none';
+      qslider.style.display = vis ? 'none' : 'flex';
+      if (!vis) scheduleHide();
+    };
+
+    function scheduleHide() {
+      clearTimeout(qHideTimer);
+      qHideTimer = setTimeout(function(){ qslider.style.display = 'none'; }, 4000);
+    }
+
+    qrange.oninput = function() {
+      qval.textContent = qrange.value;
+      clearTimeout(qTimer);
+      scheduleHide();
+      qTimer = setTimeout(function(){
+        fetch('/api/settings', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({quality: parseInt(qrange.value)})
+        });
+      }, 300);
+    };
   })();
   </script>
 </body>
@@ -370,6 +417,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if s.SourceType != "" {
 		resp["source_type"] = s.SourceType
 	}
+	if s.Buf != nil {
+		resp["quality"] = s.Buf.Quality()
+	}
 	if status == "ok" || status == "no_signal" {
 		resp["device"] = s.Device
 		resp["resolution"] = fmt.Sprintf("%dx%d", s.Width, s.Height)
@@ -392,6 +442,101 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
+	if s.Buf == nil {
+		http.Error(w, "not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"quality": s.Buf.Quality(),
+		})
+	case http.MethodPut:
+		var body struct {
+			Quality int `json:"quality"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		s.Buf.SetQuality(body.Quality)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"quality": s.Buf.Quality(),
+		})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, `<!DOCTYPE html>
+<html>
+<head><title>Roadie — Settings</title>
+<style>
+body { font-family: monospace; max-width: 600px; margin: 40px auto; padding: 0 20px; }
+a { color: #0066cc; }
+label { display: block; margin: 16px 0 4px; font-weight: bold; }
+input[type=range] { width: 100%; }
+.val { font-size: 1.2em; }
+.info { margin-top: 24px; padding: 12px; background: #f5f5f5; border-radius: 6px; }
+.info div { margin: 4px 0; }
+nav { margin-bottom: 16px; }
+nav a { margin-right: 12px; }
+</style>
+</head>
+<body>
+<h1>Settings</h1>
+<nav><a href="/">/</a> <a href="/view">/view</a></nav>
+
+<label for="quality">JPEG Quality: <span id="qval" class="val"></span></label>
+<input id="quality" type="range" min="30" max="95">
+
+<div class="info" id="devinfo">Loading device info&hellip;</div>
+
+<script>
+(function(){
+  var slider = document.getElementById('quality');
+  var valSpan = document.getElementById('qval');
+  var info = document.getElementById('devinfo');
+  var timer = null;
+
+  fetch('/api/settings').then(function(r){ return r.json(); }).then(function(d){
+    slider.value = d.quality;
+    valSpan.textContent = d.quality;
+  });
+
+  slider.oninput = function(){
+    valSpan.textContent = slider.value;
+    clearTimeout(timer);
+    timer = setTimeout(function(){
+      fetch('/api/settings', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({quality: parseInt(slider.value)})
+      });
+    }, 300);
+  };
+
+  fetch('/health').then(function(r){ return r.json(); }).then(function(d){
+    var html = '';
+    if (d.device) html += '<div><b>Device:</b> ' + d.device + '</div>';
+    if (d.source_type) html += '<div><b>Source:</b> ' + d.source_type + '</div>';
+    if (d.resolution) html += '<div><b>Resolution:</b> ' + d.resolution + '</div>';
+    if (d.fps) html += '<div><b>FPS:</b> ' + d.fps + '</div>';
+    html += '<div><b>Status:</b> ' + d.status + '</div>';
+    info.innerHTML = html || 'No device info available';
+  });
+})();
+</script>
+</body>
+</html>`)
 }
 
 func (s *Server) handleAudio(w http.ResponseWriter, r *http.Request) {

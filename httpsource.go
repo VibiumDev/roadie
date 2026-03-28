@@ -17,23 +17,21 @@ import (
 // HTTPSourceManager reads MJPEG frames from a remote Roadie instance's
 // /raw-stream endpoint and feeds them into a FrameBuffer.
 type HTTPSourceManager struct {
-	URL     string
-	Buf     *FrameBuffer
-	Quality int
+	URL string
+	Buf *FrameBuffer
 
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
 // NewHTTPSourceManager creates a new HTTPSourceManager.
-func NewHTTPSourceManager(url string, quality int, buf *FrameBuffer) *HTTPSourceManager {
+func NewHTTPSourceManager(url string, buf *FrameBuffer) *HTTPSourceManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &HTTPSourceManager{
-		URL:     url,
-		Buf:     buf,
-		Quality: quality,
-		ctx:     ctx,
-		cancel:  cancel,
+		URL:    url,
+		Buf:    buf,
+		ctx:    ctx,
+		cancel: cancel,
 	}
 }
 
@@ -102,7 +100,13 @@ func (h *HTTPSourceManager) stream() error {
 
 	var activeCrop image.Rectangle
 	var consecutiveBlack int
-	jpegOpts := &jpeg.Options{Quality: h.Quality}
+	var frameCount int
+	var prevBlack bool
+	jpegOpts := &jpeg.Options{}
+
+	// Use a modest default fps for periodic detection; HTTP sources don't
+	// expose the upstream frame rate, so ~30 frames ≈ 1 s at typical rates.
+	const httpCropInterval = 30
 
 	for {
 		select {
@@ -130,9 +134,12 @@ func (h *HTTPSourceManager) stream() error {
 			log.Printf("http source: skipping bad jpeg: %v", err)
 			continue
 		}
+		frameCount++
+		jpegOpts.Quality = h.Buf.Quality()
 
 		// Black frame detection.
-		if isBlackFrame(img) {
+		black := isBlackFrame(img)
+		if black {
 			consecutiveBlack++
 			if consecutiveBlack == maxConsecutiveBlack {
 				log.Printf("http source %s: no signal (black frames)", h.URL)
@@ -146,16 +153,20 @@ func (h *HTTPSourceManager) stream() error {
 			consecutiveBlack = 0
 		}
 
-		// Crop detection.
-		rect := detectContentRect(img, cropThreshold)
-		if shouldUpdateCrop(activeCrop, rect, cropStability) {
-			activeCrop = rect
+		// Periodic crop detection: first frame, every ~1 s, or on signal transitions.
+		transitioned := black != prevBlack
+		prevBlack = black
+		fullBounds := img.Bounds()
+		if frameCount == 1 || transitioned || frameCount%httpCropInterval == 0 {
+			rect := detectContentRect(img, cropThreshold)
+			if isMajorCropChange(activeCrop, rect, fullBounds) {
+				activeCrop = rect
+			}
 		}
 
-		fullBounds := img.Bounds()
-		if activeCrop == fullBounds {
+		if activeCrop == (image.Rectangle{}) || activeCrop == fullBounds {
 			// No crop needed — use original JPEG bytes for both.
-			h.Buf.UpdateBoth(rawBytes, rawBytes, activeCrop)
+			h.Buf.UpdateBoth(rawBytes, rawBytes, fullBounds)
 		} else {
 			// Crop active — re-encode cropped version, keep original raw.
 			type subImager interface {

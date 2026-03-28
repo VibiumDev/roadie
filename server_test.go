@@ -25,17 +25,21 @@ func (f *fakeSource) Status() CaptureStatus      { return f.status }
 func (f *fakeSource) CropRect() image.Rectangle  { return f.cropRect }
 
 func newTestServer() (*Server, http.Handler) {
+	buf := &FrameBuffer{}
+	buf.SetQuality(80)
+	buf.Update(testJPEG(320, 240))
+	buf.SetStatus(StatusConnected)
 	s := &Server{
 		Source: &fakeSource{
 			frame:    testJPEG(320, 240),
 			rawFrame: testJPEG(1920, 1080),
 			status:   StatusConnected,
 		},
+		Buf:        buf,
 		Device:     "Test Device",
 		Width:      1920,
 		Height:     1080,
 		FPS:        30,
-		Quality:    80,
 		SourceType: "hardware",
 	}
 	return s, NewMux(s)
@@ -61,7 +65,7 @@ func TestIndexHandler(t *testing.T) {
 	if !strings.Contains(hdr.Get("Content-Type"), "text/html") {
 		t.Errorf("expected text/html, got %s", hdr.Get("Content-Type"))
 	}
-	for _, link := range []string{"/view", "/stream", "/snapshot", "/raw-stream", "/raw-snapshot", "/health"} {
+	for _, link := range []string{"/view", "/stream", "/snapshot", "/raw-stream", "/raw-snapshot", "/health", "/settings"} {
 		if !strings.Contains(body, link) {
 			t.Errorf("index page missing link to %s", link)
 		}
@@ -252,6 +256,59 @@ func TestHealthSourceType(t *testing.T) {
 				t.Errorf("source_type = %v, want %q", data["source_type"], tt.want)
 			}
 		})
+	}
+}
+
+func TestAPISettingsGet(t *testing.T) {
+	_, mux := newTestServer()
+	code, _, body := get(t, mux, "/api/settings")
+	if code != 200 {
+		t.Fatalf("expected 200, got %d", code)
+	}
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(body), &data); err != nil {
+		t.Fatalf("bad JSON: %v", err)
+	}
+	if data["quality"] != float64(80) {
+		t.Errorf("quality = %v, want 80", data["quality"])
+	}
+}
+
+func TestAPISettingsPut(t *testing.T) {
+	s, mux := newTestServer()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(`{"quality":50}`))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var data map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &data); err != nil {
+		t.Fatalf("bad JSON: %v", err)
+	}
+	if data["quality"] != float64(50) {
+		t.Errorf("response quality = %v, want 50", data["quality"])
+	}
+	if got := s.Buf.Quality(); got != 50 {
+		t.Errorf("buf quality = %d, want 50", got)
+	}
+}
+
+func TestSettingsPage(t *testing.T) {
+	_, mux := newTestServer()
+	code, hdr, body := get(t, mux, "/settings")
+	if code != 200 {
+		t.Errorf("expected 200, got %d", code)
+	}
+	if !strings.Contains(hdr.Get("Content-Type"), "text/html") {
+		t.Errorf("expected text/html, got %s", hdr.Get("Content-Type"))
+	}
+	for _, want := range []string{"Settings", "/api/settings", `type="range"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("settings page missing %q", want)
+		}
 	}
 }
 

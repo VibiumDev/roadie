@@ -10,6 +10,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/mediadevices"
@@ -43,6 +44,27 @@ type FrameBuffer struct {
 	raw      []byte
 	cropRect image.Rectangle
 	status   CaptureStatus
+	quality  atomic.Int32
+}
+
+// SetQuality sets the JPEG quality, clamped to [30, 95].
+func (fb *FrameBuffer) SetQuality(q int) {
+	if q < 30 {
+		q = 30
+	}
+	if q > 95 {
+		q = 95
+	}
+	fb.quality.Store(int32(q))
+}
+
+// Quality returns the current JPEG quality. Defaults to 80 if never set.
+func (fb *FrameBuffer) Quality() int {
+	v := int(fb.quality.Load())
+	if v == 0 {
+		return 80
+	}
+	return v
 }
 
 // Update replaces the current frame (sets both cropped and raw to the same data).
@@ -58,6 +80,14 @@ func (fb *FrameBuffer) UpdateBoth(cropped, raw []byte, rect image.Rectangle) {
 	fb.mu.Lock()
 	fb.current = cropped
 	fb.raw = raw
+	fb.cropRect = rect
+	fb.mu.Unlock()
+}
+
+// UpdateCropped replaces only the cropped frame, leaving raw untouched.
+func (fb *FrameBuffer) UpdateCropped(cropped []byte, rect image.Rectangle) {
+	fb.mu.Lock()
+	fb.current = cropped
 	fb.cropRect = rect
 	fb.mu.Unlock()
 }
@@ -267,9 +297,14 @@ func isBlackFrame(img image.Image) bool {
 // from HDMI capture devices.
 const cropThreshold = 30
 
-// cropStability is the minimum pixel change on any edge required to adopt a
-// new crop rectangle. This prevents frame-to-frame jitter.
-const cropStability = 4
+// majorCropAreaFraction is the minimum area change (as a fraction of total
+// frame area) required to adopt a new crop rectangle.  This prevents
+// frame-to-frame jitter while still reacting to major transitions like
+// blank→signal, portrait↔landscape, and signal loss.
+const majorCropAreaFraction = 0.20
+
+// bufPool reuses bytes.Buffers across frames to reduce GC pressure on ARM.
+var bufPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
 
 // detectContentRect scans inward from each edge of img and returns the
 // bounding rectangle of the non-black content area. A pixel is "black" if
@@ -345,23 +380,32 @@ func detectContentRect(img image.Image, threshold uint8) image.Rectangle {
 	return image.Rect(left, top, right, bottom)
 }
 
-// shouldUpdateCrop returns true if newRect differs from oldRect by more than
-// stability pixels on any edge.
-func shouldUpdateCrop(oldRect, newRect image.Rectangle, stability int) bool {
-	if oldRect == (image.Rectangle{}) {
+// isMajorCropChange returns true when the new crop rectangle represents a
+// significant change from the active crop.  It triggers on:
+//   - first detection (activeCrop is zero)
+//   - area change > majorCropAreaFraction of full frame area
+//   - aspect-ratio flip (landscape ↔ portrait)
+func isMajorCropChange(activeCrop, newRect, fullBounds image.Rectangle) bool {
+	if activeCrop == (image.Rectangle{}) {
 		return true
 	}
-	return abs(newRect.Min.X-oldRect.Min.X) > stability ||
-		abs(newRect.Min.Y-oldRect.Min.Y) > stability ||
-		abs(newRect.Max.X-oldRect.Max.X) > stability ||
-		abs(newRect.Max.Y-oldRect.Max.Y) > stability
-}
-
-func abs(x int) int {
-	if x < 0 {
-		return -x
+	totalArea := fullBounds.Dx() * fullBounds.Dy()
+	if totalArea == 0 {
+		return false
 	}
-	return x
+	oldArea := activeCrop.Dx() * activeCrop.Dy()
+	newArea := newRect.Dx() * newRect.Dy()
+	diff := oldArea - newArea
+	if diff < 0 {
+		diff = -diff
+	}
+	if float64(diff)/float64(totalArea) > majorCropAreaFraction {
+		return true
+	}
+	// Aspect-ratio flip: landscape ↔ portrait.
+	oldLandscape := activeCrop.Dx() > activeCrop.Dy()
+	newLandscape := newRect.Dx() > newRect.Dy()
+	return oldLandscape != newLandscape
 }
 
 // InitObserver starts the AVFoundation device observer which automatically
@@ -374,7 +418,7 @@ func InitObserver() error {
 // StartCapture opens the device matching dev and runs a goroutine that
 // reads frames, JPEG-encodes them, and stores them in buf.
 // The returned channel closes when the goroutine exits (device disconnected).
-func StartCapture(dev deviceInfo, width, height, fps, quality int, buf *FrameBuffer) (<-chan struct{}, error) {
+func StartCapture(dev deviceInfo, width, height, fps int, buf *FrameBuffer) (<-chan struct{}, error) {
 	// Find the driver matching our detected device label (UID).
 	drivers := driver.GetManager().Query(func(d driver.Driver) bool {
 		return d.Info().DeviceType == driver.Camera && d.Info().Label == dev.Label
@@ -414,8 +458,11 @@ func StartCapture(dev deviceInfo, width, height, fps, quality int, buf *FrameBuf
 		var consecutiveErrors int
 		var consecutiveBlack int
 		var activeCrop image.Rectangle
-		jpegOpts := &jpeg.Options{Quality: quality}
+		var frameCount int
+		var prevBlack bool
+		jpegOpts := &jpeg.Options{}
 		for {
+			jpegOpts.Quality = buf.Quality()
 			img, release, err := reader.Read()
 			if err != nil {
 				consecutiveErrors++
@@ -427,8 +474,10 @@ func StartCapture(dev deviceInfo, width, height, fps, quality int, buf *FrameBuf
 				continue
 			}
 			consecutiveErrors = 0
+			frameCount++
 
-			if isBlackFrame(img) {
+			black := isBlackFrame(img)
+			if black {
 				consecutiveBlack++
 				if consecutiveBlack == maxConsecutiveBlack {
 					log.Printf("device %q: no signal (black frames)", dev.Name)
@@ -442,25 +491,33 @@ func StartCapture(dev deviceInfo, width, height, fps, quality int, buf *FrameBuf
 				consecutiveBlack = 0
 			}
 
-			// Detect content rectangle and apply crop stability.
-			rect := detectContentRect(img, cropThreshold)
-			if shouldUpdateCrop(activeCrop, rect, cropStability) {
-				activeCrop = rect
+			// Periodic crop detection: first frame, every ~1 s, or on signal transitions.
+			transitioned := black != prevBlack
+			prevBlack = black
+			fullBounds := img.Bounds()
+			if frameCount == 1 || transitioned || frameCount%fps == 0 {
+				rect := detectContentRect(img, cropThreshold)
+				if isMajorCropChange(activeCrop, rect, fullBounds) {
+					activeCrop = rect
+				}
 			}
 
-			fullBounds := img.Bounds()
-			if activeCrop == fullBounds {
+			if activeCrop == (image.Rectangle{}) || activeCrop == fullBounds {
 				// No crop needed — encode once and use for both.
-				var imgBuf bytes.Buffer
-				if err := jpeg.Encode(&imgBuf, img, jpegOpts); err != nil {
+				imgBuf := bufPool.Get().(*bytes.Buffer)
+				imgBuf.Reset()
+				if err := jpeg.Encode(imgBuf, img, jpegOpts); err != nil {
+					bufPool.Put(imgBuf)
 					release()
 					continue
 				}
 				release()
-				encoded := imgBuf.Bytes()
-				buf.UpdateBoth(encoded, encoded, activeCrop)
+				encoded := make([]byte, imgBuf.Len())
+				copy(encoded, imgBuf.Bytes())
+				bufPool.Put(imgBuf)
+				buf.UpdateBoth(encoded, encoded, fullBounds)
 			} else {
-				// Crop active — encode both cropped and raw.
+				// Crop active — always encode cropped; encode raw only every ~1 s.
 				type subImager interface {
 					SubImage(r image.Rectangle) image.Image
 				}
@@ -468,7 +525,6 @@ func StartCapture(dev deviceInfo, width, height, fps, quality int, buf *FrameBuf
 				if si, ok := img.(subImager); ok {
 					cropped = si.SubImage(activeCrop)
 				} else {
-					// Fallback: draw into new RGBA (shouldn't happen with standard types).
 					dst := image.NewRGBA(activeCrop)
 					for y := activeCrop.Min.Y; y < activeCrop.Max.Y; y++ {
 						for x := activeCrop.Min.X; x < activeCrop.Max.X; x++ {
@@ -478,20 +534,36 @@ func StartCapture(dev deviceInfo, width, height, fps, quality int, buf *FrameBuf
 					cropped = dst
 				}
 
-				var croppedBuf bytes.Buffer
-				if err := jpeg.Encode(&croppedBuf, cropped, jpegOpts); err != nil {
+				croppedBuf := bufPool.Get().(*bytes.Buffer)
+				croppedBuf.Reset()
+				if err := jpeg.Encode(croppedBuf, cropped, jpegOpts); err != nil {
+					bufPool.Put(croppedBuf)
 					release()
 					continue
 				}
 
-				var rawBuf bytes.Buffer
-				if err := jpeg.Encode(&rawBuf, img, jpegOpts); err != nil {
-					release()
-					continue
-				}
-				release()
+				croppedBytes := make([]byte, croppedBuf.Len())
+				copy(croppedBytes, croppedBuf.Bytes())
+				bufPool.Put(croppedBuf)
 
-				buf.UpdateBoth(croppedBuf.Bytes(), rawBuf.Bytes(), activeCrop)
+				if frameCount%fps == 0 {
+					// Periodic raw encode for diagnostic endpoints.
+					rawBuf := bufPool.Get().(*bytes.Buffer)
+					rawBuf.Reset()
+					if err := jpeg.Encode(rawBuf, img, jpegOpts); err != nil {
+						bufPool.Put(rawBuf)
+						release()
+						continue
+					}
+					release()
+					rawBytes := make([]byte, rawBuf.Len())
+					copy(rawBytes, rawBuf.Bytes())
+					bufPool.Put(rawBuf)
+					buf.UpdateBoth(croppedBytes, rawBytes, activeCrop)
+				} else {
+					release()
+					buf.UpdateCropped(croppedBytes, activeCrop)
+				}
 			}
 		}
 	}()
@@ -506,7 +578,6 @@ type CaptureManager struct {
 	Width          int
 	Height         int
 	FPS            int
-	Quality        int
 	Buf            *FrameBuffer
 	AudioBroadcast *AudioBroadcaster
 
@@ -518,14 +589,13 @@ type CaptureManager struct {
 }
 
 // NewCaptureManager creates a new CaptureManager.
-func NewCaptureManager(filter string, width, height, fps, quality int, buf *FrameBuffer, ab *AudioBroadcaster) *CaptureManager {
+func NewCaptureManager(filter string, width, height, fps int, buf *FrameBuffer, ab *AudioBroadcaster) *CaptureManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &CaptureManager{
 		Filter:         filter,
 		Width:          width,
 		Height:         height,
 		FPS:            fps,
-		Quality:        quality,
 		Buf:            buf,
 		AudioBroadcast: ab,
 		ctx:            ctx,
@@ -564,7 +634,7 @@ func (cm *CaptureManager) Run() {
 
 		log.Printf("device %q detected, starting capture", dev.Name)
 
-		done, err := StartCapture(dev, cm.Width, cm.Height, cm.FPS, cm.Quality, cm.Buf)
+		done, err := StartCapture(dev, cm.Width, cm.Height, cm.FPS, cm.Buf)
 		if err != nil {
 			log.Printf("failed to start capture on %q: %v", dev.Name, err)
 			select {

@@ -29,19 +29,30 @@ func serveMJPEG(w http.ResponseWriter, frames [][]byte) {
 }
 
 func TestHTTPSourceParseFrames(t *testing.T) {
-	frames := [][]byte{
-		testJPEG(320, 240),
-		testJPEG(320, 240),
-		testJPEG(320, 240),
-	}
+	frame := testJPEG(320, 240)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		serveMJPEG(w, frames)
+		// Serve frames with a small delay so the poll loop can observe them
+		// before the stream ends and Clear() is called.
+		w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+		flusher, _ := w.(http.Flusher)
+		for i := 0; i < 10; i++ {
+			fmt.Fprintf(w, "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n", len(frame))
+			if _, err := w.Write(frame); err != nil {
+				return
+			}
+			fmt.Fprint(w, "\r\n")
+			if flusher != nil {
+				flusher.Flush()
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
 	}))
 	defer ts.Close()
 
 	buf := &FrameBuffer{}
-	mgr := NewHTTPSourceManager(ts.URL, 80, buf)
+	buf.SetQuality(80)
+	mgr := NewHTTPSourceManager(ts.URL, buf)
 
 	// Run in goroutine; it will exit when the stream ends and retries.
 	done := make(chan struct{})
@@ -108,7 +119,8 @@ func TestHTTPSourceReconnect(t *testing.T) {
 	defer ts.Close()
 
 	buf := &FrameBuffer{}
-	mgr := NewHTTPSourceManager(ts.URL, 80, buf)
+	buf.SetQuality(80)
+	mgr := NewHTTPSourceManager(ts.URL, buf)
 
 	done := make(chan struct{})
 	go func() {
@@ -158,7 +170,8 @@ func TestHTTPSourceCrop(t *testing.T) {
 	defer ts.Close()
 
 	buf := &FrameBuffer{}
-	mgr := NewHTTPSourceManager(ts.URL, 80, buf)
+	buf.SetQuality(80)
+	mgr := NewHTTPSourceManager(ts.URL, buf)
 
 	done := make(chan struct{})
 	go func() {
