@@ -2,7 +2,7 @@
 # used by both relay and hid boards over UART
 
 MSG_SIZE = 32
-BAUD = 115200
+BAUD = 921600
 
 # command types
 CMD_NOOP          = 0x00

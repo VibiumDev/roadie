@@ -21,6 +21,7 @@ type Server struct {
 	FPS            int
 	AudioBroadcast *AudioBroadcaster
 	SourceType     string // "hardware" or "http"
+	HID            *HIDController
 }
 
 // NewMux wires up all HTTP routes and returns a handler.
@@ -36,6 +37,13 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/settings", s.handleSettings)
 	mux.HandleFunc("/api/settings", s.handleAPISettings)
 	mux.HandleFunc("/audio", s.handleAudio)
+	mux.HandleFunc("/test", s.handleTest)
+	mux.HandleFunc("/api/hid/type", s.handleHIDType)
+	mux.HandleFunc("/api/hid/key", s.handleHIDKey)
+	mux.HandleFunc("/api/hid/mouse/move", s.handleHIDMouseMove)
+	mux.HandleFunc("/api/hid/mouse/click", s.handleHIDMouseClick)
+	mux.HandleFunc("/api/hid/status", s.handleHIDStatus)
+	mux.HandleFunc("/api/hid/ws", s.handleHIDWebSocket)
 	return mux
 }
 
@@ -63,6 +71,7 @@ a { color: #0066cc; }
 <li><a href="/raw-snapshot">/raw-snapshot</a> — single frame (uncropped JPEG)</li>
 <li><a href="/health">/health</a> — service status (JSON)</li>
 <li><a href="/settings">/settings</a> — adjust quality and view device info</li>
+<li><a href="/test">/test</a> — test HID mouse and keyboard control</li>
 </ul>
 </body>
 </html>`)
@@ -578,6 +587,495 @@ func (s *Server) handleAudio(w http.ResponseWriter, r *http.Request) {
 			if err := conn.Write(ctx, websocket.MessageBinary, chunk); err != nil {
 				return
 			}
+		}
+	}
+}
+
+func (s *Server) handleTest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, `<!DOCTYPE html>
+<html>
+<head><title>Roadie — HID Test</title>
+<style>
+* { box-sizing: border-box; }
+body { font-family: monospace; max-width: 700px; margin: 40px auto; padding: 0 20px; background: #1a1a1a; color: #e0e0e0; }
+h1, h2 { color: #fff; }
+nav { margin-bottom: 16px; }
+nav a { color: #6af; margin-right: 12px; }
+a { color: #6af; }
+.section { background: #252525; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+.status { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+.status.connected { background: #4c4; }
+.status.disconnected { background: #c44; }
+.status.connecting { background: #ca4; }
+
+/* Mouse trackpad */
+#trackpad {
+  width: 100%; height: 300px;
+  border: 2px solid #555; border-radius: 4px;
+  position: relative; cursor: crosshair;
+  background: #1e1e1e; touch-action: none;
+}
+#crosshair-h, #crosshair-v {
+  position: absolute; background: rgba(100,170,255,0.3); pointer-events: none;
+}
+#crosshair-h { height: 1px; width: 100%; top: 50%; }
+#crosshair-v { width: 1px; height: 100%; left: 50%; }
+#coords { margin-top: 8px; color: #888; font-size: 0.9em; }
+.mouse-btns { margin-top: 8px; }
+.mouse-btns button { padding: 6px 16px; margin-right: 8px; background: #333; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; cursor: pointer; }
+.mouse-btns button:active { background: #555; }
+
+/* Keyboard */
+#keyinput {
+  width: 100%; padding: 10px; font-family: monospace; font-size: 16px;
+  background: #1e1e1e; color: #e0e0e0; border: 2px solid #555; border-radius: 4px;
+  outline: none;
+}
+#keyinput:focus { border-color: #6af; }
+#keylabel { margin-top: 8px; color: #888; font-size: 0.9em; }
+#typearea { width: 100%; height: 60px; margin-top: 12px; padding: 8px; font-family: monospace; font-size: 14px; background: #1e1e1e; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; resize: vertical; }
+#typebtn { margin-top: 6px; padding: 6px 16px; background: #333; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; cursor: pointer; }
+#typebtn:active { background: #555; }
+
+/* Combos */
+.combo-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.combo-grid button { padding: 8px 14px; background: #333; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; cursor: pointer; font-family: monospace; }
+.combo-grid button:active { background: #555; }
+.custom-combo { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.custom-combo label { cursor: pointer; }
+.custom-combo input[type=checkbox] { margin-right: 2px; }
+#combokey { padding: 6px; background: #1e1e1e; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; font-family: monospace; }
+#combosend { padding: 6px 16px; background: #333; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; cursor: pointer; }
+</style>
+</head>
+<body>
+<h1>HID Test</h1>
+<nav><a href="/">/</a> <a href="/view">/view</a> <a href="/settings">/settings</a></nav>
+<p><span class="status" id="statusdot"></span><span id="statustext">connecting...</span></p>
+
+<div class="section">
+<h2>Mouse</h2>
+<div id="trackpad">
+  <div id="crosshair-h"></div>
+  <div id="crosshair-v"></div>
+</div>
+<div id="coords">x: 0, y: 0</div>
+<div class="mouse-btns">
+  <button onmousedown="mouseBtn(1,'press')" onmouseup="mouseBtn(1,'release')">Left</button>
+  <button onmousedown="mouseBtn(2,'press')" onmouseup="mouseBtn(2,'release')">Right</button>
+  <button onmousedown="mouseBtn(4,'press')" onmouseup="mouseBtn(4,'release')">Middle</button>
+</div>
+</div>
+
+<div class="section">
+<h2>Keyboard</h2>
+<input id="keyinput" type="text" placeholder="Click here and type — keys are sent to target" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+<div id="keylabel">Press keys to send individual key events</div>
+<textarea id="typearea" placeholder="Type text here and click Send to type it on the target"></textarea>
+<button id="typebtn" onclick="sendTypeText()">Send Text</button>
+</div>
+
+<div class="section">
+<h2>Key Combos</h2>
+<div class="combo-grid">
+  <button onclick="combo([224,6])">Ctrl+C</button>
+  <button onclick="combo([224,25])">Ctrl+V</button>
+  <button onclick="combo([224,4])">Ctrl+A</button>
+  <button onclick="combo([224,29])">Ctrl+Z</button>
+  <button onclick="combo([224,22])">Ctrl+S</button>
+  <button onclick="combo([226,43])">Alt+Tab</button>
+  <button onclick="combo([224,226,76])">Ctrl+Alt+Del</button>
+  <button onclick="combo([227])">GUI/Win</button>
+</div>
+<div class="custom-combo">
+  <label><input type="checkbox" id="modCtrl"> Ctrl</label>
+  <label><input type="checkbox" id="modShift"> Shift</label>
+  <label><input type="checkbox" id="modAlt"> Alt</label>
+  <label><input type="checkbox" id="modGui"> GUI</label>
+  <select id="combokey">
+    <option value="4">A</option><option value="5">B</option><option value="6">C</option>
+    <option value="7">D</option><option value="8">E</option><option value="9">F</option>
+    <option value="10">G</option><option value="11">H</option><option value="12">I</option>
+    <option value="13">J</option><option value="14">K</option><option value="15">L</option>
+    <option value="16">M</option><option value="17">N</option><option value="18">O</option>
+    <option value="19">P</option><option value="20">Q</option><option value="21">R</option>
+    <option value="22">S</option><option value="23">T</option><option value="24">U</option>
+    <option value="25">V</option><option value="26">W</option><option value="27">X</option>
+    <option value="28">Y</option><option value="29">Z</option>
+    <option value="30">1</option><option value="31">2</option><option value="32">3</option>
+    <option value="33">4</option><option value="34">5</option><option value="35">6</option>
+    <option value="36">7</option><option value="37">8</option><option value="38">9</option>
+    <option value="39">0</option><option value="40">Enter</option><option value="41">Esc</option>
+    <option value="42">Backspace</option><option value="43">Tab</option><option value="44">Space</option>
+    <option value="58">F1</option><option value="59">F2</option><option value="60">F3</option>
+    <option value="61">F4</option><option value="62">F5</option><option value="63">F6</option>
+    <option value="64">F7</option><option value="65">F8</option><option value="66">F9</option>
+    <option value="67">F10</option><option value="68">F11</option><option value="69">F12</option>
+    <option value="70">PrtSc</option><option value="73">Insert</option><option value="74">Home</option>
+    <option value="75">PgUp</option><option value="76">Delete</option><option value="77">End</option>
+    <option value="78">PgDn</option><option value="79">Right</option><option value="80">Left</option>
+    <option value="81">Down</option><option value="82">Up</option>
+  </select>
+  <button id="combosend" onclick="sendCustomCombo()">Send</button>
+</div>
+</div>
+
+<script>
+(function(){
+  // USB HID keycode map: JS event.code -> HID keycode
+  var KEY_MAP = {
+    KeyA:4,KeyB:5,KeyC:6,KeyD:7,KeyE:8,KeyF:9,KeyG:10,KeyH:11,KeyI:12,
+    KeyJ:13,KeyK:14,KeyL:15,KeyM:16,KeyN:17,KeyO:18,KeyP:19,KeyQ:20,
+    KeyR:21,KeyS:22,KeyT:23,KeyU:24,KeyV:25,KeyW:26,KeyX:27,KeyY:28,KeyZ:29,
+    Digit1:30,Digit2:31,Digit3:32,Digit4:33,Digit5:34,Digit6:35,
+    Digit7:36,Digit8:37,Digit9:38,Digit0:39,
+    Enter:40,Escape:41,Backspace:42,Tab:43,Space:44,
+    Minus:45,Equal:46,BracketLeft:47,BracketRight:48,Backslash:49,
+    Semicolon:51,Quote:52,Backquote:53,Comma:54,Period:55,Slash:56,
+    CapsLock:57,
+    F1:58,F2:59,F3:60,F4:61,F5:62,F6:63,F7:64,F8:65,F9:66,F10:67,F11:68,F12:69,
+    PrintScreen:70,ScrollLock:71,Pause:72,Insert:73,Home:74,PageUp:75,
+    Delete:76,End:77,PageDown:78,
+    ArrowRight:79,ArrowLeft:80,ArrowDown:81,ArrowUp:82,
+    NumLock:83,
+    ControlLeft:224,ShiftLeft:225,AltLeft:226,MetaLeft:227,
+    ControlRight:228,ShiftRight:229,AltRight:230,MetaRight:231
+  };
+
+  var ws = null;
+  var wsReady = false;
+
+  function connect() {
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(proto + '//' + location.host + '/api/hid/ws');
+    ws.onopen = function() { wsReady = true; updateStatus(); };
+    ws.onclose = function() { wsReady = false; updateStatus(); setTimeout(connect, 2000); };
+    ws.onerror = function() { wsReady = false; };
+  }
+
+  function send(msg) {
+    if (ws && wsReady) ws.send(JSON.stringify(msg));
+  }
+
+  function updateStatus() {
+    fetch('/api/hid/status').then(function(r){return r.json();}).then(function(d){
+      var dot = document.getElementById('statusdot');
+      var txt = document.getElementById('statustext');
+      dot.className = 'status ' + d.status;
+      txt.textContent = d.status + (wsReady ? ' (ws)' : '');
+    });
+  }
+  setInterval(updateStatus, 5000);
+
+  connect();
+
+  // Mouse trackpad
+  var trackpad = document.getElementById('trackpad');
+  var crossH = document.getElementById('crosshair-h');
+  var crossV = document.getElementById('crosshair-v');
+  var coordsEl = document.getElementById('coords');
+  var pendingX = -1, pendingY = -1, mouseDirty = false;
+
+  // Drain pending mouse position at fixed rate.
+  setInterval(function() {
+    if (mouseDirty) {
+      send({cmd:'mouse_move', x:pendingX, y:pendingY});
+      mouseDirty = false;
+    }
+  }, 100);
+
+  function handleMouseMove(e) {
+    var rect = trackpad.getBoundingClientRect();
+    var px = (e.clientX - rect.left) / rect.width;
+    var py = (e.clientY - rect.top) / rect.height;
+    px = Math.max(0, Math.min(1, px));
+    py = Math.max(0, Math.min(1, py));
+    pendingX = Math.round(px * 32767);
+    pendingY = Math.round(py * 32767);
+    mouseDirty = true;
+
+    crossH.style.top = (py * 100) + '%';
+    crossV.style.left = (px * 100) + '%';
+    coordsEl.textContent = 'x: ' + pendingX + ', y: ' + pendingY;
+  }
+
+  trackpad.addEventListener('mousemove', handleMouseMove);
+  trackpad.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    handleMouseMove(e.touches[0]);
+  }, {passive: false});
+
+  trackpad.addEventListener('mousedown', function(e) {
+    e.preventDefault();
+    var btn = e.button === 2 ? 2 : e.button === 1 ? 4 : 1;
+    send({cmd:'mouse_press', buttons:btn});
+  });
+  trackpad.addEventListener('mouseup', function(e) {
+    e.preventDefault();
+    var btn = e.button === 2 ? 2 : e.button === 1 ? 4 : 1;
+    send({cmd:'mouse_release', buttons:btn});
+  });
+  trackpad.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+  // Expose for inline handlers
+  window.mouseBtn = function(buttons, action) {
+    send({cmd: action === 'press' ? 'mouse_press' : 'mouse_release', buttons: buttons});
+  };
+
+  // Keyboard input
+  var keyinput = document.getElementById('keyinput');
+  var keylabel = document.getElementById('keylabel');
+
+  keyinput.addEventListener('keydown', function(e) {
+    e.preventDefault();
+    var hid = KEY_MAP[e.code];
+    if (hid !== undefined) {
+      send({cmd:'key_press', keycode:hid});
+      keylabel.textContent = e.code + ' -> HID ' + hid + ' (press)';
+    } else {
+      keylabel.textContent = e.code + ' (unmapped)';
+    }
+  });
+
+  keyinput.addEventListener('keyup', function(e) {
+    e.preventDefault();
+    var hid = KEY_MAP[e.code];
+    if (hid !== undefined) {
+      send({cmd:'key_release', keycode:hid});
+      keylabel.textContent = e.code + ' -> HID ' + hid + ' (release)';
+    }
+  });
+
+  // Type text
+  window.sendTypeText = function() {
+    var ta = document.getElementById('typearea');
+    if (ta.value) {
+      send({cmd:'type', text:ta.value});
+      ta.value = '';
+    }
+  };
+
+  // Key combos
+  window.combo = function(keycodes) {
+    // Press all keys, then release in reverse
+    for (var i = 0; i < keycodes.length; i++) {
+      send({cmd:'key_press', keycode:keycodes[i]});
+    }
+    setTimeout(function() {
+      for (var i = keycodes.length - 1; i >= 0; i--) {
+        send({cmd:'key_release', keycode:keycodes[i]});
+      }
+    }, 50);
+  };
+
+  window.sendCustomCombo = function() {
+    var keys = [];
+    if (document.getElementById('modCtrl').checked) keys.push(224);
+    if (document.getElementById('modShift').checked) keys.push(225);
+    if (document.getElementById('modAlt').checked) keys.push(226);
+    if (document.getElementById('modGui').checked) keys.push(227);
+    keys.push(parseInt(document.getElementById('combokey').value));
+    window.combo(keys);
+  };
+})();
+</script>
+</body>
+</html>`)
+}
+
+// HID handlers
+
+func (s *Server) handleHIDStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	status := "unavailable"
+	if s.HID != nil {
+		status = string(s.HID.Status())
+	}
+	json.NewEncoder(w).Encode(map[string]string{"status": status})
+}
+
+func (s *Server) handleHIDType(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.HID == nil {
+		http.Error(w, "HID not available", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.HID.Type(body.Text); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleHIDKey(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.HID == nil {
+		http.Error(w, "HID not available", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Keycode int    `json:"keycode"`
+		Action  string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	var err error
+	switch body.Action {
+	case "press":
+		err = s.HID.KeyPress(body.Keycode)
+	case "release":
+		err = s.HID.KeyRelease(body.Keycode)
+	case "click":
+		err = s.HID.KeyPress(body.Keycode)
+		if err == nil {
+			err = s.HID.KeyRelease(body.Keycode)
+		}
+	default:
+		http.Error(w, "action must be press, release, or click", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleHIDMouseMove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.HID == nil {
+		http.Error(w, "HID not available", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		X int `json:"x"`
+		Y int `json:"y"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.HID.MouseMove(body.X, body.Y); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleHIDMouseClick(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.HID == nil {
+		http.Error(w, "HID not available", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Buttons int    `json:"buttons"`
+		Action  string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if body.Buttons == 0 {
+		body.Buttons = 1
+	}
+	var err error
+	switch body.Action {
+	case "press":
+		err = s.HID.MousePress(body.Buttons)
+	case "release":
+		err = s.HID.MouseRelease(body.Buttons)
+	default:
+		err = s.HID.MouseClick(body.Buttons)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleHIDWebSocket(w http.ResponseWriter, r *http.Request) {
+	if s.HID == nil {
+		http.Error(w, "HID not available", http.StatusServiceUnavailable)
+		return
+	}
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		log.Printf("HID websocket accept: %v", err)
+		return
+	}
+	defer conn.CloseNow()
+
+	ctx := r.Context()
+	for {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			return
+		}
+		var msg struct {
+			Cmd     string `json:"cmd"`
+			X       int    `json:"x"`
+			Y       int    `json:"y"`
+			Keycode int    `json:"keycode"`
+			Buttons int    `json:"buttons"`
+			Text    string `json:"text"`
+		}
+		if err := json.Unmarshal(data, &msg); err != nil {
+			continue
+		}
+		switch msg.Cmd {
+		case "mouse_move":
+			s.HID.MouseMove(msg.X, msg.Y)
+		case "mouse_click":
+			if msg.Buttons == 0 {
+				msg.Buttons = 1
+			}
+			s.HID.MouseClick(msg.Buttons)
+		case "mouse_press":
+			if msg.Buttons == 0 {
+				msg.Buttons = 1
+			}
+			s.HID.MousePress(msg.Buttons)
+		case "mouse_release":
+			if msg.Buttons == 0 {
+				msg.Buttons = 1
+			}
+			s.HID.MouseRelease(msg.Buttons)
+		case "type":
+			s.HID.Type(msg.Text)
+		case "key_press":
+			s.HID.KeyPress(msg.Keycode)
+		case "key_release":
+			s.HID.KeyRelease(msg.Keycode)
 		}
 	}
 }

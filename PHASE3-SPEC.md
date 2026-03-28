@@ -142,9 +142,63 @@ No requirements.txt changes needed — `busio`, `usb_cdc`, `json`, `sys` are Cir
 
 ---
 
-## What NOT to implement in Phase 3
+## 3.5 Go Server HID Control (Phase D — ✅ Done)
 
-- Go server HTTP API or serial communication code (Phase 4)
-- Go-side serial port detection or command serialization
-- The 3D-printed enclosure
-- Production error handling / retry logic beyond basic STATUS_ERR
+### Serial manager: `hid.go`
+
+- `HIDController` struct manages serial connection to relay board
+- Port detection via `filepath.Glob("/dev/serial/by-id/usb-Adafruit_Roadie-Relay_*-if02")`
+- Uses `go.bug.st/serial` at 921600 baud
+- Reconnection loop with exponential backoff (2s→30s)
+- Write errors trigger automatic reconnection
+- Command methods: `Type()`, `MouseMove()`, `MouseClick()`, `MousePress()`, `MouseRelease()`, `KeyPress()`, `KeyRelease()`, `Ping()`
+- Text chunking at 29 characters with 50ms inter-chunk delay
+
+### HTTP API endpoints
+
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| POST | `/api/hid/type` | `{"text":"hello"}` | Type text on target |
+| POST | `/api/hid/key` | `{"keycode":4,"action":"press\|release\|click"}` | Key press/release |
+| POST | `/api/hid/mouse/move` | `{"x":16383,"y":16383}` | Absolute mouse move |
+| POST | `/api/hid/mouse/click` | `{"buttons":1,"action":"click\|press\|release"}` | Mouse button |
+| GET | `/api/hid/status` | — | `{"status":"connected\|disconnected\|connecting"}` |
+
+### WebSocket: `/api/hid/ws`
+
+Real-time HID control over WebSocket (reuses `github.com/coder/websocket`). Client sends same JSON format as relay protocol:
+```json
+{"cmd":"mouse_move","x":16383,"y":16383}
+{"cmd":"key_press","keycode":4}
+{"cmd":"type","text":"hello"}
+```
+
+### `/test` page
+
+Interactive test page with three sections:
+1. **Mouse trackpad** — movement maps to absolute coords (0-32767), left/right click supported. Client-side coalescing at 100ms (10Hz) to prevent backpressure.
+2. **Keyboard input** — intercepts keydown/keyup, maps JS `event.code` to USB HID keycodes. Separate textarea for bulk text input.
+3. **Key combos** — presets (Ctrl+C/V/A/Z/S, Alt+Tab, Ctrl+Alt+Del, GUI) + custom combo builder with modifier checkboxes.
+
+### Performance optimizations
+
+- **UART baud rate**: 921600 (8x over original 115200)
+- **Fire-and-forget mouse**: relay skips UART response wait for `mouse_move` commands
+- **Client coalescing**: browser buffers mouse events and sends only the latest position every 100ms
+
+---
+
+## 3.6 Files Modified
+
+| File | Phase | Change |
+|------|-------|--------|
+| `board/shared/protocol.py` | A ✅ | Protocol constants, pack/unpack helpers; baud 921600 |
+| `board/relay/code.py` | A ✅, B ✅, D ✅ | UART ping + serial JSON listener + fire-and-forget mouse |
+| `board/hid/code.py` | A ✅, B ✅ | UART receiver + HID command execution |
+| `board/test_circular.py` | C ✅ | Circular test script |
+| `hid.go` | D ✅ | Serial manager for relay board |
+| `hid_test.go` | D ✅ | Unit tests for HID controller |
+| `server.go` | D ✅ | HTTP/WS handlers + /test page |
+| `main.go` | D ✅ | HID controller lifecycle |
+| `go.mod` / `go.sum` | D ✅ | Added go.bug.st/serial |
+| `Makefile` | C ✅ | test-circular target |

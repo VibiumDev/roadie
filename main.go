@@ -106,6 +106,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "⚠️  mDNS registration failed: %v\n", err)
 	}
 
+	// Start HID controller (relay board serial connection).
+	hid := NewHIDController()
+	go hid.Run()
+
 	// Print startup banner.
 	fmt.Println()
 	fmt.Printf("🌐 http://localhost:%d\n", listenPort)
@@ -124,6 +128,7 @@ func main() {
 		FPS:            *fps,
 		AudioBroadcast: ab,
 		SourceType:     sourceType,
+		HID:            hid,
 	}
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", listenPort),
@@ -144,6 +149,7 @@ func main() {
 	fmt.Println("\nShutting down...")
 
 	shutdownFunc()
+	hid.Shutdown()
 
 	if mdnsShutdown != nil {
 		mdnsShutdown()

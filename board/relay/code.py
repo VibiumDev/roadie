@@ -51,11 +51,13 @@ def next_seq():
     return s
 
 
-def send_and_recv(msg):
-    """Send a 32-byte message over UART, read 2-byte response."""
+def send_and_recv(msg, wait=True):
+    """Send a 32-byte message over UART, optionally read 2-byte response."""
     while uart.in_waiting:
         uart.read(uart.in_waiting)
     uart.write(msg)
+    if not wait:
+        return STATUS_OK, msg[1]  # assume success, return seq from message
     resp = uart.read(RESP_SIZE)
     if resp and len(resp) == RESP_SIZE:
         return resp[0], resp[1]  # status, echo_seq
@@ -78,7 +80,7 @@ def translate(d):
     elif cmd == "key_release":
         return [pack_key_release(next_seq(), d["keycode"])]
     elif cmd == "mouse_move":
-        return [pack_mouse_move(next_seq(), d["x"], d["y"])]
+        return [("nowait", pack_mouse_move(next_seq(), d["x"], d["y"]))]
     elif cmd == "mouse_click":
         return [pack_mouse_click(next_seq(), d.get("buttons", 1))]
     elif cmd == "mouse_press":
@@ -99,10 +101,16 @@ def process_command(line):
         return
 
     msgs = translate(d)
-    for i, msg in enumerate(msgs):
+    for i, item in enumerate(msgs):
         if i > 0:
-            time.sleep(0.05)  # inter-chunk delay for multi-message commands
-        status, echo = send_and_recv(msg)
+            time.sleep(0.05)  # inter-chunk delay for multi-message command
+        if isinstance(item, tuple) and item[0] == "nowait":
+            msg = item[1]
+            wait = False
+        else:
+            msg = item
+            wait = True
+        status, echo = send_and_recv(msg, wait=wait)
         if status == STATUS_OK:
             print("ok seq=%d" % echo)
             neopixel_write.neopixel_write(pixel_pin, OFF)

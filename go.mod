@@ -6,10 +6,12 @@ require (
 	github.com/coder/websocket v1.8.14
 	github.com/hashicorp/mdns v1.0.6
 	github.com/pion/mediadevices v0.9.4
+	go.bug.st/serial v1.6.4
 )
 
 require (
 	github.com/blackjack/webcam v0.6.1 // indirect
+	github.com/creack/goselect v0.1.2 // indirect
 	github.com/gen2brain/malgo v0.11.24 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/miekg/dns v1.1.55 // indirect
