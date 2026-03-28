@@ -1,3 +1,6 @@
+import supervisor
+supervisor.set_usb_identification(product="Roadie-HID")
+
 import storage
 storage.getmount("/").label = "ROADIE_HID"
 

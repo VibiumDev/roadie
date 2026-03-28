@@ -1,4 +1,6 @@
-# no custom HID descriptors needed for relay board
+import supervisor
+supervisor.set_usb_identification(product="Roadie-Relay")
+
 import storage
 storage.getmount("/").label = "ROADIE_RLY"
 
