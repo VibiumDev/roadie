@@ -25,6 +25,7 @@ uart = busio.UART(board.TX, board.RX, baudrate=BAUD, timeout=0.1)
 
 recv_buf = bytearray(MSG_SIZE)
 recv_pos = 0
+last_recv = time.monotonic()
 
 print("roadie hid board ready (uart)")
 neopixel_write.neopixel_write(pixel_pin, GREEN)
@@ -32,10 +33,14 @@ neopixel_write.neopixel_write(pixel_pin, GREEN)
 while True:
     data = uart.read(MSG_SIZE - recv_pos)
     if data is None:
+        # reset buffer if partial message stalls for >2s
+        if recv_pos > 0 and time.monotonic() - last_recv > 2:
+            recv_pos = 0
         continue
 
     recv_buf[recv_pos:recv_pos + len(data)] = data
     recv_pos += len(data)
+    last_recv = time.monotonic()
 
     if recv_pos >= MSG_SIZE:
         cmd, seq, payload = unpack_msg(recv_buf)
