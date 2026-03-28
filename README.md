@@ -10,7 +10,7 @@ The problem: you can't automate device setup *with software on the device* becau
 
 ## What Roadie Does
 
-Roadie uses one device to set up another. It grabs video from an HDMI-to-USB capture dongle and serves it over HTTP, turning a remote device's physical display into a web page. An AI agent (or a human) can view the screen in a browser, grab individual frames for vision analysis, and eventually send keyboard/mouse input back to the device.
+Roadie uses one device to set up another. It grabs video from an HDMI-to-USB capture dongle and serves it over HTTP, turning a remote device's physical display into a web page. A pair of microcontroller boards act as a USB KVM, sending keyboard and mouse input to the target device. An AI agent (or a human) can view the screen in a browser, grab frames for vision analysis, and send input back to the device — all over HTTP.
 
 ### Why not MDM?
 
@@ -27,35 +27,44 @@ Open `http://localhost:8080/view` or `http://roadie.local:8080/view` (Bonjour).
 
 ## Features
 
+- **HID control**: absolute mouse positioning and keyboard input via USB, controllable over HTTP/WebSocket
 - **Auto-detection**: finds external capture devices, skips built-in cameras
 - **Hot-swap**: plug/unplug devices without restarting
 - **Auto-crop**: detects and removes black bars from HDMI capture (pillarbox/letterbox)
 - **Audio streaming**: optional PCM audio over WebSocket
 - **Bonjour/mDNS**: discoverable as `roadie.local` on your network
 - **Resilient**: automatic reconnection with exponential backoff, signal loss detection
+- **Test page**: interactive `/test` page with mouse trackpad, keyboard input, and key combos
 
 ## Endpoints
 
 | Endpoint | Description |
 |---|---|
 | `/view` | Live feed in your browser (with audio toggle) |
+| `/test` | Interactive HID test page (mouse, keyboard, combos) |
 | `/stream` | MJPEG stream (auto-cropped) |
 | `/snapshot` | Single JPEG frame (auto-cropped) |
 | `/raw-stream` | MJPEG stream (uncropped) |
 | `/raw-snapshot` | Single JPEG frame (uncropped) |
 | `/health` | JSON status (device, resolution, crop rect, audio) |
 | `/audio` | WebSocket PCM audio stream |
+| `/api/hid/*` | HID control (mouse, keyboard, combos) |
+| `/api/hid/ws` | WebSocket for real-time HID control |
+
+See [API.md](API.md) for the full API reference, including HID endpoints and USB keycode tables.
 
 ## CLI Flags
 
 ```
---device    Device name filter (default: auto-detect)
---port      HTTP port (default: auto, starting at 8080)
---width     Capture width (default: 1920)
---height    Capture height (default: 1080)
---fps       Capture framerate (default: 30)
---quality   JPEG quality 1-100 (default: 80)
---name      Bonjour service name (default: roadie)
+--device         Device name filter (default: auto-detect)
+--source         HTTP MJPEG source URL (mutually exclusive with --device)
+--port           HTTP port (default: auto, starting at 8080)
+--width          Capture width (default: 1920)
+--height         Capture height (default: 1080)
+--fps            Capture framerate (default: 30)
+--quality        JPEG quality 1-100 (default: 80)
+--name           Bonjour service name (default: roadie)
+--list-devices   List video and audio devices, then exit
 ```
 
 ## Parts Needed
@@ -102,14 +111,17 @@ Only one board can be flashed at a time.
 
 ## Connect and Run
 
-1. Connect the two boards with the STEMMA QT cable
-2. Plug **📥 IN** into your host machine
-3. Plug **📤 OUT** into the target device
-4. Build and run:
+1. Connect the STEMMA QT cable between the two boards **before plugging in USB** (cut the VCC wire if not already done)
+2. Plug **📥 IN** (relay) into your host machine (e.g. Raspberry Pi)
+3. Plug **📤 OUT** (HID) into the target device
+4. Plug in the HDMI capture dongle between the target's video output and the host
+5. Build and run:
    ```bash
    make
-   make run
+   ./roadie
    ```
+6. Open `http://localhost:8080/view` to see the target's screen
+7. Open `http://localhost:8080/test` to control mouse and keyboard
 
 ## Re-flashing
 
@@ -143,7 +155,33 @@ sudo apt install golang python3 python3-venv python3-pip libv4l-dev libasound2-d
 ### Build
 
 ```bash
-make          # build binary
-make test     # run tests with -race
-make clean    # remove binary
+make                  # build binary
+make test             # run tests
+make test-circular    # end-to-end test (type + mouse) through both boards
+make clean            # remove binary
+```
+
+## Architecture
+
+```
+                    Host (Raspberry Pi)
+               +--------------------------+
+               |   Go server (roadie)     |
+Browser  <---->|   HTTP / WebSocket       |
+               |   Serial JSON            |
+               +------+-------------------+
+                      | USB serial
+               +------v-------------------+
+               |   Relay board (QT Py)    |
+               |   JSON -> binary         |
+               +------+-------------------+
+                      | UART (921600 baud)
+               +------v-------------------+
+               |   HID board (QT Py)      |
+               |   binary -> USB HID      |
+               +------+-------------------+
+                      | USB HID
+               +------v-------------------+
+               |   Target device          |
+               +--------------------------+
 ```
