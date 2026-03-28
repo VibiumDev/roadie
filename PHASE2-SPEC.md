@@ -221,23 +221,25 @@ make flash-relay-quick
 
 ---
 
-## 2.4 Future: Volume Rename & Integration Testing
+## 2.4 Volume Rename ✅
 
-**Not to be implemented in this handoff**, but noted here for context.
+Each board's `boot.py` renames its CIRCUITPY volume on boot:
+- **relay** → `ROADIE_RLY` (11-char FAT label limit required shortening from `ROADIE_RELAY`)
+- **hid** → `ROADIE_HID`
 
-Each board's `boot.py` will eventually rename its CIRCUITPY volume (via `storage.getmount("/").label`) to `ROADIE_RELAY` or `ROADIE_HID`. This enables:
+This enables both boards plugged into the same host simultaneously.
 
-1. **Both boards plugged into the same host simultaneously** — distinct mount names avoid conflicts.
-2. **End-to-end integration testing** — with both boards on the same host, the Go test suite can send a command through the full pipeline (serial → relay → I2C → hid → USB HID keystroke) and verify the HID event arrives back on the host, completing the loop.
+The install script detects all known volume names (`CIRCUITPY`, `ROADIE_RLY`, `ROADIE_HID`) when looking for a mounted board.
 
-The install script will need to be updated to look for the renamed volumes in addition to `CIRCUITPY`.
+### Future: Integration Testing
+
+Not yet implemented. With both boards on the same host, the Go test suite could send a command through the full pipeline (serial → relay → I2C → hid → USB HID keystroke) and verify the HID event arrives back on the host, completing the loop.
 
 ---
 
 ## What NOT to implement
 
 - The actual I2C protocol, serial JSON parsing, or HID command logic. Those are future work. Board `code.py` files are hello-world placeholders (NeoPixel blink + serial print).
-- The volume rename described in 2.4.
 - The end-to-end integration test.
 - The Go `make run` target. The Go app already has its own entry point.
 - The 3D-printed enclosure files.
