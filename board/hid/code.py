@@ -41,10 +41,10 @@ while True:
         cmd, seq, payload = unpack_msg(recv_buf)
         recv_pos = 0
 
+        uart.write(pack_resp(STATUS_OK, seq))
+
         if cmd == CMD_PING:
             print("ping seq=%d" % seq)
             neopixel_write.neopixel_write(pixel_pin, OFF)
             time.sleep(0.1)
             neopixel_write.neopixel_write(pixel_pin, GREEN)
-
-        uart.write(pack_resp(STATUS_OK, seq))

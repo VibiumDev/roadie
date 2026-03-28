@@ -25,10 +25,18 @@ uart = busio.UART(board.TX, board.RX, baudrate=BAUD, timeout=1)
 
 seq = 0
 
+# flush any stale bytes from UART buffer
+while uart.read(64):
+    pass
+
 print("roadie relay board ready (uart)")
 neopixel_write.neopixel_write(pixel_pin, RED)
 
 while True:
+    # discard any stale bytes before sending
+    while uart.in_waiting:
+        uart.read(uart.in_waiting)
+
     msg = pack_msg(CMD_PING, seq)
     uart.write(msg)
 
@@ -41,7 +49,7 @@ while True:
             time.sleep(0.1)
             neopixel_write.neopixel_write(pixel_pin, RED)
         else:
-            print("pong seq=%d err status=%d" % (seq, status))
+            print("pong seq=%d err status=%d echo=%d" % (seq, status, echo_seq))
             neopixel_write.neopixel_write(pixel_pin, OFF)
     else:
         print("pong seq=%d timeout" % seq)
