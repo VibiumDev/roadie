@@ -71,7 +71,7 @@ See [API.md](API.md) for the full API reference, including HID endpoints and USB
 
 - 2x Adafruit QT Py RP2040
 - 2x USB-C data cables (not charge-only)
-- 1x STEMMA QT / Qwiic I2C cable (for connecting the two boards)
+- 3x jumper wires (TX, RX, GND for UART between the two boards)
 - 1x UVC-compatible HDMI-to-USB capture dongle
 - (Optional) 3D-printed enclosure
 
@@ -111,7 +111,7 @@ Only one board can be flashed at a time.
 
 ## Connect and Run
 
-1. Connect the STEMMA QT cable between the two boards **before plugging in USB** (cut the VCC wire if not already done)
+1. Connect the two boards with jumper wires: TX-to-RX, RX-to-TX, GND-to-GND
 2. Plug **📥 IN** (relay) into your host machine (e.g. Raspberry Pi)
 3. Plug **📤 OUT** (HID) into the target device
 4. Plug in the HDMI capture dongle between the target's video output and the host
