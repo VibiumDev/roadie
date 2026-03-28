@@ -1,23 +1,39 @@
-# Roadie Phase 2: Board Provisioning
+# Roadie Phase 2: Board Provisioning ✅
 
 ## Overview
 
-Roadie uses two Adafruit QT Py RP2040 boards connected via I2C:
-- **relay** (labeled 📥 IN): plugged into the host, receives JSON commands over serial, forwards them over I2C
-- **hid** (labeled 📤 OUT): plugged into a target device, receives I2C commands, sends USB HID mouse/keyboard input
+Roadie uses two Adafruit QT Py RP2040 boards connected via UART:
+- **relay** (labeled 📥 IN, red NeoPixel): plugged into the host, receives JSON commands over USB serial, forwards them over UART to the HID board
+- **hid** (labeled 📤 OUT, green NeoPixel): plugged into a target device, receives UART commands, sends USB HID mouse/keyboard input
 
-This phase adds the provisioning script (`board/install.py`) and all board-specific files. It assumes the directory structure from Phase 1 is already in place (the `board/relay/`, `board/hid/`, and `board/shared/` directories exist but are empty).
+Both boards run CircuitPython 10.1.3 and are provisioned via `board/install.py`.
 
 ---
 
 ## 2.1 Board Files
 
+### board/shared/protocol.py
+Shared protocol constants and helpers used by both boards. Defines:
+- 32-byte binary message format (cmd, seq, payload length, payload)
+- Command types (PING, KEY_PRESS, KEY_TYPE, MOUSE_MOVE, etc.)
+- Status codes (OK, ERR, BUSY)
+- `pack_msg()`, `unpack_msg()`, `pack_resp()` helpers
+
 ### board/hid/boot.py
 ```python
+import storage
+storage.getmount("/").label = "ROADIE_HID"
+
 import usb_hid
 from absolute_mouse.descriptor import device
 usb_hid.enable((usb_hid.Device.KEYBOARD, device))
 ```
+
+### board/hid/code.py
+- UART receiver on TX/RX pins (D6/D7) at 115200 baud
+- Buffers incoming bytes until a full 32-byte message is received
+- Sends 2-byte response (status + echo seq) immediately after processing
+- Blinks green NeoPixel on each ping received
 
 ### board/hid/requirements.txt
 ```
@@ -25,97 +41,41 @@ absolute_mouse
 adafruit_hid
 ```
 
-### board/hid/code.py
-```python
-# roadie hid board — receives I2C commands, sends USB HID
-# TODO: implement I2C target + HID output
-import time
-import board
-import digitalio
-import neopixel_write
-
-# QT Py RP2040 requires powering the NeoPixel
-power = digitalio.DigitalInOut(board.NEOPIXEL_POWER)
-power.direction = digitalio.Direction.OUTPUT
-power.value = True
-
-pixel_pin = digitalio.DigitalInOut(board.NEOPIXEL)
-pixel_pin.direction = digitalio.Direction.OUTPUT
-
-GREEN = bytearray([255, 0, 0])  # GRB order
-OFF = bytearray([0, 0, 0])
-
-print("roadie hid board ready")
-while True:
-    neopixel_write.neopixel_write(pixel_pin, GREEN)
-    print("hid: alive")
-    time.sleep(1)
-    neopixel_write.neopixel_write(pixel_pin, OFF)
-    time.sleep(1)
-```
-
 ### board/relay/boot.py
 ```python
 # no custom HID descriptors needed for relay board
+import storage
+storage.getmount("/").label = "ROADIE_RLY"
+
+import usb_cdc
+usb_cdc.enable(console=True, data=True)
 ```
+The `usb_cdc` data port provides a separate serial channel for commands from the host, keeping the REPL available for debugging.
+
+### board/relay/code.py
+- UART sender on TX/RX pins (D6/D7) at 115200 baud
+- Sends PING every 1 second, reads 2-byte response
+- Flushes stale UART bytes before each send
+- Blinks red NeoPixel on successful pong
 
 ### board/relay/requirements.txt
 ```
 adafruit_hid
 ```
 
-### board/relay/code.py
-```python
-# roadie relay board — receives serial JSON, forwards over I2C
-# TODO: implement serial listener + I2C controller
-import time
-import board
-import digitalio
-import neopixel_write
-
-# QT Py RP2040 requires powering the NeoPixel
-power = digitalio.DigitalInOut(board.NEOPIXEL_POWER)
-power.direction = digitalio.Direction.OUTPUT
-power.value = True
-
-pixel_pin = digitalio.DigitalInOut(board.NEOPIXEL)
-pixel_pin.direction = digitalio.Direction.OUTPUT
-
-BLUE = bytearray([0, 0, 255])  # GRB order
-OFF = bytearray([0, 0, 0])
-
-print("roadie relay board ready")
-while True:
-    neopixel_write.neopixel_write(pixel_pin, BLUE)
-    print("relay: alive")
-    time.sleep(1)
-    neopixel_write.neopixel_write(pixel_pin, OFF)
-    time.sleep(1)
-```
-
-### board/shared/i2c_protocol.py
-```python
-# shared I2C protocol constants and helpers
-# TODO: define message format
-```
-
 ### Visual confirmation
 
-After flashing, each board blinks its NeoPixel:
-- **hid**: green blink
-- **relay**: blue blink
+After flashing and connecting UART wires, each board blinks its NeoPixel once per second:
+- **hid** (📤 OUT): green blink on each ping received
+- **relay** (📥 IN): red blink on each successful pong
 
-Connect to the serial REPL to see the "alive" messages:
-- macOS: `screen /dev/tty.usbmodem* 115200`
+Connect to the serial REPL to see messages:
 - Linux: `screen /dev/ttyACM0 115200`
+- macOS: `screen /dev/tty.usbmodem* 115200`
 
 ---
 
 ## 2.2 install.py (Cross-Platform)
-
-Place at `board/install.py`. The script is provided as a separate file in this handoff. Make it executable (`chmod +x`).
-
-The script must detect the host platform and use the correct values:
 
 ### Platform-specific constants
 
@@ -124,123 +84,67 @@ The script must detect the host platform and use the correct values:
 | **CIRCUITPY mount** | `/Volumes/CIRCUITPY` | `/media/$USER/CIRCUITPY` |
 | **Bootloader mount** | `/Volumes/RPI-RP2` | `/media/$USER/RPI-RP2` |
 | **Serial port glob** | `/dev/tty.usbmodem*` | `/dev/ttyACM*` |
-| **Eject command** | `diskutil eject <path>` | `udisksctl unmount -b <device>` (or `sync` + `umount`) |
-
-The script detects the platform at startup (`sys.platform`) and sets these values accordingly.
+| **Eject command** | `diskutil eject <path>` | `udisksctl unmount -b <device>` |
 
 ### Key behaviors
 - Accepts `relay` or `hid` as the board argument
 - `--setup-only` flag: only creates venv + installs deps, then exits
 - `--skip-firmware` flag: skips CircuitPython firmware install
 - `--cp-version VERSION` flag: override CircuitPython version (default: 10.1.3)
-- Creates `.venv/` at the repo root (two levels up from `board/install.py`)
+- Creates `.venv/` at the repo root
 - Downloads CircuitPython UF2 to `~/.cache/roadie/` (cached across runs)
-- Detects board state: RPI-RP2 (bootloader), CIRCUITPY (has CP), or neither (raw)
-- If CIRCUITPY is mounted, attempts to reboot into bootloader via serial REPL
-- If neither is mounted, prints manual instructions (hold BOOT + plug in) and waits
-- Uses `circup` (with `--path` flag) to install libraries from each board's `requirements.txt`
-- Copies `*.py` files from the board directory to CIRCUITPY root
-- Copies `shared/*.py` to CIRCUITPY `lib/`
-- Ejects the drive when done
+- Detects board state: RPI-RP2 (bootloader), CIRCUITPY/ROADIE_RLY/ROADIE_HID (has CP), or neither (raw)
+- Board-aware volume detection: when both boards are plugged in, prefers the target board's named volume
+- Cleans all user files from the volume before copying (preserves `boot_out.txt`, `sd/`, `settings.toml`, `lib/` directory)
+- 1-second settle delay after volume mounts (prevents FAT filesystem permission errors on Linux)
+- Ejects the drive when done, shows expected volume name and label
 
-### Linux-specific notes
-- The user may need to be in the `dialout` group for serial access: `sudo usermod -aG dialout $USER`
-- CircuitPython volumes auto-mount via udisks on most desktop Linux setups. On a headless or minimal Linux (including some VMs), you may need to install `udisks2` or mount manually.
-- On a Linux VM on an Apple Silicon Mac, USB passthrough must be available. This works with UTM/QEMU but not with Apple's Virtualization.framework.
+### Makefile targets
+```makefile
+make setup              # python3 board/install.py --setup-only
+make flash-relay        # Full flash of relay board
+make flash-hid          # Full flash of HID board
+make flash-relay-quick  # Code-only update (skip firmware)
+make flash-hid-quick    # Code-only update (skip firmware)
+```
 
 ---
 
-## 2.3 README.md Updates
-
-After Phase 2, add the board flashing workflow to `README.md`:
+## 2.3 Wiring
 
 ### Parts needed
 - 2x Adafruit QT Py RP2040
 - 2x USB-C data cables (not charge-only)
-- 1x STEMMA QT / Qwiic I2C cable (for connecting the two boards)
-- (Optional) 3D-printed enclosure
+- 3x jumper wires (for UART + GND between boards)
+- 1x breadboard (optional, for development)
 
-### Prerequisites
-- macOS or Linux (Raspberry Pi OS, Ubuntu, etc.)
-- Go 1.21+
-- Python 3.10+
+### UART connections
 
-### Setup
-
-```bash
-git clone <repo-url> && cd roadie
-make setup
+```
+Relay TX (D6)  →  HID RX (D7)
+Relay RX (D7)  ←  HID TX (D6)
+Relay GND      ─  HID GND
 ```
 
-### Flash the boards
-
-Only one board can be flashed at a time.
-
-1. Plug in the first QT Py (this will be the **📤 OUT / HID** board):
-   ```bash
-   make flash-hid
-   ```
-   The script will guide you through any manual steps (holding BOOT button, etc.)
-
-2. Once flashing completes, the board's NeoPixel should blink **green**. That means it worked.
-
-3. Unplug it. Label it **📤 OUT**.
-
-4. Plug in the second QT Py:
-   ```bash
-   make flash-relay
-   ```
-
-5. The NeoPixel should blink **blue**. Label it **📥 IN**.
-
-### Connect and run
-
-1. Connect the two boards with the STEMMA QT cable
-2. Plug **📥 IN** into your host machine
-3. Plug **📤 OUT** into the target device
-4. Build and run:
-   ```bash
-   make
-   make run
-   ```
-
-### Re-flashing
-
-If you only need to update the Python code (not the CircuitPython firmware):
-```bash
-make flash-hid-quick
-make flash-relay-quick
-```
-
-### Troubleshooting
-
-- **"CIRCUITPY not mounted"**: make sure you're using a USB data cable, not a charge-only cable. On Linux, ensure the volume auto-mounts (install `udisks2` if needed).
-- **"No serial port found"**: the board may not have CircuitPython installed yet. The script will fall back to manual bootloader entry. On Linux, make sure your user is in the `dialout` group.
-- **"Buffer incorrect size"**: you forgot to unplug and re-plug after flashing. The board needs a full USB re-enumeration for the custom HID descriptor in boot.py to take effect.
-- **NeoPixel doesn't blink after flashing**: connect to the serial REPL to check for errors. Press Ctrl-C to interrupt, then Ctrl-D to soft-reboot.
+### Why UART instead of I2C/STEMMA QT
+The QT Py RP2040 does not have on-board pull-up resistors on the STEMMA QT I2C pins (Adafruit puts pull-ups on breakout boards, not MCU boards). UART requires no pull-ups and only 3 wires. See Phase 3 for the protocol details.
 
 ---
 
 ## 2.4 Volume Rename ✅
 
 Each board's `boot.py` renames its CIRCUITPY volume on boot:
-- **relay** → `ROADIE_RLY` (11-char FAT label limit required shortening from `ROADIE_RELAY`)
+- **relay** → `ROADIE_RLY` (11-char FAT label limit)
 - **hid** → `ROADIE_HID`
 
-This enables both boards plugged into the same host simultaneously.
-
-The install script detects all known volume names (`CIRCUITPY`, `ROADIE_RLY`, `ROADIE_HID`) when looking for a mounted board.
-
-### Future: Integration Testing
-
-Not yet implemented. With both boards on the same host, the Go test suite could send a command through the full pipeline (serial → relay → I2C → hid → USB HID keystroke) and verify the HID event arrives back on the host, completing the loop.
+This enables both boards to be plugged into the same host simultaneously.
 
 ---
 
-## What NOT to implement
+## 2.5 Troubleshooting
 
-- The actual I2C protocol, serial JSON parsing, or HID command logic. Those are future work. Board `code.py` files are hello-world placeholders (NeoPixel blink + serial print).
-- The end-to-end integration test.
-- The Go `make run` target. The Go app already has its own entry point.
-- The 3D-printed enclosure files.
-- Any changes to the Go source code.
+- **"CIRCUITPY not mounted"**: make sure you're using a USB data cable, not a charge-only cable. On Linux, ensure the volume auto-mounts (install `udisks2` if needed).
+- **"No serial port found"**: the board may not have CircuitPython installed yet. The script will fall back to manual bootloader entry. On Linux, make sure your user is in the `dialout` group.
+- **"Buffer incorrect size"**: unplug and re-plug after flashing. The board needs a full USB re-enumeration for the custom HID descriptor in `boot.py` to take effect.
+- **NeoPixel doesn't blink after flashing**: connect to the serial REPL to check for errors. Press Ctrl-C to interrupt, then Ctrl-D to soft-reboot.
+- **Read-only filesystem errors during flash**: the board's FAT filesystem went read-only (usually from a crash). Unmount, unplug, re-plug, and retry.
