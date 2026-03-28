@@ -82,7 +82,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     &#x1F507;
   </button>
   <div id="qpanel" style="position:fixed; bottom:20px; left:20px; z-index:20; display:flex; align-items:center; gap:8px;">
-    <button id="qbtn" style="background:rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:10px 14px; font-size:1.4em; cursor:pointer; line-height:1;" title="Quality">&#x2699;</button>
+    <button id="qbtn" style="background:rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:10px 14px; font-size:1.4em; cursor:pointer; line-height:1;" title="Quality">&#x2699;&#xFE0F;</button>
     <div id="qslider" style="display:none; background:rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:8px 12px; align-items:center; gap:8px;">
       <input id="qrange" type="range" min="30" max="95" style="width:120px; vertical-align:middle;">
       <span id="qval" style="color:#fff; font-family:monospace; font-size:0.9em; min-width:2em; text-align:right;"></span>
