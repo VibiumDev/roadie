@@ -10,9 +10,8 @@ Handles the full lifecycle:
   1. Detect board state (raw, CircuitPython, or already in bootloader)
   2. Enter UF2 bootloader (via serial REPL or guided manual steps)
   3. Download + flash CircuitPython firmware
-  4. Install libraries via circup
-  5. Copy board-specific + shared files
-  6. Eject
+  4. Clean, install libraries, copy board files
+  5. Eject
 
 Supports macOS and Linux (Raspberry Pi).
 """
@@ -31,16 +30,37 @@ from pathlib import Path
 # Paths
 # ---------------------------------------------------------------------------
 
-# board/install.py -> board/ -> repo root
-SCRIPT_DIR = Path(__file__).resolve().parent          # board/
-REPO_ROOT = SCRIPT_DIR.parent                         # repo root
+SCRIPT_DIR = Path(__file__).resolve().parent   # board/
+REPO_ROOT = SCRIPT_DIR.parent                  # repo root
 VENV_DIR = REPO_ROOT / ".venv"
 
 # ---------------------------------------------------------------------------
-# Platform detection
+# Board + platform config
 # ---------------------------------------------------------------------------
 
-VOLUME_NAMES = ["CIRCUITPY", "ROADIE_RLY", "ROADIE_HID"]
+BOARDS = {
+    "relay": {"volume": "ROADIE_RLY", "label": "📥 IN"},
+    "hid":   {"volume": "ROADIE_HID", "label": "📤 OUT"},
+}
+
+# All volume names we might find a CircuitPython board mounted as
+VOLUME_NAMES = ["CIRCUITPY"] + [b["volume"] for b in BOARDS.values()]
+
+BOARD_ID = "adafruit_qtpy_rp2040"
+CP_VERSION_DEFAULT = "10.1.3"
+UF2_URL_TEMPLATE = (
+    "https://downloads.circuitpython.org/bin/{board}/en_US/"
+    "adafruit-circuitpython-{board}-en_US-{version}.uf2"
+)
+CACHE_DIR = Path.home() / ".cache" / "roadie"
+
+POLL_INTERVAL = 1   # seconds
+POLL_TIMEOUT = 60   # seconds
+
+# Filesystem needs a moment to settle after a volume mounts.
+# Without this, operations on freshly-mounted FAT volumes can hit
+# PermissionError or read-only errors on Linux.
+MOUNT_SETTLE = 1    # seconds
 
 
 def detect_platform():
@@ -50,10 +70,7 @@ def detect_platform():
             "name": "macOS",
             "volume_boot": "/Volumes/RPI-RP2",
             "volume_base": "/Volumes",
-            "serial_patterns": [
-                "/dev/tty.usbmodem*",
-                "/dev/cu.usbmodem*",
-            ],
+            "serial_patterns": ["/dev/tty.usbmodem*", "/dev/cu.usbmodem*"],
         }
     elif sys.platform == "linux":
         user = os.environ.get("USER", os.environ.get("LOGNAME", "pi"))
@@ -61,9 +78,7 @@ def detect_platform():
             "name": "Linux",
             "volume_boot": f"/media/{user}/RPI-RP2",
             "volume_base": f"/media/{user}",
-            "serial_patterns": [
-                "/dev/ttyACM*",
-            ],
+            "serial_patterns": ["/dev/ttyACM*"],
         }
     else:
         fail(f"Unsupported platform: {sys.platform}")
@@ -71,23 +86,38 @@ def detect_platform():
 
 PLATFORM = detect_platform()
 
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
 
-BOARD_VOLUMES = {
-    "relay": "ROADIE_RLY",
-    "hid": "ROADIE_HID",
-}
+def info(msg):
+    print(f"  ✅ {msg}")
 
+def warn(msg):
+    print(f"  ⚠️  {msg}")
+
+def step(msg):
+    print(f"\n{'─' * 60}")
+    print(f"  {msg}")
+    print(f"{'─' * 60}")
+
+def fail(msg):
+    print(f"\n  ❌ {msg}")
+    sys.exit(1)
+
+# ---------------------------------------------------------------------------
+# Volume helpers
+# ---------------------------------------------------------------------------
 
 def find_cp_volume(board=None):
     """Find a mounted CircuitPython volume.
 
     If board is specified, prefer that board's named volume.
-    Falls back to any known volume (CIRCUITPY, ROADIE_RLY, ROADIE_HID).
+    Falls back to any known volume name.
     """
     base = PLATFORM["volume_base"]
-    # prefer the specific board volume if we know which board
-    if board and board in BOARD_VOLUMES:
-        path = os.path.join(base, BOARD_VOLUMES[board])
+    if board and board in BOARDS:
+        path = os.path.join(base, BOARDS[board]["volume"])
         if os.path.isdir(path):
             return path
     for name in VOLUME_NAMES:
@@ -97,67 +127,8 @@ def find_cp_volume(board=None):
     return None
 
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
-BOARD_ID = "adafruit_qtpy_rp2040"
-CP_VERSION_DEFAULT = "10.1.3"
-UF2_URL_TEMPLATE = (
-    "https://downloads.circuitpython.org/bin/{board}/en_US/"
-    "adafruit-circuitpython-{board}-en_US-{version}.uf2"
-)
-
-CACHE_DIR = Path.home() / ".cache" / "roadie"
-
-BOARDS = ["relay", "hid"]
-
-POLL_INTERVAL = 1   # seconds
-POLL_TIMEOUT = 60   # seconds
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def wait_for_any_cp_volume(board=None, timeout=POLL_TIMEOUT):
-    """Wait for any CircuitPython volume to appear."""
-    names = ", ".join(VOLUME_NAMES)
-    print(f"  ⏳ Waiting for CircuitPython volume ({names})...", end="", flush=True)
-    elapsed = 0
-    while elapsed < timeout:
-        vol = find_cp_volume(board)
-        if vol:
-            print(" ok")
-            return vol
-        time.sleep(POLL_INTERVAL)
-        elapsed += POLL_INTERVAL
-        print(".", end="", flush=True)
-    print(" timeout!")
-    return None
-
-
-def info(msg):
-    print(f"  ✅ {msg}")
-
-
-def warn(msg):
-    print(f"  ⚠️  {msg}")
-
-
-def step(msg):
-    print(f"\n{'─' * 60}")
-    print(f"  {msg}")
-    print(f"{'─' * 60}")
-
-
-def fail(msg):
-    print(f"\n  ❌ {msg}")
-    sys.exit(1)
-
-
 def wait_for_volume(path, timeout=POLL_TIMEOUT, appear=True):
-    """Wait for a volume to appear or disappear."""
+    """Wait for a specific volume path to appear or disappear."""
     verb = "appear" if appear else "disappear"
     print(f"  ⏳ Waiting for {path} to {verb}...", end="", flush=True)
     elapsed = 0
@@ -172,6 +143,26 @@ def wait_for_volume(path, timeout=POLL_TIMEOUT, appear=True):
     print(" timeout!")
     return False
 
+
+def wait_for_any_cp_volume(board=None, timeout=POLL_TIMEOUT):
+    """Wait for any known CircuitPython volume to appear."""
+    names = ", ".join(VOLUME_NAMES)
+    print(f"  ⏳ Waiting for CircuitPython volume ({names})...", end="", flush=True)
+    elapsed = 0
+    while elapsed < timeout:
+        vol = find_cp_volume(board)
+        if vol:
+            print(" ok")
+            return vol
+        time.sleep(POLL_INTERVAL)
+        elapsed += POLL_INTERVAL
+        print(".", end="", flush=True)
+    print(" timeout!")
+    return None
+
+# ---------------------------------------------------------------------------
+# Serial helpers
+# ---------------------------------------------------------------------------
 
 def find_serial_port():
     """Find the CircuitPython serial REPL port."""
@@ -194,12 +185,9 @@ def send_repl_command(port, command):
 
     try:
         with serial.Serial(port, 115200, timeout=2) as ser:
-            # interrupt any running program with ctrl-C twice
-            ser.write(b"\x03\x03")
+            ser.write(b"\x03\x03")        # ctrl-C twice to interrupt
             time.sleep(0.5)
-            ser.read(ser.in_waiting)  # flush
-
-            # send command
+            ser.read(ser.in_waiting)       # flush
             ser.write(command.encode() + b"\r\n")
             time.sleep(0.5)
             return True
@@ -207,6 +195,9 @@ def send_repl_command(port, command):
         warn(f"Serial error: {e}")
         return False
 
+# ---------------------------------------------------------------------------
+# Eject helper
+# ---------------------------------------------------------------------------
 
 def eject_volume(path):
     """Sync and eject/unmount a volume, platform-aware."""
@@ -218,7 +209,6 @@ def eject_volume(path):
             capture_output=True, text=True,
         )
     elif sys.platform == "linux":
-        # Find the block device for this mount point
         result = subprocess.run(
             ["findmnt", "-n", "-o", "SOURCE", path],
             capture_output=True, text=True,
@@ -230,20 +220,17 @@ def eject_volume(path):
                 capture_output=True, text=True,
             )
         else:
-            # fallback
             result = subprocess.run(
-                ["umount", path],
-                capture_output=True, text=True,
+                ["umount", path], capture_output=True, text=True,
             )
     else:
         warn("Don't know how to eject on this platform.")
         return
 
     if result.returncode == 0:
-        info("Ejected. Unplug and re-plug the board.")
+        info("Ejected.")
     else:
         warn("Couldn't auto-eject. Unplug and re-plug manually.")
-
 
 # ---------------------------------------------------------------------------
 # Setup: venv + tools
@@ -261,7 +248,6 @@ def ensure_venv():
     pip = VENV_DIR / "bin" / "pip"
     circup = VENV_DIR / "bin" / "circup"
 
-    # Install/upgrade tools if circup isn't present
     if not circup.exists():
         print("  📦 Installing circup and pyserial...")
         subprocess.run(
@@ -280,7 +266,6 @@ def add_venv_to_path():
     for p in venv_site.glob("python*/site-packages"):
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
-
 
 # ---------------------------------------------------------------------------
 # Phase 1: Enter bootloader
@@ -332,9 +317,7 @@ def ensure_bootloader():
     if not wait_for_volume(volume_boot, timeout=120):
         fail(f"Timed out waiting for {volume_boot}. Try again.")
 
-    # Give the filesystem a moment to settle after mounting
-    time.sleep(1)
-
+    time.sleep(MOUNT_SETTLE)
 
 # ---------------------------------------------------------------------------
 # Phase 2: Flash CircuitPython firmware
@@ -366,7 +349,6 @@ def flash_firmware(version):
     print(f"  📦 Copying firmware to {volume_boot}...")
     shutil.copy2(cached_uf2, os.path.join(volume_boot, uf2_name))
 
-    # Board auto-reboots: RPI-RP2 disappears, CIRCUITPY appears
     info("Firmware copied. Board is rebooting...")
 
     if not wait_for_volume(volume_boot, timeout=15, appear=False):
@@ -381,32 +363,25 @@ def flash_firmware(version):
 
     info("CircuitPython is running!")
 
-
 # ---------------------------------------------------------------------------
-# Phase 3: Install libraries + copy files
+# Phase 3: Clean, install libraries, copy files
 # ---------------------------------------------------------------------------
 
 def clean_circuitpy(volume_cp):
-    """Remove user files from CIRCUITPY, leaving only CP system files."""
+    """Remove user files from CIRCUITPY, keeping only CP system files."""
     print(f"  🧹 Cleaning {volume_cp}...")
+    time.sleep(MOUNT_SETTLE)
 
-    # Give the filesystem a moment to settle after mounting
-    time.sleep(1)
-
-    # Files/dirs that CircuitPython creates — leave these alone
     keep = {"boot_out.txt", "sd", "settings.toml"}
-
     lib_dir = os.path.join(volume_cp, "lib")
 
     for name in os.listdir(volume_cp):
-        # Skip dotfiles (filesystem artifacts) and preserved items
         if name.startswith(".") or name in keep:
             continue
 
         path = os.path.join(volume_cp, name)
 
         if name == "lib":
-            # Empty lib/ but keep the directory
             for item in os.listdir(lib_dir):
                 item_path = os.path.join(lib_dir, item)
                 if os.path.isdir(item_path):
@@ -421,12 +396,11 @@ def clean_circuitpy(volume_cp):
             os.remove(path)
             info(f"removed {name}")
 
-    # Ensure lib/ exists even if it wasn't there
     os.makedirs(lib_dir, exist_ok=True)
 
 
 def install_board(board, circup_bin):
-    """Install libs and copy files for a specific board."""
+    """Clean the volume, install libs, and copy files for a board."""
     step(f"Phase 3: Install '{board}' board files")
 
     volume_cp = find_cp_volume(board)
@@ -434,13 +408,12 @@ def install_board(board, circup_bin):
 
     if not board_dir.exists():
         fail(f"Board directory not found: {board_dir}")
-
     if not volume_cp:
         fail("No CircuitPython volume mounted")
 
     clean_circuitpy(volume_cp)
 
-    # Install libs via circup, pointing at the correct path
+    # Install libs via circup
     req_file = board_dir / "requirements.txt"
     if req_file.exists():
         print(f"  📚 Installing libraries from {req_file.name}...")
@@ -452,14 +425,13 @@ def install_board(board, circup_bin):
     else:
         warn(f"No requirements.txt for {board}")
 
-    # Copy board-specific .py files to CIRCUITPY root
+    # Copy board .py files to volume root
     print(f"  📋 Copying {board}/ files...")
     for f in sorted(board_dir.glob("*.py")):
-        dest = os.path.join(volume_cp, f.name)
-        shutil.copy2(f, dest)
+        shutil.copy2(f, os.path.join(volume_cp, f.name))
         info(f"{f.name}")
 
-    # Copy shared files to CIRCUITPY lib/
+    # Copy shared files to lib/
     shared_dir = SCRIPT_DIR / "shared"
     if shared_dir.exists() and any(shared_dir.glob("*.py")):
         lib_dir = os.path.join(volume_cp, "lib")
@@ -468,7 +440,6 @@ def install_board(board, circup_bin):
         for f in sorted(shared_dir.glob("*.py")):
             shutil.copy2(f, os.path.join(lib_dir, f.name))
             info(f"{f.name} → lib/")
-
 
 # ---------------------------------------------------------------------------
 # Phase 4: Eject
@@ -483,7 +454,6 @@ def eject(board=None):
     else:
         warn("No CircuitPython volume found to eject.")
 
-
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -493,24 +463,19 @@ def main():
         description="Provision a roadie CircuitPython board.",
     )
     parser.add_argument(
-        "board",
-        nargs="?",
-        choices=BOARDS,
+        "board", nargs="?", choices=BOARDS,
         help="Which board to flash: relay (📥 IN) or hid (📤 OUT)",
     )
     parser.add_argument(
-        "--setup-only",
-        action="store_true",
+        "--setup-only", action="store_true",
         help="Only create venv and install tools, then exit",
     )
     parser.add_argument(
-        "--skip-firmware",
-        action="store_true",
+        "--skip-firmware", action="store_true",
         help="Skip CircuitPython firmware install (board already has it)",
     )
     parser.add_argument(
-        "--cp-version",
-        default=CP_VERSION_DEFAULT,
+        "--cp-version", default=CP_VERSION_DEFAULT,
         help=f"CircuitPython version to install (default: {CP_VERSION_DEFAULT})",
     )
 
@@ -523,9 +488,10 @@ def main():
         info("Done. Run 'make flash-hid' or 'make flash-relay' to provision a board.")
         return
 
-    # Normal mode requires a board argument
     if not args.board:
         parser.error("board is required (relay or hid) unless using --setup-only")
+
+    board_info = BOARDS[args.board]
 
     print()
     print(f"  🎯 Provisioning board: {args.board}")
@@ -533,7 +499,6 @@ def main():
     print(f"     CircuitPython: {args.cp_version}")
     print(f"     Skip firmware: {args.skip_firmware}")
 
-    # Set up venv so circup and pyserial are available
     circup_bin = ensure_venv()
     add_venv_to_path()
 
@@ -550,14 +515,11 @@ def main():
     install_board(args.board, circup_bin)
     eject(args.board)
 
-    volume_name = "ROADIE_RLY" if args.board == "relay" else "ROADIE_HID"
-    label = "📥 IN" if args.board == "relay" else "📤 OUT"
-
     print()
     print(f"  🎯 Done! Board '{args.board}' is provisioned.")
     print(f"     Unplug and re-plug to start.")
-    print(f"     The drive will mount as {volume_name}.")
-    print(f"     Label this board: {label}")
+    print(f"     The drive will mount as {board_info['volume']}.")
+    print(f"     Label this board: {board_info['label']}")
     print()
 
 
