@@ -40,13 +40,16 @@ VENV_DIR = REPO_ROOT / ".venv"
 # Platform detection
 # ---------------------------------------------------------------------------
 
+VOLUME_NAMES = ["CIRCUITPY", "ROADIE_RLY", "ROADIE_HID"]
+
+
 def detect_platform():
     """Return a dict of platform-specific constants."""
     if sys.platform == "darwin":
         return {
             "name": "macOS",
             "volume_boot": "/Volumes/RPI-RP2",
-            "volume_cp": "/Volumes/CIRCUITPY",
+            "volume_base": "/Volumes",
             "serial_patterns": [
                 "/dev/tty.usbmodem*",
                 "/dev/cu.usbmodem*",
@@ -57,7 +60,7 @@ def detect_platform():
         return {
             "name": "Linux",
             "volume_boot": f"/media/{user}/RPI-RP2",
-            "volume_cp": f"/media/{user}/CIRCUITPY",
+            "volume_base": f"/media/{user}",
             "serial_patterns": [
                 "/dev/ttyACM*",
             ],
@@ -67,6 +70,17 @@ def detect_platform():
 
 
 PLATFORM = detect_platform()
+
+
+def find_cp_volume():
+    """Find a mounted CircuitPython volume (CIRCUITPY, ROADIE_RLY, or ROADIE_HID)."""
+    base = PLATFORM["volume_base"]
+    for name in VOLUME_NAMES:
+        path = os.path.join(base, name)
+        if os.path.isdir(path):
+            return path
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -90,6 +104,23 @@ POLL_TIMEOUT = 60   # seconds
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def wait_for_any_cp_volume(timeout=POLL_TIMEOUT):
+    """Wait for any CircuitPython volume to appear."""
+    names = ", ".join(VOLUME_NAMES)
+    print(f"  ⏳ Waiting for CircuitPython volume ({names})...", end="", flush=True)
+    elapsed = 0
+    while elapsed < timeout:
+        vol = find_cp_volume()
+        if vol:
+            print(" ok")
+            return vol
+        time.sleep(POLL_INTERVAL)
+        elapsed += POLL_INTERVAL
+        print(".", end="", flush=True)
+    print(" timeout!")
+    return None
+
 
 def info(msg):
     print(f"  ✅ {msg}")
@@ -245,13 +276,13 @@ def ensure_bootloader():
     step("Phase 1: Enter bootloader")
 
     volume_boot = PLATFORM["volume_boot"]
-    volume_cp = PLATFORM["volume_cp"]
+    volume_cp = find_cp_volume()
 
     if os.path.isdir(volume_boot):
         info(f"Board already in bootloader ({volume_boot} mounted)")
         return
 
-    if os.path.isdir(volume_cp):
+    if volume_cp:
         info(f"CircuitPython detected ({volume_cp} mounted)")
         print("  🔄 Rebooting into UF2 bootloader via serial REPL...")
 
@@ -286,6 +317,9 @@ def ensure_bootloader():
     if not wait_for_volume(volume_boot, timeout=120):
         fail(f"Timed out waiting for {volume_boot}. Try again.")
 
+    # Give the filesystem a moment to settle after mounting
+    time.sleep(1)
+
 
 # ---------------------------------------------------------------------------
 # Phase 2: Flash CircuitPython firmware
@@ -296,7 +330,8 @@ def flash_firmware(version):
     step(f"Phase 2: Flash CircuitPython {version}")
 
     volume_boot = PLATFORM["volume_boot"]
-    volume_cp = PLATFORM["volume_cp"]
+    # After fresh firmware flash, volume is always CIRCUITPY (our boot.py not copied yet)
+    volume_cp_default = os.path.join(PLATFORM["volume_base"], "CIRCUITPY")
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     uf2_name = f"adafruit-circuitpython-{BOARD_ID}-en_US-{version}.uf2"
@@ -325,9 +360,9 @@ def flash_firmware(version):
     if not wait_for_volume(volume_boot, timeout=15, appear=False):
         warn("RPI-RP2 didn't disappear — the UF2 may not have flashed.")
 
-    if not wait_for_volume(volume_cp, timeout=30):
+    if not wait_for_volume(volume_cp_default, timeout=30):
         fail(
-            f"{volume_cp} didn't appear after flashing. "
+            f"{volume_cp_default} didn't appear after flashing. "
             "Try unplugging and re-plugging the board."
         )
 
@@ -338,18 +373,59 @@ def flash_firmware(version):
 # Phase 3: Install libraries + copy files
 # ---------------------------------------------------------------------------
 
+def clean_circuitpy(volume_cp):
+    """Remove user files from CIRCUITPY, leaving only CP system files."""
+    print(f"  🧹 Cleaning {volume_cp}...")
+
+    # Give the filesystem a moment to settle after mounting
+    time.sleep(1)
+
+    # Files/dirs that CircuitPython creates — leave these alone
+    keep = {"boot_out.txt", "sd", "settings.toml"}
+
+    lib_dir = os.path.join(volume_cp, "lib")
+
+    for name in os.listdir(volume_cp):
+        # Skip dotfiles (filesystem artifacts) and preserved items
+        if name.startswith(".") or name in keep:
+            continue
+
+        path = os.path.join(volume_cp, name)
+
+        if name == "lib":
+            # Empty lib/ but keep the directory
+            for item in os.listdir(lib_dir):
+                item_path = os.path.join(lib_dir, item)
+                if os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                else:
+                    os.remove(item_path)
+            info("lib/ emptied")
+        elif os.path.isdir(path):
+            shutil.rmtree(path)
+            info(f"removed {name}/")
+        else:
+            os.remove(path)
+            info(f"removed {name}")
+
+    # Ensure lib/ exists even if it wasn't there
+    os.makedirs(lib_dir, exist_ok=True)
+
+
 def install_board(board, circup_bin):
     """Install libs and copy files for a specific board."""
     step(f"Phase 3: Install '{board}' board files")
 
-    volume_cp = PLATFORM["volume_cp"]
+    volume_cp = find_cp_volume()
     board_dir = SCRIPT_DIR / board
 
     if not board_dir.exists():
         fail(f"Board directory not found: {board_dir}")
 
-    if not os.path.isdir(volume_cp):
-        fail(f"{volume_cp} is not mounted")
+    if not volume_cp:
+        fail("No CircuitPython volume mounted")
+
+    clean_circuitpy(volume_cp)
 
     # Install libs via circup, pointing at the correct path
     req_file = board_dir / "requirements.txt"
@@ -386,9 +462,13 @@ def install_board(board, circup_bin):
 # ---------------------------------------------------------------------------
 
 def eject():
-    """Eject the CIRCUITPY drive."""
+    """Eject the CircuitPython drive."""
     step("Phase 4: Eject")
-    eject_volume(PLATFORM["volume_cp"])
+    volume_cp = find_cp_volume()
+    if volume_cp:
+        eject_volume(volume_cp)
+    else:
+        warn("No CircuitPython volume found to eject.")
 
 
 # ---------------------------------------------------------------------------
@@ -449,16 +529,22 @@ def main():
         flash_firmware(args.cp_version)
     else:
         info("Skipping firmware install")
-        volume_cp = PLATFORM["volume_cp"]
-        if not os.path.isdir(volume_cp):
-            fail(f"{volume_cp} not mounted. Plug in a CircuitPython board.")
+        if not find_cp_volume():
+            print(f"\n  📋 Plug in a CircuitPython board.\n")
+            if not wait_for_any_cp_volume(timeout=120):
+                fail("Timed out waiting for CircuitPython volume.")
 
     install_board(args.board, circup_bin)
     eject()
 
+    volume_name = "ROADIE_RLY" if args.board == "relay" else "ROADIE_HID"
+    label = "📥 IN" if args.board == "relay" else "📤 OUT"
+
     print()
     print(f"  🎯 Done! Board '{args.board}' is provisioned.")
     print(f"     Unplug and re-plug to start.")
+    print(f"     The drive will mount as {volume_name}.")
+    print(f"     Label this board: {label}")
     print()
 
 
