@@ -72,9 +72,24 @@ def detect_platform():
 PLATFORM = detect_platform()
 
 
-def find_cp_volume():
-    """Find a mounted CircuitPython volume (CIRCUITPY, ROADIE_RLY, or ROADIE_HID)."""
+BOARD_VOLUMES = {
+    "relay": "ROADIE_RLY",
+    "hid": "ROADIE_HID",
+}
+
+
+def find_cp_volume(board=None):
+    """Find a mounted CircuitPython volume.
+
+    If board is specified, prefer that board's named volume.
+    Falls back to any known volume (CIRCUITPY, ROADIE_RLY, ROADIE_HID).
+    """
     base = PLATFORM["volume_base"]
+    # prefer the specific board volume if we know which board
+    if board and board in BOARD_VOLUMES:
+        path = os.path.join(base, BOARD_VOLUMES[board])
+        if os.path.isdir(path):
+            return path
     for name in VOLUME_NAMES:
         path = os.path.join(base, name)
         if os.path.isdir(path):
@@ -105,13 +120,13 @@ POLL_TIMEOUT = 60   # seconds
 # Helpers
 # ---------------------------------------------------------------------------
 
-def wait_for_any_cp_volume(timeout=POLL_TIMEOUT):
+def wait_for_any_cp_volume(board=None, timeout=POLL_TIMEOUT):
     """Wait for any CircuitPython volume to appear."""
     names = ", ".join(VOLUME_NAMES)
     print(f"  ⏳ Waiting for CircuitPython volume ({names})...", end="", flush=True)
     elapsed = 0
     while elapsed < timeout:
-        vol = find_cp_volume()
+        vol = find_cp_volume(board)
         if vol:
             print(" ok")
             return vol
@@ -330,9 +345,6 @@ def flash_firmware(version):
     step(f"Phase 2: Flash CircuitPython {version}")
 
     volume_boot = PLATFORM["volume_boot"]
-    # After fresh firmware flash, volume is always CIRCUITPY (our boot.py not copied yet)
-    volume_cp_default = os.path.join(PLATFORM["volume_base"], "CIRCUITPY")
-
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     uf2_name = f"adafruit-circuitpython-{BOARD_ID}-en_US-{version}.uf2"
     cached_uf2 = CACHE_DIR / uf2_name
@@ -360,9 +372,10 @@ def flash_firmware(version):
     if not wait_for_volume(volume_boot, timeout=15, appear=False):
         warn("RPI-RP2 didn't disappear — the UF2 may not have flashed.")
 
-    if not wait_for_volume(volume_cp_default, timeout=30):
+    # Volume may be CIRCUITPY (fresh) or a renamed volume (if old boot.py survived)
+    if not wait_for_any_cp_volume(timeout=30):
         fail(
-            f"{volume_cp_default} didn't appear after flashing. "
+            "No CircuitPython volume appeared after flashing. "
             "Try unplugging and re-plugging the board."
         )
 
@@ -416,7 +429,7 @@ def install_board(board, circup_bin):
     """Install libs and copy files for a specific board."""
     step(f"Phase 3: Install '{board}' board files")
 
-    volume_cp = find_cp_volume()
+    volume_cp = find_cp_volume(board)
     board_dir = SCRIPT_DIR / board
 
     if not board_dir.exists():
@@ -461,10 +474,10 @@ def install_board(board, circup_bin):
 # Phase 4: Eject
 # ---------------------------------------------------------------------------
 
-def eject():
+def eject(board=None):
     """Eject the CircuitPython drive."""
     step("Phase 4: Eject")
-    volume_cp = find_cp_volume()
+    volume_cp = find_cp_volume(board)
     if volume_cp:
         eject_volume(volume_cp)
     else:
@@ -529,13 +542,13 @@ def main():
         flash_firmware(args.cp_version)
     else:
         info("Skipping firmware install")
-        if not find_cp_volume():
+        if not find_cp_volume(args.board):
             print(f"\n  📋 Plug in a CircuitPython board.\n")
-            if not wait_for_any_cp_volume(timeout=120):
+            if not wait_for_any_cp_volume(board=args.board, timeout=120):
                 fail("Timed out waiting for CircuitPython volume.")
 
     install_board(args.board, circup_bin)
-    eject()
+    eject(args.board)
 
     volume_name = "ROADIE_RLY" if args.board == "relay" else "ROADIE_HID"
     label = "📥 IN" if args.board == "relay" else "📤 OUT"
