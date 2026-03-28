@@ -46,3 +46,27 @@ def unpack_msg(buf):
 def pack_resp(status, seq):
     """Pack a 2-byte response."""
     return bytes([status, seq])
+
+
+# command-specific pack helpers
+
+def pack_key_press(seq, keycode):
+    return pack_msg(CMD_KEY_PRESS, seq, bytes([keycode]))
+
+def pack_key_release(seq, keycode):
+    return pack_msg(CMD_KEY_RELEASE, seq, bytes([keycode]))
+
+def pack_key_type(seq, text):
+    return pack_msg(CMD_KEY_TYPE, seq, text.encode("ascii")[:29])
+
+def pack_mouse_move(seq, x, y):
+    return pack_msg(CMD_MOUSE_MOVE, seq, bytes([x >> 8, x & 0xFF, y >> 8, y & 0xFF]))
+
+def pack_mouse_click(seq, buttons):
+    return pack_msg(CMD_MOUSE_CLICK, seq, bytes([buttons]))
+
+def pack_mouse_press(seq, buttons):
+    return pack_msg(CMD_MOUSE_PRESS, seq, bytes([buttons]))
+
+def pack_mouse_release(seq, buttons):
+    return pack_msg(CMD_MOUSE_RELEASE, seq, bytes([buttons]))

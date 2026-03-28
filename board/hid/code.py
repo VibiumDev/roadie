@@ -1,15 +1,21 @@
-# roadie hid board — receives commands over UART and sends USB HID
+# roadie hid board — receives commands over UART, executes USB HID actions
+import time
 import board
 import busio
 import digitalio
 import neopixel_write
-import time
+import usb_hid
+from adafruit_hid.keyboard import Keyboard
+from adafruit_hid.keyboard_layout_us import KeyboardLayoutUS
+from absolute_mouse import Mouse as AbsoluteMouse
 from protocol import (
-    MSG_SIZE, BAUD, CMD_PING, STATUS_OK,
+    MSG_SIZE, BAUD, STATUS_OK, STATUS_ERR,
+    CMD_PING, CMD_KEY_PRESS, CMD_KEY_RELEASE, CMD_KEY_TYPE,
+    CMD_MOUSE_MOVE, CMD_MOUSE_CLICK, CMD_MOUSE_PRESS, CMD_MOUSE_RELEASE,
     unpack_msg, pack_resp,
 )
 
-# NeoPixel setup — QT Py RP2040 requires powering the NeoPixel
+# NeoPixel setup
 power = digitalio.DigitalInOut(board.NEOPIXEL_POWER)
 power.direction = digitalio.Direction.OUTPUT
 power.value = True
@@ -20,15 +26,68 @@ pixel_pin.direction = digitalio.Direction.OUTPUT
 GREEN = bytearray([255, 0, 0])  # GRB order
 OFF = bytearray([0, 0, 0])
 
-# UART on TX/RX pins (D6/D7)
+# UART from relay board on TX/RX pins (D6/D7)
 uart = busio.UART(board.TX, board.RX, baudrate=BAUD, timeout=0.1)
 
+# USB HID devices
+kbd = Keyboard(usb_hid.devices)
+layout = KeyboardLayoutUS(kbd)
+mouse = AbsoluteMouse(usb_hid.devices)
+
+# receive buffer
 recv_buf = bytearray(MSG_SIZE)
 recv_pos = 0
 last_recv = time.monotonic()
 
-print("roadie hid board ready (uart)")
+print("roadie hid board ready (uart + hid)")
 neopixel_write.neopixel_write(pixel_pin, GREEN)
+
+
+def handle_command(cmd, seq, payload):
+    """Execute a HID command. Returns status byte."""
+    try:
+        if cmd == CMD_PING:
+            return STATUS_OK
+
+        elif cmd == CMD_KEY_TYPE:
+            text = payload.decode("ascii")
+            layout.write(text)
+            return STATUS_OK
+
+        elif cmd == CMD_KEY_PRESS:
+            kbd.press(payload[0])
+            return STATUS_OK
+
+        elif cmd == CMD_KEY_RELEASE:
+            kbd.release(payload[0])
+            return STATUS_OK
+
+        elif cmd == CMD_MOUSE_MOVE:
+            x = (payload[0] << 8) | payload[1]
+            y = (payload[2] << 8) | payload[3]
+            mouse.move(x, y)
+            return STATUS_OK
+
+        elif cmd == CMD_MOUSE_CLICK:
+            mouse.click(payload[0])
+            return STATUS_OK
+
+        elif cmd == CMD_MOUSE_PRESS:
+            mouse.press(payload[0])
+            return STATUS_OK
+
+        elif cmd == CMD_MOUSE_RELEASE:
+            mouse.release(payload[0])
+            return STATUS_OK
+
+        else:
+            print("unknown cmd: 0x%02x" % cmd)
+            return STATUS_ERR
+
+    except Exception as e:
+        print("hid err: %s" % e)
+        return STATUS_ERR
+
 
 while True:
     data = uart.read(MSG_SIZE - recv_pos)
@@ -46,10 +105,14 @@ while True:
         cmd, seq, payload = unpack_msg(recv_buf)
         recv_pos = 0
 
-        uart.write(pack_resp(STATUS_OK, seq))
+        status = handle_command(cmd, seq, payload)
+        uart.write(pack_resp(status, seq))
 
         if cmd == CMD_PING:
             print("ping seq=%d" % seq)
-            neopixel_write.neopixel_write(pixel_pin, OFF)
-            time.sleep(0.1)
-            neopixel_write.neopixel_write(pixel_pin, GREEN)
+        else:
+            print("cmd=0x%02x seq=%d status=%d" % (cmd, seq, status))
+
+        neopixel_write.neopixel_write(pixel_pin, OFF)
+        time.sleep(0.1)
+        neopixel_write.neopixel_write(pixel_pin, GREEN)
