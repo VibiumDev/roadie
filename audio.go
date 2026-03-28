@@ -119,7 +119,7 @@ func DetectAudioDevice(filter string) (deviceInfo, bool) {
 		return deviceInfo{}, false
 	}
 
-	skipKeywords := []string{"facetime", "iphone", "macbook"}
+	skipKeywords := []string{"facetime", "iphone", "macbook", "imac", "integrated", "built-in"}
 	preferKeywords := []string{"usb", "hdmi", "capture", "video"}
 
 	type candidate struct {
@@ -183,6 +183,22 @@ func DetectAudioDevice(filter string) (deviceInfo, bool) {
 	}
 
 	return deviceInfo{}, false
+}
+
+// ListAudioDevices returns a list of all audio device names for diagnostic output.
+func ListAudioDevices() []string {
+	drivers := driver.GetManager().Query(func(d driver.Driver) bool {
+		return d.Info().DeviceType == driver.Microphone
+	})
+	var names []string
+	for _, d := range drivers {
+		name := d.Info().Name
+		if name == "" {
+			name = d.Info().Label
+		}
+		names = append(names, name)
+	}
+	return names
 }
 
 // StartAudioCapture opens the microphone device and streams PCM audio to the broadcaster.

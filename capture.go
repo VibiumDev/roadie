@@ -118,9 +118,11 @@ type deviceInfo struct {
 }
 
 // DetectDevice enumerates video devices and returns the best capture device
-// candidate. It skips built-in cameras (FaceTime, iPhone) and prefers
-// external/USB/HDMI devices. If filter is non-empty, it matches as a
-// substring against device names.
+// candidate. It skips built-in cameras (FaceTime, iPhone, MacBook, iMac,
+// integrated, built-in) and prefers external/USB/HDMI devices. If no device
+// matches the prefer keywords, the first non-skipped device is returned as a
+// fallback. If filter is non-empty, it matches as a substring against device
+// names (bypassing the skip/prefer heuristic).
 func DetectDevice(filter string) (deviceInfo, error) {
 	drivers := driver.GetManager().Query(func(d driver.Driver) bool {
 		return d.Info().DeviceType == driver.Camera
@@ -130,7 +132,7 @@ func DetectDevice(filter string) (deviceInfo, error) {
 		return deviceInfo{}, fmt.Errorf("no video capture devices found")
 	}
 
-	skipKeywords := []string{"facetime", "iphone"}
+	skipKeywords := []string{"facetime", "iphone", "macbook", "imac", "integrated", "built-in"}
 	preferKeywords := []string{"usb", "hdmi", "capture", "video"}
 
 	type candidate struct {
@@ -163,7 +165,7 @@ func DetectDevice(filter string) (deviceInfo, error) {
 		return deviceInfo{}, fmt.Errorf("no device matching %q found\nAvailable devices: %s", filter, strings.Join(names, ", "))
 	}
 
-	// Auto-detect: skip built-in, only return external capture devices.
+	// Auto-detect: skip built-in, prefer external capture devices.
 	for _, c := range candidates {
 		lower := strings.ToLower(c.info.Name)
 		skip := false
@@ -180,6 +182,21 @@ func DetectDevice(filter string) (deviceInfo, error) {
 			if strings.Contains(lower, kw) {
 				return c.info, nil
 			}
+		}
+	}
+
+	// Fallback: return first non-skipped device.
+	for _, c := range candidates {
+		lower := strings.ToLower(c.info.Name)
+		skip := false
+		for _, kw := range skipKeywords {
+			if strings.Contains(lower, kw) {
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			return c.info, nil
 		}
 	}
 

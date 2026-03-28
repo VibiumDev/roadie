@@ -16,6 +16,7 @@ import (
 func main() {
 	device := flag.String("device", "", "device name substring (auto-detect if empty)")
 	source := flag.String("source", "", "HTTP MJPEG source URL (e.g. http://host:8080/raw-stream)")
+	listDevices := flag.Bool("list-devices", false, "list all video and audio devices, then exit")
 	port := flag.Int("port", 0, "HTTP server port (default: auto, starting at 8080)")
 	width := flag.Int("width", 1920, "capture width")
 	height := flag.Int("height", 1080, "capture height")
@@ -23,6 +24,25 @@ func main() {
 	quality := flag.Int("quality", 80, "JPEG compression quality (1-100)")
 	name := flag.String("name", "roadie", "Bonjour service name")
 	flag.Parse()
+
+	if *listDevices {
+		if err := InitObserver(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: device observer failed: %v\n", err)
+		}
+
+		fmt.Println("Video devices:")
+		for _, d := range ListDevices() {
+			fmt.Printf("  - %s\n", d)
+		}
+		fmt.Println()
+		fmt.Println("Audio devices:")
+		for _, d := range ListAudioDevices() {
+			fmt.Printf("  - %s\n", d)
+		}
+		fmt.Println()
+		fmt.Println("Tip: use --device <substring> to select a specific device.")
+		return
+	}
 
 	if *source != "" && *device != "" {
 		log.Fatal("--source and --device are mutually exclusive")
