@@ -90,7 +90,7 @@ def handle_command(cmd, seq, payload):
             amount = payload[0]
             if amount > 127:
                 amount -= 256  # unsigned byte to signed int8
-            mouse.move(wheel=amount)
+            mouse.move(wheel=-amount)
             return STATUS_OK
 
         elif cmd == CMD_TOUCH:
@@ -136,6 +136,8 @@ while True:
         status = handle_command(cmd, seq, payload)
         uart.write(pack_resp(status, seq))
 
-        neopixel_write.neopixel_write(pixel_pin, OFF)
-        time.sleep(0.1)
-        neopixel_write.neopixel_write(pixel_pin, GREEN)
+        # skip LED blink for high-frequency commands to avoid back-pressure
+        if cmd not in (CMD_MOUSE_MOVE, CMD_MOUSE_SCROLL, CMD_TOUCH):
+            neopixel_write.neopixel_write(pixel_pin, OFF)
+            time.sleep(0.1)
+            neopixel_write.neopixel_write(pixel_pin, GREEN)

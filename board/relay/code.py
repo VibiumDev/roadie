@@ -119,7 +119,9 @@ def process_command(line):
             msg = item
             wait = True
         status, echo = send_and_recv(msg, wait=wait)
-        if status == STATUS_OK:
+        if not wait:
+            pass  # skip LED blink for fire-and-forget commands
+        elif status == STATUS_OK:
             neopixel_write.neopixel_write(pixel_pin, OFF)
             time.sleep(0.1)
             neopixel_write.neopixel_write(pixel_pin, RED)

@@ -892,7 +892,7 @@ a { color: #6af; }
     amount = Math.max(-127, Math.min(127, amount));
     if (amount !== 0) {
       if (inputMode === 'mouse') {
-        pendingScroll = Math.max(-127, Math.min(127, pendingScroll + amount));
+        pendingScroll = amount;
         scrollDirty = true;
       }
     }
