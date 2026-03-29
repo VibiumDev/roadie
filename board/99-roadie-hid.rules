@@ -1,0 +1,3 @@
+# Roadie HID: use hid-generic instead of hid-multitouch so mouse and
+# touchscreen are exposed as separate input devices.
+ACTION=="add", SUBSYSTEM=="hid", ATTRS{idVendor}=="239a", ATTRS{idProduct}=="80f8", ATTRS{product}=="Roadie-HID", RUN+="/bin/sh -c 'echo 1 > /sys/module/hid/parameters/ignore_special_drivers; echo %k > /sys/bus/hid/drivers/hid-multitouch/unbind 2>/dev/null; echo %k > /sys/bus/hid/drivers_probe 2>/dev/null; echo 0 > /sys/module/hid/parameters/ignore_special_drivers'"

@@ -12,8 +12,10 @@ from protocol import (
     MSG_SIZE, BAUD, STATUS_OK, STATUS_ERR,
     CMD_PING, CMD_KEY_PRESS, CMD_KEY_RELEASE, CMD_KEY_TYPE,
     CMD_MOUSE_MOVE, CMD_MOUSE_CLICK, CMD_MOUSE_PRESS, CMD_MOUSE_RELEASE,
+    CMD_MOUSE_SCROLL, CMD_TOUCH,
     unpack_msg, pack_resp,
 )
+from digitizer import Digitizer
 
 # NeoPixel setup
 power = digitalio.DigitalInOut(board.NEOPIXEL_POWER)
@@ -33,6 +35,10 @@ uart = busio.UART(board.TX, board.RX, baudrate=BAUD, timeout=0.1)
 kbd = Keyboard(usb_hid.devices)
 layout = KeyboardLayoutUS(kbd)
 mouse = AbsoluteMouse(usb_hid.devices)
+try:
+    digitizer = Digitizer(usb_hid.devices)
+except ValueError:
+    digitizer = None
 
 # receive buffer
 recv_buf = bytearray(MSG_SIZE)
@@ -78,6 +84,28 @@ def handle_command(cmd, seq, payload):
 
         elif cmd == CMD_MOUSE_RELEASE:
             mouse.release(payload[0])
+            return STATUS_OK
+
+        elif cmd == CMD_MOUSE_SCROLL:
+            amount = payload[0]
+            if amount > 127:
+                amount -= 256  # unsigned byte to signed int8
+            mouse.move(wheel=amount)
+            return STATUS_OK
+
+        elif cmd == CMD_TOUCH:
+            if not digitizer:
+                return STATUS_ERR
+            count = payload[0]
+            contacts = []
+            for i in range(count):
+                off = 1 + i * 6
+                cid = payload[off]
+                tip = payload[off + 1]
+                x = (payload[off + 2] << 8) | payload[off + 3]
+                y = (payload[off + 4] << 8) | payload[off + 5]
+                contacts.append((cid, tip, x, y))
+            digitizer.touch(contacts)
             return STATUS_OK
 
         else:

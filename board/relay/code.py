@@ -12,6 +12,7 @@ from protocol import (
     CMD_PING, CMD_KEY_TYPE,
     pack_msg, pack_key_press, pack_key_release, pack_key_type,
     pack_mouse_move, pack_mouse_click, pack_mouse_press, pack_mouse_release,
+    pack_mouse_scroll, pack_touch,
 )
 
 # NeoPixel setup
@@ -87,6 +88,13 @@ def translate(d):
         return [pack_mouse_press(next_seq(), d.get("buttons", 1))]
     elif cmd == "mouse_release":
         return [pack_mouse_release(next_seq(), d.get("buttons", 1))]
+    elif cmd == "mouse_scroll":
+        return [("nowait", pack_mouse_scroll(next_seq(), d["amount"]))]
+    elif cmd == "touch":
+        contacts = []
+        for c in d.get("contacts", []):
+            contacts.append((c["id"], 1 if c["tip"] else 0, c["x"], c["y"]))
+        return [("nowait", pack_touch(next_seq(), contacts))]
     else:
         print("unknown cmd: %s" % cmd)
         return []

@@ -15,6 +15,9 @@ CMD_MOUSE_MOVE    = 0x20
 CMD_MOUSE_CLICK   = 0x21
 CMD_MOUSE_PRESS   = 0x22
 CMD_MOUSE_RELEASE = 0x23
+CMD_MOUSE_SCROLL  = 0x24
+
+CMD_TOUCH         = 0x30
 
 # status codes (returned in 2-byte response)
 STATUS_OK   = 0x00
@@ -70,3 +73,16 @@ def pack_mouse_press(seq, buttons):
 
 def pack_mouse_release(seq, buttons):
     return pack_msg(CMD_MOUSE_RELEASE, seq, bytes([buttons]))
+
+def pack_mouse_scroll(seq, amount):
+    return pack_msg(CMD_MOUSE_SCROLL, seq, bytes([amount & 0xFF]))
+
+def pack_touch(seq, contacts):
+    """Pack a touch command with up to 2 contacts.
+    Each contact: (id, tip, x, y) where tip is 0 or 1, x/y are 0-32767."""
+    payload = bytearray([len(contacts)])
+    for cid, tip, x, y in contacts:
+        payload.append(cid)
+        payload.append(tip)
+        payload.extend([x >> 8, x & 0xFF, y >> 8, y & 0xFF])
+    return pack_msg(CMD_TOUCH, seq, bytes(payload))

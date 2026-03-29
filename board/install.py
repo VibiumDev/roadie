@@ -445,6 +445,43 @@ def install_board(board, circup_bin):
 # Phase 4: Eject
 # ---------------------------------------------------------------------------
 
+def sync_board(board):
+    """Copy board and shared .py files to the mounted volume without
+    cleaning or reinstalling libraries.  Detects boot.py changes and
+    advises a power-cycle when needed."""
+    volume_cp = find_cp_volume(board)
+    if not volume_cp:
+        fail(f"Board '{board}' is not mounted. Plug it in first.")
+
+    board_dir = SCRIPT_DIR / board
+    if not board_dir.exists():
+        fail(f"Board directory not found: {board_dir}")
+
+    time.sleep(MOUNT_SETTLE)
+
+    boot_changed = False
+
+    # Copy board .py files
+    for f in sorted(board_dir.glob("*.py")):
+        dest = os.path.join(volume_cp, f.name)
+        # Detect boot.py changes
+        if f.name == "boot.py" and os.path.exists(dest):
+            with open(f, "rb") as a, open(dest, "rb") as b:
+                if a.read() != b.read():
+                    boot_changed = True
+        shutil.copy2(f, dest)
+
+    # Copy shared files to lib/
+    shared_dir = SCRIPT_DIR / "shared"
+    if shared_dir.exists() and any(shared_dir.glob("*.py")):
+        lib_dir = os.path.join(volume_cp, "lib")
+        os.makedirs(lib_dir, exist_ok=True)
+        for f in sorted(shared_dir.glob("*.py")):
+            shutil.copy2(f, os.path.join(lib_dir, f.name))
+
+    return boot_changed
+
+
 def eject(board=None):
     """Eject the CircuitPython drive."""
     step("Phase 4: Eject")
@@ -471,6 +508,10 @@ def main():
         help="Only create venv and install tools, then exit",
     )
     parser.add_argument(
+        "--sync", action="store_true",
+        help="Quick sync: copy .py files only (no clean, no lib reinstall)",
+    )
+    parser.add_argument(
         "--skip-firmware", action="store_true",
         help="Skip CircuitPython firmware install (board already has it)",
     )
@@ -488,8 +529,32 @@ def main():
         info("Done. Run 'make flash-hid' or 'make flash-relay' to provision a board.")
         return
 
-    if not args.board:
-        parser.error("board is required (relay or hid) unless using --setup-only")
+    if not args.board and not args.sync:
+        parser.error("board is required (relay or hid) unless using --setup-only or --sync")
+
+    # --sync mode: lightweight file copy
+    if args.sync:
+        boards = [args.board] if args.board else list(BOARDS.keys())
+        need_power_cycle = []
+
+        for board in boards:
+            volume_name = BOARDS[board]["volume"]
+            volume_path = os.path.join(PLATFORM["volume_base"], volume_name)
+            if not os.path.isdir(volume_path):
+                fail(f"{volume_name} not mounted. Is the {board} board plugged in?")
+            if sync_board(board):
+                need_power_cycle.append(board)
+            info(f"{board} synced")
+            eject_volume(volume_path)
+
+        print()
+        if need_power_cycle:
+            labels = ", ".join(
+                f"{b} ({BOARDS[b]['label']})" for b in need_power_cycle)
+            print(f"  ⚠️  Action required: unplug and re-plug {labels}")
+        print(f"  🎯 Done!")
+        print()
+        return
 
     board_info = BOARDS[args.board]
 

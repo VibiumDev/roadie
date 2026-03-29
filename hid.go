@@ -193,6 +193,24 @@ func (hc *HIDController) MouseRelease(buttons int) error {
 	return hc.sendJSON(map[string]any{"cmd": "mouse_release", "buttons": buttons})
 }
 
+// MouseScroll sends a scroll wheel event. Positive = scroll down, negative = scroll up.
+func (hc *HIDController) MouseScroll(amount int) error {
+	return hc.sendJSON(map[string]any{"cmd": "mouse_scroll", "amount": amount})
+}
+
+// TouchContact represents a single touch point.
+type TouchContact struct {
+	ID  int  `json:"id"`
+	Tip bool `json:"tip"`
+	X   int  `json:"x"`
+	Y   int  `json:"y"`
+}
+
+// Touch sends a multi-touch report with up to 2 contacts.
+func (hc *HIDController) Touch(contacts []TouchContact) error {
+	return hc.sendJSON(map[string]any{"cmd": "touch", "contacts": contacts})
+}
+
 func findRelayPort() (string, error) {
 	matches, err := filepath.Glob(relayDataGlob)
 	if err != nil {

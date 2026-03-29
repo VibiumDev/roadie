@@ -18,7 +18,7 @@ Live video feed with audio toggle and quality slider.
 Device info and JPEG quality adjustment UI.
 
 ### `GET /test`
-Interactive HID test page with mouse trackpad, keyboard input, and key combo controls. Communicates with the target via WebSocket (`/api/hid/ws`).
+Interactive HID test page with mouse/touch trackpad, keyboard input, and key combo controls. Supports Mouse mode (pointer + scroll wheel) and Touch mode (multi-touch digitizer with pinch-to-zoom). Trackpad aspect ratio auto-adjusts to match the target's video signal. Communicates with the target via WebSocket (`/api/hid/ws`).
 
 ---
 
@@ -197,8 +197,60 @@ Mouse button click, press, or release.
 {"status": "ok"}
 ```
 
+### `POST /api/hid/mouse/scroll`
+Scroll the mouse wheel.
+
+**Request:**
+```json
+{"amount": 5}
+```
+
+| Field | Description |
+|-------|-------------|
+| `amount` | Scroll amount: positive = down, negative = up. Range: -127 to 127 |
+
+**Response:**
+```json
+{"status": "ok"}
+```
+
+### `POST /api/hid/touch`
+Send a multi-touch digitizer report (up to 2 simultaneous contacts). The HID board presents as a touchscreen to the target device, enabling native touch gestures like tap, drag, scroll, and pinch-to-zoom.
+
+**Request:**
+```json
+{"contacts": [
+  {"id": 0, "tip": true, "x": 16383, "y": 16383},
+  {"id": 1, "tip": true, "x": 20000, "y": 20000}
+]}
+```
+
+| Field | Description |
+|-------|-------------|
+| `contacts` | Array of 0-2 touch contacts |
+| `contacts[].id` | Contact identifier: `0` or `1` |
+| `contacts[].tip` | `true` = finger down, `false` = finger lifted |
+| `contacts[].x` | Absolute X position (0-32767) |
+| `contacts[].y` | Absolute Y position (0-32767) |
+
+Send an empty contacts array `[]` to lift all fingers.
+
+**Response:**
+```json
+{"status": "ok"}
+```
+
+**Gesture examples:**
+
+| Gesture | Sequence |
+|---------|----------|
+| Tap | Send contact tip=true, then tip=false |
+| Drag | Send contact tip=true, update x/y over time, then tip=false |
+| Scroll | Two contacts (id 0+1), move both in same vertical direction |
+| Pinch zoom | Two contacts, move apart (zoom in) or together (zoom out) |
+
 ### `WS /api/hid/ws`
-WebSocket for real-time HID control. Accepts the same JSON command format used by the relay board protocol. Preferred for mouse movement (lower latency than REST).
+WebSocket for real-time HID control. Accepts the same JSON command format used by the relay board protocol. Preferred for mouse movement and touch (lower latency than REST).
 
 **Messages (client to server):**
 ```json
@@ -206,9 +258,11 @@ WebSocket for real-time HID control. Accepts the same JSON command format used b
 {"cmd": "mouse_click", "buttons": 1}
 {"cmd": "mouse_press", "buttons": 1}
 {"cmd": "mouse_release", "buttons": 1}
+{"cmd": "mouse_scroll", "amount": 5}
 {"cmd": "key_press", "keycode": 4}
 {"cmd": "key_release", "keycode": 4}
 {"cmd": "type", "text": "hello"}
+{"cmd": "touch", "contacts": [{"id": 0, "tip": true, "x": 16383, "y": 16383}]}
 ```
 
 No server-to-client messages. Connection auto-reconnects on the `/test` page.

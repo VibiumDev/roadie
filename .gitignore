@@ -20,6 +20,7 @@ go.work.sum
 
 # Python venv
 .venv/
+__pycache__/
 
 # Scratch files
 scrap.txt

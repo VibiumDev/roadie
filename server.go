@@ -42,6 +42,8 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/api/hid/key", s.handleHIDKey)
 	mux.HandleFunc("/api/hid/mouse/move", s.handleHIDMouseMove)
 	mux.HandleFunc("/api/hid/mouse/click", s.handleHIDMouseClick)
+	mux.HandleFunc("/api/hid/mouse/scroll", s.handleHIDMouseScroll)
+	mux.HandleFunc("/api/hid/touch", s.handleHIDTouch)
 	mux.HandleFunc("/api/hid/status", s.handleHIDStatus)
 	mux.HandleFunc("/api/hid/ws", s.handleHIDWebSocket)
 	return mux
@@ -611,11 +613,17 @@ a { color: #6af; }
 
 /* Mouse trackpad */
 #trackpad {
-  width: 100%; height: 300px;
+  width: 100%; max-width: 500px; aspect-ratio: 1 / 1;
   border: 2px solid #555; border-radius: 4px;
   position: relative; cursor: crosshair;
   background: #1e1e1e; touch-action: none;
 }
+/* Mode toggle */
+.mode-toggle { display: flex; gap: 0; margin-bottom: 12px; }
+.mode-toggle button { padding: 8px 20px; background: #333; color: #888; border: 1px solid #555; cursor: pointer; font-family: monospace; }
+.mode-toggle button:first-child { border-radius: 4px 0 0 4px; }
+.mode-toggle button:last-child { border-radius: 0 4px 4px 0; }
+.mode-toggle button.active { background: #444; color: #fff; border-color: #6af; }
 #crosshair-h, #crosshair-v {
   position: absolute; background: rgba(100,170,255,0.3); pointer-events: none;
 }
@@ -655,7 +663,11 @@ a { color: #6af; }
 <p><span class="status" id="statusdot"></span><span id="statustext">connecting...</span></p>
 
 <div class="section">
-<h2>Mouse</h2>
+<h2>Input</h2>
+<div class="mode-toggle">
+  <button id="modeMouseBtn" class="active" onclick="setMode('mouse')">Mouse</button>
+  <button id="modeTouchBtn" onclick="setMode('touch')">Touch</button>
+</div>
 <div id="trackpad">
   <div id="crosshair-h"></div>
   <div id="crosshair-v"></div>
@@ -770,58 +782,230 @@ a { color: #6af; }
 
   connect();
 
-  // Mouse trackpad
+  // Input mode: 'mouse' or 'touch'
+  var inputMode = 'mouse';
+  window.setMode = function(mode) {
+    inputMode = mode;
+    document.getElementById('modeMouseBtn').className = mode === 'mouse' ? 'active' : '';
+    document.getElementById('modeTouchBtn').className = mode === 'touch' ? 'active' : '';
+  };
+
+  // Trackpad
   var trackpad = document.getElementById('trackpad');
   var crossH = document.getElementById('crosshair-h');
   var crossV = document.getElementById('crosshair-v');
   var coordsEl = document.getElementById('coords');
   var pendingX = -1, pendingY = -1, mouseDirty = false;
 
-  // Drain pending mouse position at fixed rate.
+  // Drain pending mouse/touch at fixed rate
   setInterval(function() {
     if (mouseDirty) {
-      send({cmd:'mouse_move', x:pendingX, y:pendingY});
+      if (inputMode === 'mouse') {
+        send({cmd:'mouse_move', x:pendingX, y:pendingY});
+      }
       mouseDirty = false;
     }
   }, 100);
 
-  function handleMouseMove(e) {
-    var rect = trackpad.getBoundingClientRect();
-    var px = (e.clientX - rect.left) / rect.width;
-    var py = (e.clientY - rect.top) / rect.height;
-    px = Math.max(0, Math.min(1, px));
-    py = Math.max(0, Math.min(1, py));
-    pendingX = Math.round(px * 32767);
-    pendingY = Math.round(py * 32767);
-    mouseDirty = true;
+  // Touch mode state
+  var touchDirty = false;
+  var pendingContacts = [];
+  setInterval(function() {
+    if (touchDirty) {
+      send({cmd:'touch', contacts:pendingContacts});
+      touchDirty = false;
+    }
+  }, 50);
 
-    crossH.style.top = (py * 100) + '%';
-    crossV.style.left = (px * 100) + '%';
-    coordsEl.textContent = 'x: ' + pendingX + ', y: ' + pendingY;
+  // Scroll accumulator (rate-limited)
+  var pendingScroll = 0, scrollDirty = false;
+  setInterval(function() {
+    if (scrollDirty) {
+      send({cmd:'mouse_scroll', amount:pendingScroll});
+      pendingScroll = 0;
+      scrollDirty = false;
+    }
+  }, 50);
+
+  function posFromEvent(e) {
+    var rect = trackpad.getBoundingClientRect();
+    var px = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    var py = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    return { x: Math.round(px * 32767), y: Math.round(py * 32767), px: px, py: py };
   }
 
-  trackpad.addEventListener('mousemove', handleMouseMove);
-  trackpad.addEventListener('touchmove', function(e) {
-    e.preventDefault();
-    handleMouseMove(e.touches[0]);
-  }, {passive: false});
+  function updateCrosshair(px, py, x, y) {
+    crossH.style.top = (py * 100) + '%';
+    crossV.style.left = (px * 100) + '%';
+    coordsEl.textContent = 'x: ' + x + ', y: ' + y;
+  }
+
+  // --- Mouse mode handlers ---
+  trackpad.addEventListener('mousemove', function(e) {
+    var p = posFromEvent(e);
+    pendingX = p.x; pendingY = p.y;
+    mouseDirty = true;
+    updateCrosshair(p.px, p.py, p.x, p.y);
+    // Touch mode: update drag if mouse button held
+    if (inputMode === 'touch' && e.buttons > 0) {
+      pendingContacts = [{id:0, tip:true, x:p.x, y:p.y}];
+      touchDirty = true;
+    }
+  });
 
   trackpad.addEventListener('mousedown', function(e) {
     e.preventDefault();
-    var btn = e.button === 2 ? 2 : e.button === 1 ? 4 : 1;
-    send({cmd:'mouse_press', buttons:btn});
+    if (inputMode === 'mouse') {
+      var btn = e.button === 2 ? 2 : e.button === 1 ? 4 : 1;
+      send({cmd:'mouse_press', buttons:btn});
+    } else {
+      var p = posFromEvent(e);
+      pendingContacts = [{id:0, tip:true, x:p.x, y:p.y}];
+      send({cmd:'touch', contacts:pendingContacts});
+    }
   });
+
   trackpad.addEventListener('mouseup', function(e) {
     e.preventDefault();
-    var btn = e.button === 2 ? 2 : e.button === 1 ? 4 : 1;
-    send({cmd:'mouse_release', buttons:btn});
+    if (inputMode === 'mouse') {
+      var btn = e.button === 2 ? 2 : e.button === 1 ? 4 : 1;
+      send({cmd:'mouse_release', buttons:btn});
+    } else {
+      var p = posFromEvent(e);
+      send({cmd:'touch', contacts:[{id:0, tip:false, x:p.x, y:p.y}]});
+      // Lift — send empty
+      setTimeout(function(){ send({cmd:'touch', contacts:[]}); }, 20);
+    }
   });
+
   trackpad.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+  // --- Scroll wheel (mouse mode) ---
+  trackpad.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    var amount;
+    if (e.deltaMode === 1) {
+      amount = Math.round(e.deltaY);
+    } else {
+      amount = Math.round(e.deltaY / 25);
+    }
+    amount = Math.max(-127, Math.min(127, amount));
+    if (amount !== 0) {
+      if (inputMode === 'mouse') {
+        pendingScroll = Math.max(-127, Math.min(127, pendingScroll + amount));
+        scrollDirty = true;
+      }
+    }
+  }, {passive: false});
+
+  // --- Touch handlers (mobile + touch screens) ---
+  var activeTouches = {};
+
+  function touchToContacts(e) {
+    var contacts = [];
+    var rect = trackpad.getBoundingClientRect();
+    for (var i = 0; i < Math.min(e.touches.length, 2); i++) {
+      var t = e.touches[i];
+      var px = Math.max(0, Math.min(1, (t.clientX - rect.left) / rect.width));
+      var py = Math.max(0, Math.min(1, (t.clientY - rect.top) / rect.height));
+      contacts.push({id:i, tip:true, x:Math.round(px * 32767), y:Math.round(py * 32767)});
+    }
+    return contacts;
+  }
+
+  trackpad.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    if (inputMode === 'touch') {
+      var contacts = touchToContacts(e);
+      send({cmd:'touch', contacts:contacts});
+    } else if (e.touches.length === 1) {
+      // Mouse mode: single touch = mouse move
+      var p = posFromEvent(e.touches[0]);
+      pendingX = p.x; pendingY = p.y;
+      mouseDirty = true;
+      updateCrosshair(p.px, p.py, p.x, p.y);
+    }
+  }, {passive: false});
+
+  var twoFingerLastY = null;
+  var scrollAccum = 0;
+
+  trackpad.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    if (inputMode === 'touch') {
+      var contacts = touchToContacts(e);
+      pendingContacts = contacts;
+      touchDirty = true;
+      if (contacts.length > 0) {
+        var c = contacts[0];
+        updateCrosshair(c.x / 32767, c.y / 32767, c.x, c.y);
+      }
+    } else {
+      // Mouse mode
+      if (e.touches.length >= 2) {
+        // Two-finger scroll
+        var avgY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        if (twoFingerLastY !== null) {
+          scrollAccum += (avgY - twoFingerLastY);
+          while (Math.abs(scrollAccum) >= 10) {
+            var step = scrollAccum > 0 ? 3 : -3;
+            pendingScroll = Math.max(-127, Math.min(127, pendingScroll + step));
+            scrollDirty = true;
+            scrollAccum -= (scrollAccum > 0 ? 10 : -10);
+          }
+        }
+        twoFingerLastY = avgY;
+      } else {
+        twoFingerLastY = null;
+        scrollAccum = 0;
+        var p = posFromEvent(e.touches[0]);
+        pendingX = p.x; pendingY = p.y;
+        mouseDirty = true;
+        updateCrosshair(p.px, p.py, p.x, p.y);
+      }
+    }
+  }, {passive: false});
+
+  trackpad.addEventListener('touchend', function(e) {
+    e.preventDefault();
+    if (inputMode === 'touch') {
+      if (e.touches.length === 0) {
+        send({cmd:'touch', contacts:[]});
+      } else {
+        var contacts = touchToContacts(e);
+        send({cmd:'touch', contacts:contacts});
+      }
+    }
+    if (e.touches.length < 2) {
+      twoFingerLastY = null;
+      scrollAccum = 0;
+    }
+  }, {passive: false});
 
   // Expose for inline handlers
   window.mouseBtn = function(buttons, action) {
     send({cmd: action === 'press' ? 'mouse_press' : 'mouse_release', buttons: buttons});
   };
+
+  // --- Responsive trackpad aspect ratio ---
+  function updateTrackpadAspect() {
+    fetch('/health').then(function(r){return r.json();}).then(function(d) {
+      var w, h;
+      if (d.crop) {
+        w = d.crop.width; h = d.crop.height;
+      } else if (d.resolution) {
+        var parts = d.resolution.split('x');
+        w = parseInt(parts[0]); h = parseInt(parts[1]);
+      }
+      if (w && h && w > 0 && h > 0) {
+        trackpad.style.aspectRatio = w + ' / ' + h;
+      } else {
+        trackpad.style.aspectRatio = '1 / 1';
+      }
+    }).catch(function(){});
+  }
+  updateTrackpadAspect();
+  setInterval(updateTrackpadAspect, 5000);
 
   // Keyboard input
   var keyinput = document.getElementById('keyinput');
@@ -1021,6 +1205,54 @@ func (s *Server) handleHIDMouseClick(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+func (s *Server) handleHIDMouseScroll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.HID == nil {
+		http.Error(w, "HID not available", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Amount int `json:"amount"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.HID.MouseScroll(body.Amount); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleHIDTouch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.HID == nil {
+		http.Error(w, "HID not available", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Contacts []TouchContact `json:"contacts"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.HID.Touch(body.Contacts); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
 func (s *Server) handleHIDWebSocket(w http.ResponseWriter, r *http.Request) {
 	if s.HID == nil {
 		http.Error(w, "HID not available", http.StatusServiceUnavailable)
@@ -1042,12 +1274,14 @@ func (s *Server) handleHIDWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var msg struct {
-			Cmd     string `json:"cmd"`
-			X       int    `json:"x"`
-			Y       int    `json:"y"`
-			Keycode int    `json:"keycode"`
-			Buttons int    `json:"buttons"`
-			Text    string `json:"text"`
+			Cmd      string         `json:"cmd"`
+			X        int            `json:"x"`
+			Y        int            `json:"y"`
+			Keycode  int            `json:"keycode"`
+			Buttons  int            `json:"buttons"`
+			Text     string         `json:"text"`
+			Amount   int            `json:"amount"`
+			Contacts []TouchContact `json:"contacts"`
 		}
 		if err := json.Unmarshal(data, &msg); err != nil {
 			continue
@@ -1076,6 +1310,10 @@ func (s *Server) handleHIDWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.HID.KeyPress(msg.Keycode)
 		case "key_release":
 			s.HID.KeyRelease(msg.Keycode)
+		case "mouse_scroll":
+			s.HID.MouseScroll(msg.Amount)
+		case "touch":
+			s.HID.Touch(msg.Contacts)
 		}
 	}
 }
