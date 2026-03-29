@@ -545,7 +545,15 @@ def main():
             if sync_board(board):
                 need_power_cycle.append(board)
             info(f"{board} synced")
-            eject_volume(volume_path)
+            # Board may remount after file changes trigger a reload.
+            # Wait for it to settle, then eject. Retry if it remounts.
+            time.sleep(MOUNT_SETTLE)
+            for _ in range(3):
+                if os.path.isdir(volume_path):
+                    eject_volume(volume_path)
+                    time.sleep(MOUNT_SETTLE)
+                else:
+                    break
 
         print()
         if need_power_cycle:
