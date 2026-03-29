@@ -136,11 +136,6 @@ while True:
         status = handle_command(cmd, seq, payload)
         uart.write(pack_resp(status, seq))
 
-        if cmd == CMD_PING:
-            print("ping seq=%d" % seq)
-        else:
-            print("cmd=0x%02x seq=%d status=%d" % (cmd, seq, status))
-
         neopixel_write.neopixel_write(pixel_pin, OFF)
         time.sleep(0.1)
         neopixel_write.neopixel_write(pixel_pin, GREEN)

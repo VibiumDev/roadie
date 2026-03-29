@@ -217,34 +217,27 @@ led_off()
 
 Once at the `>>>` prompt (after pressing Ctrl-C):
 
-### Check UART connection to HID board
+### Send commands via UART
 
 > **Important:** The HID board must be running its main loop (i.e. `code.py` not
 > interrupted) for it to respond over UART. Don't Ctrl-C both boards at the
 > same time if you want to test UART communication.
 
+Paste this setup block:
+
 ```python
 import board, busio
-uart = busio.UART(board.TX, board.RX, baudrate=921600, timeout=1)
+from protocol import (
+    MSG_SIZE, RESP_SIZE, BAUD, CMD_PING,
+    pack_msg, pack_key_type, pack_mouse_move, pack_mouse_click, pack_touch,
+)
+import digitalio, neopixel_write, usb_cdc
+
+uart = busio.UART(board.TX, board.RX, baudrate=BAUD, timeout=1)
 
 # Flush stale bytes left over from code.py's main loop
 while uart.read(64):
     pass
-
-# Send a raw ping and check for response
-from protocol import pack_msg, CMD_PING, RESP_SIZE
-uart.write(pack_msg(CMD_PING, 0))
-resp = uart.read(RESP_SIZE)
-print(resp)  # should be b'\x00\x00' (STATUS_OK=0, seq=0)
-```
-
-### Send commands via UART
-
-```python
-from protocol import (
-    RESP_SIZE, pack_key_type, pack_mouse_move, pack_mouse_click, pack_touch,
-)
-import board, digitalio, neopixel_write, usb_cdc
 
 seq = 0
 def send(msg):
@@ -255,6 +248,9 @@ def send(msg):
     resp = uart.read(RESP_SIZE)
     print(resp)
     seq = (seq + 1) & 0xFF
+
+def ping():
+    send(pack_msg(CMD_PING, seq))
 
 def type_text(text):
     send(pack_key_type(seq, text))
@@ -286,6 +282,7 @@ def led_off():
 Then call them:
 
 ```python
+ping()                                    # check UART link
 type_text("hello world")
 mouse_move(0, 0)
 mouse_click()

@@ -120,14 +120,10 @@ def process_command(line):
             wait = True
         status, echo = send_and_recv(msg, wait=wait)
         if status == STATUS_OK:
-            print("ok seq=%d" % echo)
             neopixel_write.neopixel_write(pixel_pin, OFF)
             time.sleep(0.1)
             neopixel_write.neopixel_write(pixel_pin, RED)
-        elif status is not None:
-            print("err seq=%d status=%d" % (echo, status))
-        else:
-            print("timeout")
+        elif status is None:
             neopixel_write.neopixel_write(pixel_pin, OFF)
 
 
