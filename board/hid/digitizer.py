@@ -15,16 +15,10 @@ REPORT_ID = 12
 #   - Contact Count field
 #   - Maximum Contact Count feature report
 #
-# Input report format (14 bytes):
-#   [contact_count,
-#    id0, tip0, x0_lo, x0_hi, y0_lo, y0_hi,
+# Input report format (13 bytes):
+#   [id0, tip0, x0_lo, x0_hi, y0_lo, y0_hi,
 #    id1, tip1, x1_lo, x1_hi, y1_lo, y1_hi,
-#    scan_time_lo, scan_time_hi]  -- not used but some hosts expect it
-#
-# Simplified to 13 bytes (no scan time):
-#   [contact_count,
-#    id0, tip0, x0_lo, x0_hi, y0_lo, y0_hi,
-#    id1, tip1, x1_lo, x1_hi, y1_lo, y1_hi]
+#    contact_count]
 
 _REPORT_DESCRIPTOR = bytes((
     0x05, 0x0D,        # Usage Page (Digitizer)
@@ -60,10 +54,6 @@ _REPORT_DESCRIPTOR = bytes((
     0x26, 0xFF, 0x7F,  # Logical Maximum (32767)
     0x75, 0x10,        # Report Size (16)
     0x95, 0x01,        # Report Count (1)
-    0x55, 0x0E,        # Unit Exponent (-2)
-    0x65, 0x11,        # Unit (cm)
-    0x35, 0x00,        # Physical Minimum (0)
-    0x46, 0x00, 0x0A,  # Physical Maximum (2560) -- ~25.6cm
     0x81, 0x02,        # Input (Data, Var, Abs)
 
     # Y coordinate (absolute, 0-32767)
@@ -72,7 +62,6 @@ _REPORT_DESCRIPTOR = bytes((
     0x26, 0xFF, 0x7F,  # Logical Maximum (32767)
     0x75, 0x10,        # Report Size (16)
     0x95, 0x01,        # Report Count (1)
-    0x46, 0x00, 0x07,  # Physical Maximum (1792) -- ~17.9cm
     0x81, 0x02,        # Input (Data, Var, Abs)
 
     0xC0,              # End Collection (Logical - finger 0)
@@ -105,10 +94,6 @@ _REPORT_DESCRIPTOR = bytes((
     0x26, 0xFF, 0x7F,  # Logical Maximum (32767)
     0x75, 0x10,        # Report Size (16)
     0x95, 0x01,        # Report Count (1)
-    0x55, 0x0E,        # Unit Exponent (-2)
-    0x65, 0x11,        # Unit (cm)
-    0x35, 0x00,        # Physical Minimum (0)
-    0x46, 0x00, 0x0A,  # Physical Maximum (2560)
     0x81, 0x02,        # Input (Data, Var, Abs)
 
     # Y coordinate
@@ -117,7 +102,6 @@ _REPORT_DESCRIPTOR = bytes((
     0x26, 0xFF, 0x7F,  # Logical Maximum (32767)
     0x75, 0x10,        # Report Size (16)
     0x95, 0x01,        # Report Count (1)
-    0x46, 0x00, 0x07,  # Physical Maximum (1792)
     0x81, 0x02,        # Input (Data, Var, Abs)
 
     0xC0,              # End Collection (Logical - finger 1)
@@ -149,7 +133,7 @@ device = usb_hid.Device(
     usage=0x04,
     report_ids=(REPORT_ID,),
     in_report_lengths=(13,),   # 2 contacts * 6 bytes + 1 contact_count
-    out_report_lengths=(0,),   # no OUT reports (feature report in descriptor)
+    out_report_lengths=(0,),
 )
 
 
