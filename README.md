@@ -69,7 +69,7 @@ You also need a host computer to run the `roadie` server — a Raspberry Pi 4 (2
 **Prerequisites:** macOS or Linux, Go 1.21+, Python 3.10+
 
 ```bash
-git clone <repo-url> && cd roadie
+git clone https://github.com/VibiumDev/roadie.git && cd roadie
 make setup          # one-time: python venv, dependencies, udev rules
 make flash-hid      # flash first board, then unplug it
 make flash-relay    # flash second board
