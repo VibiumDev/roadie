@@ -1,6 +1,6 @@
 # 🚐 Roadie
 
-USB KVM (Keyboard, Video, Mouse + Multi-touch) controllable over HTTP.
+USB KVM (⌨️Keyboard, 🖥️Video, 🖱️Mouse / 👆🏽Multi-touch) controllable over HTTP.
 
 <!-- TODO: hero image or gif showing /view controlling a phone -->
 
@@ -8,11 +8,10 @@ Roadie turns a cheap HDMI capture dongle and a pair of microcontroller boards in
 
 ## Use Cases
 
-- **Device provisioning** — automate OS setup assistants with an AI agent before SSH or VNC exist on the target
-- **Remote tech support** — view and control someone's device from another room or across the network
-- **Mobile device testing** — drive phones and tablets from a browser without touching them
-- **Headless / kiosk management** — control devices that don't have their own input peripherals
-- **General IP-KVM** — same idea as PiKVM or TinyPilot, but with multi-touch support and a ~$20 BOM
+- **Device provisioning**: automate OS setup assistants with an AI agent before SSH or VNC exist on the target
+- **Mobile device testing**: drive phones and tablets from a browser without touching them
+- **Remote tech support**: view and control someone's device from another room or across the network 
+- **General IP-KVM**: same idea as PiKVM or TinyPilot, but with multi-touch support and a ~$20 BOM
 
 ## How It Works
 
