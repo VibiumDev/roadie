@@ -59,6 +59,14 @@ func (ab *AudioBroadcaster) Subscribe() (<-chan []byte, func()) {
 	}
 }
 
+// Listeners returns the number of active audio subscribers.
+func (ab *AudioBroadcaster) Listeners() int {
+	ab.mu.RLock()
+	n := len(ab.subscribers)
+	ab.mu.RUnlock()
+	return n
+}
+
 // Broadcast sends a chunk to all subscribers. Non-blocking: drops the oldest
 // chunk for slow consumers.
 func (ab *AudioBroadcaster) Broadcast(chunk []byte) {
@@ -119,7 +127,7 @@ func DetectAudioDevice(filter string) (deviceInfo, bool) {
 		return deviceInfo{}, false
 	}
 
-	skipKeywords := []string{"facetime", "iphone", "macbook", "imac", "integrated", "built-in"}
+	skipKeywords := []string{"facetime", "iphone", "macbook", "imac", "integrated"}
 	preferKeywords := []string{"usb", "hdmi", "capture", "video"}
 
 	type candidate struct {
@@ -262,6 +270,11 @@ func StartAudioCapture(ctx context.Context, dev deviceInfo, ab *AudioBroadcaster
 				continue
 			}
 			consecutiveErrors = 0
+
+			if ab.Listeners() == 0 {
+				release()
+				continue
+			}
 
 			chunk := audioToBytes(audio)
 			if chunk != nil {

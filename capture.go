@@ -45,6 +45,55 @@ type FrameBuffer struct {
 	cropRect image.Rectangle
 	status   CaptureStatus
 	quality  atomic.Int32
+	viewers  atomic.Int32
+	fps      atomic.Int32
+	width    atomic.Int32
+	height   atomic.Int32
+}
+
+// AddViewer increments the active viewer count.
+func (fb *FrameBuffer) AddViewer() { fb.viewers.Add(1) }
+
+// RemoveViewer decrements the active viewer count.
+func (fb *FrameBuffer) RemoveViewer() { fb.viewers.Add(-1) }
+
+// Viewers returns the number of active stream viewers.
+func (fb *FrameBuffer) Viewers() int { return int(fb.viewers.Load()) }
+
+// SetFPS sets the target framerate.
+func (fb *FrameBuffer) SetFPS(n int) { fb.fps.Store(int32(n)) }
+
+// FPS returns the target framerate. Defaults to 30 if never set.
+func (fb *FrameBuffer) FPS() int {
+	v := int(fb.fps.Load())
+	if v == 0 {
+		return 30
+	}
+	return v
+}
+
+// SetWidth sets the capture width.
+func (fb *FrameBuffer) SetWidth(n int) { fb.width.Store(int32(n)) }
+
+// Width returns the capture width. Defaults to 1920 if never set.
+func (fb *FrameBuffer) Width() int {
+	v := int(fb.width.Load())
+	if v == 0 {
+		return 1920
+	}
+	return v
+}
+
+// SetHeight sets the capture height.
+func (fb *FrameBuffer) SetHeight(n int) { fb.height.Store(int32(n)) }
+
+// Height returns the capture height. Defaults to 1080 if never set.
+func (fb *FrameBuffer) Height() int {
+	v := int(fb.height.Load())
+	if v == 0 {
+		return 1080
+	}
+	return v
 }
 
 // SetQuality sets the JPEG quality, clamped to [30, 95].
@@ -268,27 +317,25 @@ const maxConsecutiveBlack = 10
 // is considered black/no-signal.
 const blackThreshold = 5
 
-// isBlackFrame returns true if the image's average brightness is below blackThreshold.
+// isBlackFrame returns true if every sampled pixel is below blackThreshold.
+// This detects solid black "no signal" frames without false-positiving on
+// dark content (which always has some bright pixels like text or UI).
 func isBlackFrame(img image.Image) bool {
 	bounds := img.Bounds()
-	// Sample a grid of pixels rather than checking every one.
 	step := 1
 	if w := bounds.Dx(); w > 100 {
 		step = w / 50
 	}
-	var total, count uint64
 	for y := bounds.Min.Y; y < bounds.Max.Y; y += step {
 		for x := bounds.Min.X; x < bounds.Max.X; x += step {
 			r, g, b, _ := img.At(x, y).RGBA()
-			// RGBA returns 16-bit values; scale to 8-bit.
-			total += uint64((r>>8 + g>>8 + b>>8) / 3)
-			count++
+			brightness := (r>>8 + g>>8 + b>>8) / 3
+			if brightness >= blackThreshold {
+				return false
+			}
 		}
 	}
-	if count == 0 {
-		return true
-	}
-	return total/count < blackThreshold
+	return true
 }
 
 // cropThreshold is the per-channel brightness (0-255) below which a pixel is
@@ -417,8 +464,8 @@ func InitObserver() error {
 
 // StartCapture opens the device matching dev and runs a goroutine that
 // reads frames, JPEG-encodes them, and stores them in buf.
-// The returned channel closes when the goroutine exits (device disconnected).
-func StartCapture(dev deviceInfo, width, height, fps int, buf *FrameBuffer) (<-chan struct{}, error) {
+// The returned channel closes when the goroutine exits (device disconnected or context cancelled).
+func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, buf *FrameBuffer) (<-chan struct{}, error) {
 	// Find the driver matching our detected device label (UID).
 	drivers := driver.GetManager().Query(func(d driver.Driver) bool {
 		return d.Info().DeviceType == driver.Camera && d.Info().Label == dev.Label
@@ -462,6 +509,12 @@ func StartCapture(dev deviceInfo, width, height, fps int, buf *FrameBuffer) (<-c
 		var prevBlack bool
 		jpegOpts := &jpeg.Options{}
 		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
 			jpegOpts.Quality = buf.Quality()
 			img, release, err := reader.Read()
 			if err != nil {
@@ -575,41 +628,45 @@ func StartCapture(dev deviceInfo, width, height, fps int, buf *FrameBuffer) (<-c
 // automatic detection, connection, and reconnection.
 type CaptureManager struct {
 	Filter         string
-	Width          int
-	Height         int
-	FPS            int
 	Buf            *FrameBuffer
 	AudioBroadcast *AudioBroadcaster
 
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx             context.Context
+	cancel          context.CancelFunc
+	settingsChanged chan struct{}
 
 	mu     sync.RWMutex
 	device deviceInfo
 }
 
 // NewCaptureManager creates a new CaptureManager.
-func NewCaptureManager(filter string, width, height, fps int, buf *FrameBuffer, ab *AudioBroadcaster) *CaptureManager {
+func NewCaptureManager(filter string, buf *FrameBuffer, ab *AudioBroadcaster) *CaptureManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &CaptureManager{
-		Filter:         filter,
-		Width:          width,
-		Height:         height,
-		FPS:            fps,
-		Buf:            buf,
-		AudioBroadcast: ab,
-		ctx:            ctx,
-		cancel:         cancel,
+		Filter:          filter,
+		Buf:             buf,
+		AudioBroadcast:  ab,
+		ctx:             ctx,
+		cancel:          cancel,
+		settingsChanged: make(chan struct{}, 1),
 	}
 }
 
-// Run loops: detect device → start capture → wait for disconnect → repeat.
-// The AVFoundation observer (started via InitObserver) keeps the driver
-// manager in sync with hardware — devices are automatically registered on
-// plug and unregistered on unplug.
+// NotifySettingsChanged signals the capture loop to restart with new settings.
+func (cm *CaptureManager) NotifySettingsChanged() {
+	select {
+	case cm.settingsChanged <- struct{}{}:
+	default:
+	}
+}
+
+// Run loops: detect device → wait for viewers → start capture → monitor → repeat.
+// Capture only runs while at least one client is streaming. A grace period
+// prevents thrashing on page refreshes.
 func (cm *CaptureManager) Run() {
 	retryDelay := 2 * time.Second
 	const maxRetryDelay = 30 * time.Second
+	const gracePeriod = 5 * time.Second
 
 	for {
 		cm.Buf.SetStatus(StatusConnecting)
@@ -631,11 +688,21 @@ func (cm *CaptureManager) Run() {
 		cm.mu.Lock()
 		cm.device = dev
 		cm.mu.Unlock()
+		retryDelay = 2 * time.Second
+		cm.Buf.SetStatus(StatusConnected)
 
-		log.Printf("device %q detected, starting capture", dev.Name)
+		// Device found — wait for viewers before starting capture.
+		log.Printf("device %q detected, waiting for viewers", dev.Name)
+		if !cm.waitForViewers() {
+			return // shutdown
+		}
 
-		done, err := StartCapture(dev, cm.Width, cm.Height, cm.FPS, cm.Buf)
+		log.Printf("viewer connected, starting capture on %q", dev.Name)
+
+		captureCtx, captureCancel := context.WithCancel(cm.ctx)
+		done, err := StartCapture(captureCtx, dev, cm.Buf.Width(), cm.Buf.Height(), cm.Buf.FPS(), cm.Buf)
 		if err != nil {
+			captureCancel()
 			log.Printf("failed to start capture on %q: %v", dev.Name, err)
 			select {
 			case <-cm.ctx.Done():
@@ -648,8 +715,6 @@ func (cm *CaptureManager) Run() {
 			}
 		}
 
-		// Capture is running — reset backoff and mark connected.
-		retryDelay = 2 * time.Second
 		cm.Buf.SetStatus(StatusConnected)
 
 		// Start audio capture (optional — failure is non-fatal).
@@ -658,12 +723,13 @@ func (cm *CaptureManager) Run() {
 		if cm.AudioBroadcast != nil {
 			audioDev, found := DetectAudioDevice(cm.Filter)
 			if found {
-				audioCtx, ac := context.WithCancel(cm.ctx)
+				audioCtx, ac := context.WithCancel(captureCtx)
 				audioCancel = ac
 				ad, err := StartAudioCapture(audioCtx, audioDev, cm.AudioBroadcast)
 				if err != nil {
 					log.Printf("audio capture failed on %q: %v (continuing without audio)", audioDev.Name, err)
 					audioCancel()
+					audioCancel = nil
 				} else {
 					audioDone = ad
 					log.Printf("audio capture started on %q", audioDev.Name)
@@ -671,29 +737,92 @@ func (cm *CaptureManager) Run() {
 			}
 		}
 
-		// Wait for video disconnect or shutdown.
-		select {
-		case <-done:
-			log.Printf("device %q disconnected", dev.Name)
-		case <-cm.ctx.Done():
-			if audioCancel != nil {
-				audioCancel()
-			}
-			return
-		}
+		// Monitor: wait for device disconnect, shutdown, or all viewers gone.
+		reason := cm.monitorCapture(done, gracePeriod)
 
-		// Stop audio when video disconnects.
+		// Tear down capture + audio.
+		captureCancel()
 		if audioCancel != nil {
 			audioCancel()
 		}
 		if audioDone != nil {
 			<-audioDone
 		}
+		<-done
 
+		switch reason {
+		case "shutdown":
+			return
+		case "disconnect":
+			log.Printf("device %q disconnected", dev.Name)
+			select {
+			case <-cm.ctx.Done():
+				return
+			case <-time.After(2 * time.Second):
+			}
+		case "idle":
+			log.Printf("no viewers, pausing capture on %q", dev.Name)
+			// Loop back — will re-detect device and wait for viewers.
+		case "settings":
+			log.Printf("settings changed, restarting capture on %q", dev.Name)
+			// Loop back — will re-detect device and start immediately (viewers still connected).
+		}
+	}
+}
+
+// waitForViewers blocks until at least one viewer connects or the context is cancelled.
+// Returns true if viewers appeared, false on shutdown.
+func (cm *CaptureManager) waitForViewers() bool {
+	for {
+		if cm.Buf.Viewers() > 0 {
+			return true
+		}
 		select {
 		case <-cm.ctx.Done():
-			return
-		case <-time.After(2 * time.Second):
+			return false
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+// monitorCapture watches for device disconnect, shutdown, settings change, or all viewers leaving.
+// Returns the reason: "disconnect", "shutdown", "settings", or "idle".
+func (cm *CaptureManager) monitorCapture(done <-chan struct{}, grace time.Duration) string {
+	var graceTimer *time.Timer
+	var graceC <-chan time.Time
+
+	for {
+		select {
+		case <-cm.ctx.Done():
+			if graceTimer != nil {
+				graceTimer.Stop()
+			}
+			return "shutdown"
+		case <-done:
+			if graceTimer != nil {
+				graceTimer.Stop()
+			}
+			return "disconnect"
+		case <-cm.settingsChanged:
+			if graceTimer != nil {
+				graceTimer.Stop()
+			}
+			return "settings"
+		case <-graceC:
+			return "idle"
+		case <-time.After(500 * time.Millisecond):
+			if cm.Buf.Viewers() == 0 {
+				if graceTimer == nil {
+					graceTimer = time.NewTimer(grace)
+					graceC = graceTimer.C
+				}
+			} else {
+				if graceTimer != nil {
+					graceTimer.Stop()
+					graceTimer = nil
+					graceC = nil
+				}
+			}
 		}
 	}
 }

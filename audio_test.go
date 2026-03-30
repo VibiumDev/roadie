@@ -102,10 +102,12 @@ func TestAudioBroadcasterParams(t *testing.T) {
 }
 
 func TestAudioHandlerNoAudio(t *testing.T) {
+	buf := &FrameBuffer{}
+	buf.SetFPS(30)
 	s := &Server{
 		Source:         &fakeSource{status: StatusConnected},
+		Buf:            buf,
 		AudioBroadcast: nil, // no audio
-		FPS:            30,
 	}
 	w := httptest.NewRecorder()
 	NewMux(s).ServeHTTP(w, httptest.NewRequest("GET", "/audio", nil))
@@ -115,11 +117,13 @@ func TestAudioHandlerNoAudio(t *testing.T) {
 }
 
 func TestAudioHandlerInactive(t *testing.T) {
+	buf := &FrameBuffer{}
+	buf.SetFPS(30)
 	ab := NewAudioBroadcaster()
 	s := &Server{
 		Source:         &fakeSource{status: StatusConnected},
+		Buf:            buf,
 		AudioBroadcast: ab, // present but inactive
-		FPS:            30,
 	}
 	w := httptest.NewRecorder()
 	NewMux(s).ServeHTTP(w, httptest.NewRequest("GET", "/audio", nil))

@@ -50,10 +50,14 @@ func main() {
 
 	buf := &FrameBuffer{}
 	buf.SetQuality(*quality)
+	buf.SetFPS(*fps)
+	buf.SetWidth(*width)
+	buf.SetHeight(*height)
 	var ab *AudioBroadcaster
 	var sourceType string
 	var deviceName string
 	var shutdownFunc func()
+	var cm *CaptureManager
 
 	if *source != "" {
 		// HTTP MJPEG source mode.
@@ -74,7 +78,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "⚠️  Device observer failed: %v\n", err)
 		}
 
-		cm := NewCaptureManager(*device, *width, *height, *fps, buf, ab)
+		cm = NewCaptureManager(*device, buf, ab)
 		shutdownFunc = cm.Shutdown
 
 		// Try an initial detect for the startup banner, but don't exit on failure.
@@ -123,12 +127,10 @@ func main() {
 		Source:         buf,
 		Buf:            buf,
 		Device:         deviceName,
-		Width:          *width,
-		Height:         *height,
-		FPS:            *fps,
 		AudioBroadcast: ab,
 		SourceType:     sourceType,
 		HID:            hid,
+		Capture:        cm,
 	}
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", listenPort),
