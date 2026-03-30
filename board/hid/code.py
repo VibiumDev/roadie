@@ -7,7 +7,7 @@ import neopixel_write
 import usb_hid
 from adafruit_hid.keyboard import Keyboard
 from adafruit_hid.keyboard_layout_us import KeyboardLayoutUS
-from mouse_device import Mouse
+from absolute_mouse import Mouse as AbsoluteMouse
 from protocol import (
     MSG_SIZE, BAUD, STATUS_OK, STATUS_ERR,
     CMD_PING, CMD_KEY_PRESS, CMD_KEY_RELEASE, CMD_KEY_TYPE,
@@ -34,7 +34,7 @@ uart = busio.UART(board.TX, board.RX, baudrate=BAUD, timeout=0.1)
 # USB HID devices
 kbd = Keyboard(usb_hid.devices)
 layout = KeyboardLayoutUS(kbd)
-mouse = Mouse(usb_hid.devices)
+mouse = AbsoluteMouse(usb_hid.devices)
 try:
     digitizer = Digitizer(usb_hid.devices)
 except ValueError:
