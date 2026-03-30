@@ -87,7 +87,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     Connecting&hellip;
   </div>
   <div id="viewer" style="position:relative; flex-shrink:0;">
-    <img id="feed" style="max-width:100%; max-height:100vh; display:none;">
+    <img id="feed" draggable="false" oncontextmenu="return false" style="max-width:100%; max-height:100vh; display:none; touch-action:none; cursor:crosshair;">
   </div>
   <div id="toolbar" style="position:relative; display:flex; flex-direction:column; gap:4px; padding:8px 6px;">
     <button id="qbtn" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; font-size:1.1em; cursor:pointer; line-height:1; padding:0; display:flex; align-items:center; justify-content:center;" title="Settings">&#x2699;&#xFE0F;</button>
@@ -115,6 +115,13 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
           <option value="640x480">480p</option>
         </select>
       </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+        <label style="min-width:55px;">Input</label>
+        <div style="display:flex; gap:0;">
+          <button id="modeMouseBtn" style="padding:2px 10px; background:#444; color:#fff; border:1px solid #6af; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Mouse</button>
+          <button id="modeTouchBtn" style="padding:2px 10px; background:#333; color:#888; border:1px solid #555; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Touch</button>
+        </div>
+      </div>
     </div>
   </div>
   <script>
@@ -125,6 +132,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     var wasOk = false;
 
     var healthOk = false;
+    var cropX = 0, cropY = 0, cropW = 0, cropH = 0, fullW = 0, fullH = 0;
 
     function showOverlay(msg) {
       overlay.textContent = msg || 'Disconnected \u2014 waiting for capture device\u2026';
@@ -157,6 +165,16 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
           if (data.status === 'no_signal') { showOverlay('No signal \u2014 check HDMI connection to capture device'); }
           else if (data.status === 'connecting') { showOverlay('Connecting\u2026'); }
           else { showOverlay(); }
+        }
+        if (data.resolution) {
+          var rp = data.resolution.split('x');
+          fullW = parseInt(rp[0]); fullH = parseInt(rp[1]);
+        }
+        if (data.crop) {
+          cropX = data.crop.x; cropY = data.crop.y;
+          cropW = data.crop.width; cropH = data.crop.height;
+        } else {
+          cropX = 0; cropY = 0; cropW = fullW; cropH = fullH;
         }
         // Show unmute button when audio is available.
         if (data.audio) { unmuteBtn.style.display = 'flex'; }
@@ -365,6 +383,232 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       var parts = resSelect.value.split('x');
       sendSettings({width: parseInt(parts[0]), height: parseInt(parts[1])});
     };
+
+    // --- HID WebSocket ---
+    var hidWs = null, hidReady = false;
+    function hidConnect() {
+      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      hidWs = new WebSocket(proto + '//' + location.host + '/api/hid/ws');
+      hidWs.onopen = function() { hidReady = true; };
+      hidWs.onclose = function() { hidReady = false; setTimeout(hidConnect, 2000); };
+      hidWs.onerror = function() { hidReady = false; };
+    }
+    function hidSend(msg) {
+      if (hidWs && hidReady) hidWs.send(JSON.stringify(msg));
+    }
+    hidConnect();
+
+    // --- Input mode toggle ---
+    var inputMode = localStorage.getItem('roadie-input-mode') === 'touch' ? 'touch' : 'mouse';
+    var modeMouseBtn = document.getElementById('modeMouseBtn');
+    var modeTouchBtn = document.getElementById('modeTouchBtn');
+    function setInputMode(mode) {
+      inputMode = mode;
+      localStorage.setItem('roadie-input-mode', mode);
+      modeMouseBtn.style.background = mode === 'mouse' ? '#444' : '#333';
+      modeMouseBtn.style.color = mode === 'mouse' ? '#fff' : '#888';
+      modeMouseBtn.style.borderColor = mode === 'mouse' ? '#6af' : '#555';
+      modeTouchBtn.style.background = mode === 'touch' ? '#444' : '#333';
+      modeTouchBtn.style.color = mode === 'touch' ? '#fff' : '#888';
+      modeTouchBtn.style.borderColor = mode === 'touch' ? '#6af' : '#555';
+    }
+    setInputMode(inputMode);
+    modeMouseBtn.onclick = function() { setInputMode('mouse'); scheduleHide(); };
+    modeTouchBtn.onclick = function() { setInputMode('touch'); scheduleHide(); };
+
+    // --- Coordinate helpers ---
+    function remapToAbsolute(px, py) {
+      var ax = (cropW > 0 && fullW > 0) ? (cropX + px * cropW) / fullW : px;
+      var ay = (cropH > 0 && fullH > 0) ? (cropY + py * cropH) / fullH : py;
+      return { x: Math.round(ax * 32767), y: Math.round(ay * 32767) };
+    }
+
+    function posFromFeed(e) {
+      var rect = img.getBoundingClientRect();
+      var px = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      var py = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      var abs = remapToAbsolute(px, py);
+      return { x: abs.x, y: abs.y };
+    }
+
+    // --- Rate-limited HID sending ---
+    var pendingX = -1, pendingY = -1, mouseDirty = false;
+    setInterval(function() {
+      if (mouseDirty) {
+        hidSend({cmd:'mouse_move', x:pendingX, y:pendingY});
+        mouseDirty = false;
+      }
+    }, 100);
+
+    var pendingContacts = [], touchDirty = false;
+    setInterval(function() {
+      if (touchDirty) {
+        hidSend({cmd:'touch', contacts:pendingContacts});
+        touchDirty = false;
+      }
+    }, 50);
+
+    var pendingScroll = 0, scrollDirty = false;
+    setInterval(function() {
+      if (scrollDirty) {
+        hidSend({cmd:'mouse_scroll', amount:pendingScroll});
+        pendingScroll = 0;
+        scrollDirty = false;
+      }
+    }, 50);
+
+    // --- Mouse handlers on feed ---
+    img.addEventListener('mousemove', function(e) {
+      var p = posFromFeed(e);
+      if (inputMode === 'mouse') {
+        pendingX = p.x; pendingY = p.y; mouseDirty = true;
+      } else if (e.buttons > 0) {
+        pendingContacts = [{id:0, tip:true, x:p.x, y:p.y}];
+        touchDirty = true;
+      }
+    });
+
+    var feedPressed = false;
+    img.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      feedPressed = true;
+      if (inputMode === 'mouse') {
+        var btn = e.button === 2 ? 2 : e.button === 1 ? 4 : 1;
+        hidSend({cmd:'mouse_press', buttons:btn});
+      } else {
+        var p = posFromFeed(e);
+        pendingContacts = [{id:0, tip:true, x:p.x, y:p.y}];
+        hidSend({cmd:'touch', contacts:pendingContacts});
+      }
+    });
+
+    document.addEventListener('mouseup', function(e) {
+      if (!feedPressed) return;
+      feedPressed = false;
+      if (inputMode === 'mouse') {
+        var btn = e.button === 2 ? 2 : e.button === 1 ? 4 : 1;
+        hidSend({cmd:'mouse_release', buttons:btn});
+      } else {
+        var p = posFromFeed(e);
+        hidSend({cmd:'touch', contacts:[{id:0, tip:false, x:p.x, y:p.y}]});
+        setTimeout(function(){ hidSend({cmd:'touch', contacts:[]}); }, 20);
+      }
+    });
+
+    // --- Scroll wheel on feed ---
+    img.addEventListener('wheel', function(e) {
+      e.preventDefault();
+      if (inputMode !== 'mouse') return;
+      var amount;
+      if (e.deltaMode === 1) { amount = Math.round(e.deltaY); }
+      else { amount = Math.round(e.deltaY / 25); }
+      amount = Math.max(-127, Math.min(127, amount));
+      if (amount !== 0) {
+        pendingScroll = amount;
+        scrollDirty = true;
+      }
+    }, {passive: false});
+
+    // --- Touch handlers on feed ---
+    function touchToContacts(e) {
+      var contacts = [];
+      var rect = img.getBoundingClientRect();
+      for (var i = 0; i < Math.min(e.touches.length, 2); i++) {
+        var t = e.touches[i];
+        var px = Math.max(0, Math.min(1, (t.clientX - rect.left) / rect.width));
+        var py = Math.max(0, Math.min(1, (t.clientY - rect.top) / rect.height));
+        var abs = remapToAbsolute(px, py);
+        contacts.push({id:i, tip:true, x:abs.x, y:abs.y});
+      }
+      return contacts;
+    }
+
+    var twoFingerLastY = null, scrollAccum = 0;
+
+    img.addEventListener('touchstart', function(e) {
+      e.preventDefault();
+      if (inputMode === 'touch') {
+        hidSend({cmd:'touch', contacts:touchToContacts(e)});
+      } else if (e.touches.length === 1) {
+        var p = posFromFeed(e.touches[0]);
+        pendingX = p.x; pendingY = p.y; mouseDirty = true;
+      }
+    }, {passive: false});
+
+    img.addEventListener('touchmove', function(e) {
+      e.preventDefault();
+      if (inputMode === 'touch') {
+        pendingContacts = touchToContacts(e);
+        touchDirty = true;
+      } else {
+        if (e.touches.length >= 2) {
+          var avgY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+          if (twoFingerLastY !== null) {
+            scrollAccum += (avgY - twoFingerLastY);
+            while (Math.abs(scrollAccum) >= 10) {
+              var step = scrollAccum > 0 ? 3 : -3;
+              pendingScroll = Math.max(-127, Math.min(127, pendingScroll + step));
+              scrollDirty = true;
+              scrollAccum -= (scrollAccum > 0 ? 10 : -10);
+            }
+          }
+          twoFingerLastY = avgY;
+        } else {
+          twoFingerLastY = null; scrollAccum = 0;
+          var p = posFromFeed(e.touches[0]);
+          pendingX = p.x; pendingY = p.y; mouseDirty = true;
+        }
+      }
+    }, {passive: false});
+
+    img.addEventListener('touchend', function(e) {
+      e.preventDefault();
+      if (inputMode === 'touch') {
+        if (e.touches.length === 0) { hidSend({cmd:'touch', contacts:[]}); }
+        else { hidSend({cmd:'touch', contacts:touchToContacts(e)}); }
+      }
+      if (e.touches.length < 2) { twoFingerLastY = null; scrollAccum = 0; }
+    }, {passive: false});
+
+    // --- Keyboard on document (skip toolbar interactions) ---
+    var KEY_MAP = {
+      KeyA:4,KeyB:5,KeyC:6,KeyD:7,KeyE:8,KeyF:9,KeyG:10,KeyH:11,KeyI:12,
+      KeyJ:13,KeyK:14,KeyL:15,KeyM:16,KeyN:17,KeyO:18,KeyP:19,KeyQ:20,
+      KeyR:21,KeyS:22,KeyT:23,KeyU:24,KeyV:25,KeyW:26,KeyX:27,KeyY:28,KeyZ:29,
+      Digit1:30,Digit2:31,Digit3:32,Digit4:33,Digit5:34,Digit6:35,
+      Digit7:36,Digit8:37,Digit9:38,Digit0:39,
+      Enter:40,Escape:41,Backspace:42,Tab:43,Space:44,
+      Minus:45,Equal:46,BracketLeft:47,BracketRight:48,Backslash:49,
+      Semicolon:51,Quote:52,Backquote:53,Comma:54,Period:55,Slash:56,
+      CapsLock:57,
+      F1:58,F2:59,F3:60,F4:61,F5:62,F6:63,F7:64,F8:65,F9:66,F10:67,F11:68,F12:69,
+      PrintScreen:70,ScrollLock:71,Pause:72,Insert:73,Home:74,PageUp:75,
+      Delete:76,End:77,PageDown:78,
+      ArrowRight:79,ArrowLeft:80,ArrowDown:81,ArrowUp:82,
+      NumLock:83,
+      ControlLeft:224,ShiftLeft:225,AltLeft:226,MetaLeft:227,
+      ControlRight:228,ShiftRight:229,AltRight:230,MetaRight:231
+    };
+
+    var toolbar = document.getElementById('toolbar');
+
+    document.addEventListener('keydown', function(e) {
+      if (toolbar.contains(e.target)) return;
+      var hid = KEY_MAP[e.code];
+      if (hid !== undefined) {
+        e.preventDefault();
+        hidSend({cmd:'key_press', keycode:hid});
+      }
+    });
+
+    document.addEventListener('keyup', function(e) {
+      if (toolbar.contains(e.target)) return;
+      var hid = KEY_MAP[e.code];
+      if (hid !== undefined) {
+        e.preventDefault();
+        hidSend({cmd:'key_release', keycode:hid});
+      }
+    });
   })();
   </script>
 </body>
@@ -726,6 +970,11 @@ a { color: #6af; }
   border: 2px solid #555; border-radius: 4px;
   position: relative; cursor: crosshair;
   background: #1e1e1e; touch-action: none;
+  overflow: hidden;
+}
+#trackpad-feed {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  object-fit: fill; pointer-events: none; opacity: 0.5;
 }
 /* Mode toggle */
 .mode-toggle { display: flex; gap: 0; margin-bottom: 12px; }
@@ -778,6 +1027,7 @@ a { color: #6af; }
   <button id="modeTouchBtn" onclick="setMode('touch')">Touch</button>
 </div>
 <div id="trackpad">
+  <img id="trackpad-feed" src="/stream">
   <div id="crosshair-h"></div>
   <div id="crosshair-v"></div>
 </div>
@@ -892,12 +1142,14 @@ a { color: #6af; }
   connect();
 
   // Input mode: 'mouse' or 'touch'
-  var inputMode = 'mouse';
+  var inputMode = localStorage.getItem('roadie-input-mode') === 'touch' ? 'touch' : 'mouse';
   window.setMode = function(mode) {
     inputMode = mode;
+    localStorage.setItem('roadie-input-mode', mode);
     document.getElementById('modeMouseBtn').className = mode === 'mouse' ? 'active' : '';
     document.getElementById('modeTouchBtn').className = mode === 'touch' ? 'active' : '';
   };
+  window.setMode(inputMode);
 
   // Trackpad
   var trackpad = document.getElementById('trackpad');
@@ -928,6 +1180,7 @@ a { color: #6af; }
 
   // Scroll accumulator (rate-limited)
   var pendingScroll = 0, scrollDirty = false;
+  var cropX = 0, cropY = 0, cropW = 0, cropH = 0, fullW = 0, fullH = 0;
   setInterval(function() {
     if (scrollDirty) {
       send({cmd:'mouse_scroll', amount:pendingScroll});
@@ -936,17 +1189,28 @@ a { color: #6af; }
     }
   }, 50);
 
+  function remapToAbsolute(px, py) {
+    var ax = (cropW > 0 && fullW > 0) ? (cropX + px * cropW) / fullW : px;
+    var ay = (cropH > 0 && fullH > 0) ? (cropY + py * cropH) / fullH : py;
+    return { x: Math.round(ax * 32767), y: Math.round(ay * 32767) };
+  }
+
   function posFromEvent(e) {
     var rect = trackpad.getBoundingClientRect();
     var px = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     var py = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-    return { x: Math.round(px * 32767), y: Math.round(py * 32767), px: px, py: py };
+    var abs = remapToAbsolute(px, py);
+    return { x: abs.x, y: abs.y, px: px, py: py };
   }
 
   function updateCrosshair(px, py, x, y) {
     crossH.style.top = (py * 100) + '%';
     crossV.style.left = (px * 100) + '%';
-    coordsEl.textContent = 'x: ' + x + ', y: ' + y;
+    var label = 'x: ' + x + ', y: ' + y;
+    if (cropX !== 0 || cropY !== 0 || (cropW > 0 && cropW !== fullW) || (cropH > 0 && cropH !== fullH)) {
+      label += '  (crop: ' + cropX + ',' + cropY + ' ' + cropW + 'x' + cropH + ')';
+    }
+    coordsEl.textContent = label;
   }
 
   // --- Mouse mode handlers ---
@@ -1020,7 +1284,8 @@ a { color: #6af; }
       var t = e.touches[i];
       var px = Math.max(0, Math.min(1, (t.clientX - rect.left) / rect.width));
       var py = Math.max(0, Math.min(1, (t.clientY - rect.top) / rect.height));
-      contacts.push({id:i, tip:true, x:Math.round(px * 32767), y:Math.round(py * 32767)});
+      var abs = remapToAbsolute(px, py);
+      contacts.push({id:i, tip:true, x:abs.x, y:abs.y});
     }
     return contacts;
   }
@@ -1103,11 +1368,17 @@ a { color: #6af; }
   function updateTrackpadAspect() {
     fetch('/health').then(function(r){return r.json();}).then(function(d) {
       var w, h;
+      if (d.resolution) {
+        var parts = d.resolution.split('x');
+        fullW = parseInt(parts[0]); fullH = parseInt(parts[1]);
+      }
       if (d.crop) {
         w = d.crop.width; h = d.crop.height;
-      } else if (d.resolution) {
-        var parts = d.resolution.split('x');
-        w = parseInt(parts[0]); h = parseInt(parts[1]);
+        cropX = d.crop.x; cropY = d.crop.y;
+        cropW = d.crop.width; cropH = d.crop.height;
+      } else {
+        w = fullW; h = fullH;
+        cropX = 0; cropY = 0; cropW = fullW; cropH = fullH;
       }
       if (w && h && w > 0 && h > 0) {
         trackpad.style.aspectRatio = w + ' / ' + h;
