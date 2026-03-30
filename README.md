@@ -11,7 +11,7 @@ Roadie turns a cheap HDMI capture dongle and a pair of microcontroller boards in
 - **Device provisioning**: automate OS setup assistants with an AI agent before SSH or VNC exist on the target
 - **Mobile device testing**: drive phones and tablets from a browser without touching them
 - **Remote tech support**: view and control someone's device from another room or across the network 
-- **General IP-KVM**: same idea as PiKVM or TinyPilot, but with multi-touch support and a ~$20 BOM
+- **General IP-KVM**: same idea as PiKVM or TinyPilot, but with multi-touch support and a ~$86 BOM
 
 ## How It Works
 
@@ -49,13 +49,20 @@ Browser  <---->|   HTTP / WebSocket       |
 
 **MDM** tools manage devices over the network but require enrollment, platform-specific agents, and an already-configured OS. Roadie works at the hardware level — it doesn't care what OS is running or whether the device is enrolled in anything.
 
-## Parts Needed
+## Parts Needed (~$86)
 
-- 2x [Adafruit QT Py RP2040](https://www.adafruit.com/product/4900) (~$10 each)
-- 2x USB-C data cables (not charge-only)
-- 3x jumper wires (TX, RX, GND for UART between the two boards)
-- 1x UVC-compatible HDMI-to-USB capture dongle (~$10)
-- (Mobile targets) USB-C 3-in-1 dongle with HDMI out, USB-A port, and USB-C power passthrough
+| Qty | Part | Price | Link |
+|-----|------|------:|------|
+| 2x | Adafruit QT Py RP2040 | $9.95 ea | [adafruit.com](https://www.adafruit.com/product/4900) |
+| 1x | Tiny premium breadboard | $3.95 | [adafruit.com](https://www.adafruit.com/product/65) |
+| 1x | Breadboarding wire bundle | $4.95 | [adafruit.com](https://www.adafruit.com/product/153) |
+| 1x | USB adapter kit (A↔C) | $6.99 | [amazon.com](https://www.amazon.com/AreMe-Adapter-Female-Converter-Connector/dp/B0BYMRHR86) |
+| 1x | HDMI-to-USB-C 1080p capture | $16.99 | [amazon.com](https://www.amazon.com/dp/B091NX27S8) |
+| 1x | HDMI male-to-male adapter | $5.99 | [amazon.com](https://www.amazon.com/dp/B09JSFVFF1) |
+| 1x | USB-C to HDMI + USB-A + USB-C PD hub | $17.99 | [amazon.com](https://www.amazon.com/dp/B08TWKNV13) |
+| 1x | USB-A to USB-C cable | $8.99 | [amazon.com](https://www.amazon.com/dp/B0C3LFTY71) |
+
+You also need a host computer to run the `roadie` server — a Raspberry Pi 4 (2GB+), Mac, or Linux PC.
 
 ## Quick Start
 
