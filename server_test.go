@@ -29,6 +29,9 @@ func newTestServer() (*Server, http.Handler) {
 	buf.SetQuality(80)
 	buf.Update(testJPEG(320, 240))
 	buf.SetStatus(StatusConnected)
+	buf.SetFPS(30)
+	buf.SetWidth(1920)
+	buf.SetHeight(1080)
 	s := &Server{
 		Source: &fakeSource{
 			frame:    testJPEG(320, 240),
@@ -37,9 +40,6 @@ func newTestServer() (*Server, http.Handler) {
 		},
 		Buf:        buf,
 		Device:     "Test Device",
-		Width:      1920,
-		Height:     1080,
-		FPS:        30,
 		SourceType: "hardware",
 	}
 	return s, NewMux(s)
@@ -99,7 +99,9 @@ func TestSnapshotHandler(t *testing.T) {
 }
 
 func TestSnapshotNoFrame(t *testing.T) {
-	s := &Server{Source: &fakeSource{status: StatusConnected}, FPS: 30}
+	buf := &FrameBuffer{}
+	buf.SetFPS(30)
+	s := &Server{Source: &fakeSource{status: StatusConnected}, Buf: buf}
 	code, _, _ := get(t, NewMux(s), "/snapshot")
 	if code != http.StatusServiceUnavailable {
 		t.Errorf("expected 503, got %d", code)
@@ -144,9 +146,14 @@ func TestHealthStatus(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			buf := &FrameBuffer{}
+			buf.SetFPS(30)
+			buf.SetWidth(1920)
+			buf.SetHeight(1080)
 			s := &Server{
 				Source: &fakeSource{status: tt.status},
-				Device: "Test Device", Width: 1920, Height: 1080, FPS: 30,
+				Buf:    buf,
+				Device: "Test Device",
 			}
 			_, _, body := get(t, NewMux(s), "/health")
 
@@ -205,12 +212,17 @@ func TestRawStreamHandler(t *testing.T) {
 }
 
 func TestHealthCropRect(t *testing.T) {
+	buf := &FrameBuffer{}
+	buf.SetFPS(30)
+	buf.SetWidth(1920)
+	buf.SetHeight(1080)
 	s := &Server{
 		Source: &fakeSource{
 			status:   StatusConnected,
 			cropRect: image.Rect(520, 0, 1400, 1080),
 		},
-		Device: "Test Device", Width: 1920, Height: 1080, FPS: 30,
+		Buf:    buf,
+		Device: "Test Device",
 	}
 	_, _, body := get(t, NewMux(s), "/health")
 
@@ -238,12 +250,14 @@ func TestHealthSourceType(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			buf := &FrameBuffer{}
+			buf.SetFPS(30)
+			buf.SetWidth(1920)
+			buf.SetHeight(1080)
 			s := &Server{
 				Source:     &fakeSource{status: StatusConnected},
+				Buf:        buf,
 				Device:     "Test Device",
-				Width:      1920,
-				Height:     1080,
-				FPS:        30,
 				SourceType: tt.sourceType,
 			}
 			_, _, body := get(t, NewMux(s), "/health")

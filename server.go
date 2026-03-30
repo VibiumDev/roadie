@@ -16,12 +16,10 @@ type Server struct {
 	Source         FrameSource
 	Buf            *FrameBuffer
 	Device         string
-	Width          int
-	Height         int
-	FPS            int
 	AudioBroadcast *AudioBroadcaster
 	SourceType     string // "hardware" or "http"
 	HID            *HIDController
+	Capture        *CaptureManager
 }
 
 // NewMux wires up all HTTP routes and returns a handler.
@@ -84,19 +82,39 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<!DOCTYPE html>
 <html>
 <head><title>Roadie</title><link rel="icon" href="data:,"></head>
-<body style="margin:0; background:#000; display:flex; justify-content:center; align-items:center; height:100vh;">
-  <img id="feed" style="max-width:100%; max-height:100vh; display:none;">
-  <div id="overlay" style="display:flex; position:fixed; inset:0; background:rgba(0,0,0,0.85); color:#fff; font-family:monospace; font-size:1.2em; justify-content:center; align-items:center; text-align:center; z-index:10;">
+<body style="margin:0; background:#000; display:flex; height:100vh;">
+  <div id="overlay" style="display:flex; position:fixed; inset:0; background:rgba(0,0,0,0.85); color:#fff; font-family:monospace; font-size:1.2em; justify-content:center; align-items:center; text-align:center; z-index:100;">
     Connecting&hellip;
   </div>
-  <button id="unmute" style="position:fixed; bottom:20px; right:20px; z-index:20; background:rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:10px 14px; font-size:1.4em; cursor:pointer; display:none; line-height:1;" title="Toggle audio">
-    &#x1F507;
-  </button>
-  <div id="qpanel" style="position:fixed; bottom:20px; left:20px; z-index:20; display:flex; align-items:center; gap:8px;">
-    <button id="qbtn" style="background:rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:10px 14px; font-size:1.4em; cursor:pointer; line-height:1;" title="Quality">&#x2699;&#xFE0F;</button>
-    <div id="qslider" style="display:none; background:rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:8px 12px; align-items:center; gap:8px;">
-      <input id="qrange" type="range" min="30" max="95" style="width:120px; vertical-align:middle;">
-      <span id="qval" style="color:#fff; font-family:monospace; font-size:0.9em; min-width:2em; text-align:right;"></span>
+  <div id="viewer" style="position:relative; flex-shrink:0;">
+    <img id="feed" style="max-width:100%; max-height:100vh; display:none;">
+  </div>
+  <div id="toolbar" style="position:relative; display:flex; flex-direction:column; gap:4px; padding:8px 6px;">
+    <button id="qbtn" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; font-size:1.1em; cursor:pointer; line-height:1; padding:0; display:flex; align-items:center; justify-content:center;" title="Settings">&#x2699;&#xFE0F;</button>
+    <button id="unmute" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; font-size:1.1em; cursor:pointer; line-height:1; padding:0; display:none; align-items:center; justify-content:center;" title="Toggle audio">&#x1F507;</button>
+    <div id="qslider" style="display:none; position:absolute; top:8px; right:calc(100% - 2px); z-index:21; background:rgba(50,50,50,0.95); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color:#fff; font-family:monospace; font-size:0.85em; white-space:nowrap;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+        <label style="min-width:55px;">Quality</label>
+        <input id="qrange" type="range" min="30" max="95" style="width:120px; vertical-align:middle;">
+        <span id="qval" style="min-width:2em; text-align:right;"></span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+        <label style="min-width:55px;">FPS</label>
+        <select id="fpsSelect" style="background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px 6px; font-family:monospace;">
+          <option value="10">10</option>
+          <option value="15">15</option>
+          <option value="20">20</option>
+          <option value="30">30</option>
+        </select>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <label style="min-width:55px;">Size</label>
+        <select id="resSelect" style="background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px 6px; font-family:monospace;">
+          <option value="1920x1080">1080p</option>
+          <option value="1280x720">720p</option>
+          <option value="640x480">480p</option>
+        </select>
+      </div>
     </div>
   </div>
   <script>
@@ -106,35 +124,46 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     var unmuteBtn = document.getElementById('unmute');
     var wasOk = false;
 
+    var healthOk = false;
+
     function showOverlay(msg) {
       overlay.textContent = msg || 'Disconnected \u2014 waiting for capture device\u2026';
       overlay.style.display = 'flex';
-      img.style.display = 'none';
-      wasOk = false;
     }
-    function hideOverlay() {
-      overlay.style.display = 'none';
+    function startStream() {
       if (!wasOk) {
         img.src = '/stream?' + Date.now();
         img.style.display = '';
         wasOk = true;
       }
     }
+    function tryHideOverlay() {
+      if (healthOk) {
+        overlay.style.display = 'none';
+      }
+    }
 
+    img.onload = function() { tryHideOverlay(); };
     img.onerror = function() { showOverlay(); };
 
     function poll() {
       fetch('/health').then(function(r){ return r.json(); }).then(function(data){
-        if (data.status === 'ok') { hideOverlay(); }
-        else if (data.status === 'no_signal') { showOverlay('No signal \u2014 check HDMI connection to capture device'); }
-        else if (data.status === 'connecting') { showOverlay('Connecting\u2026'); }
-        else { showOverlay(); }
+        if (data.status === 'ok') {
+          healthOk = true;
+          startStream();
+          tryHideOverlay();
+        } else {
+          healthOk = false;
+          if (data.status === 'no_signal') { showOverlay('No signal \u2014 check HDMI connection to capture device'); }
+          else if (data.status === 'connecting') { showOverlay('Connecting\u2026'); }
+          else { showOverlay(); }
+        }
         // Show unmute button when audio is available.
-        if (data.audio) { unmuteBtn.style.display = ''; }
+        if (data.audio) { unmuteBtn.style.display = 'flex'; }
       }).catch(function(){ showOverlay(); });
     }
     poll();
-    setInterval(poll, 3000);
+    setInterval(poll, 1000);
 
     // --- Audio via WebSocket ---
     var audioCtx = null;
@@ -283,22 +312,26 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       }
     };
 
-    // --- Quality slider ---
+    // --- Settings panel ---
     var qbtn = document.getElementById('qbtn');
     var qslider = document.getElementById('qslider');
     var qrange = document.getElementById('qrange');
     var qval = document.getElementById('qval');
-    var qTimer = null;
+    var fpsSelect = document.getElementById('fpsSelect');
+    var resSelect = document.getElementById('resSelect');
+    var settingsTimer = null;
     var qHideTimer = null;
 
     fetch('/api/settings').then(function(r){ return r.json(); }).then(function(d){
       qrange.value = d.quality;
       qval.textContent = d.quality;
+      fpsSelect.value = d.fps;
+      resSelect.value = d.width + 'x' + d.height;
     });
 
     qbtn.onclick = function() {
       var vis = qslider.style.display !== 'none';
-      qslider.style.display = vis ? 'none' : 'flex';
+      qslider.style.display = vis ? 'none' : 'block';
       if (!vis) scheduleHide();
     };
 
@@ -307,17 +340,30 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       qHideTimer = setTimeout(function(){ qslider.style.display = 'none'; }, 4000);
     }
 
-    qrange.oninput = function() {
-      qval.textContent = qrange.value;
-      clearTimeout(qTimer);
+    function sendSettings(obj) {
+      clearTimeout(settingsTimer);
       scheduleHide();
-      qTimer = setTimeout(function(){
+      settingsTimer = setTimeout(function(){
         fetch('/api/settings', {
           method: 'PUT',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({quality: parseInt(qrange.value)})
+          body: JSON.stringify(obj)
         });
       }, 300);
+    }
+
+    qrange.oninput = function() {
+      qval.textContent = qrange.value;
+      sendSettings({quality: parseInt(qrange.value)});
+    };
+
+    fpsSelect.onchange = function() {
+      sendSettings({fps: parseInt(fpsSelect.value)});
+    };
+
+    resSelect.onchange = function() {
+      var parts = resSelect.value.split('x');
+      sendSettings({width: parseInt(parts[0]), height: parseInt(parts[1])});
     };
   })();
   </script>
@@ -329,7 +375,10 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary=frame")
 	w.Header().Set("Cache-Control", "no-cache")
 
-	interval := time.Duration(float64(time.Second) / float64(s.FPS))
+	s.Buf.AddViewer()
+	defer s.Buf.RemoveViewer()
+
+	interval := time.Duration(float64(time.Second) / float64(s.Buf.FPS()))
 
 	for {
 		select {
@@ -372,7 +421,10 @@ func (s *Server) handleRawStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary=frame")
 	w.Header().Set("Cache-Control", "no-cache")
 
-	interval := time.Duration(float64(time.Second) / float64(s.FPS))
+	s.Buf.AddViewer()
+	defer s.Buf.RemoveViewer()
+
+	interval := time.Duration(float64(time.Second) / float64(s.Buf.FPS()))
 
 	for {
 		select {
@@ -433,11 +485,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	if status == "ok" || status == "no_signal" {
 		resp["device"] = s.Device
-		resp["resolution"] = fmt.Sprintf("%dx%d", s.Width, s.Height)
-		resp["fps"] = s.FPS
+		resp["resolution"] = fmt.Sprintf("%dx%d", s.Buf.Width(), s.Buf.Height())
+		resp["fps"] = s.Buf.FPS()
 	}
 	cropRect := s.Source.CropRect()
-	if cropRect != (image.Rectangle{}) && cropRect != image.Rect(0, 0, s.Width, s.Height) {
+	if cropRect != (image.Rectangle{}) && cropRect != image.Rect(0, 0, s.Buf.Width(), s.Buf.Height()) {
 		resp["crop"] = map[string]interface{}{
 			"x":      cropRect.Min.X,
 			"y":      cropRect.Min.Y,
@@ -466,19 +518,43 @@ func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"quality": s.Buf.Quality(),
+			"fps":     s.Buf.FPS(),
+			"width":   s.Buf.Width(),
+			"height":  s.Buf.Height(),
 		})
 	case http.MethodPut:
 		var body struct {
-			Quality int `json:"quality"`
+			Quality *int `json:"quality"`
+			FPS     *int `json:"fps"`
+			Width   *int `json:"width"`
+			Height  *int `json:"height"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		s.Buf.SetQuality(body.Quality)
+		if body.Quality != nil {
+			s.Buf.SetQuality(*body.Quality)
+		}
+		captureChanged := false
+		if body.FPS != nil && *body.FPS != s.Buf.FPS() {
+			s.Buf.SetFPS(*body.FPS)
+			captureChanged = true
+		}
+		if body.Width != nil && body.Height != nil && (*body.Width != s.Buf.Width() || *body.Height != s.Buf.Height()) {
+			s.Buf.SetWidth(*body.Width)
+			s.Buf.SetHeight(*body.Height)
+			captureChanged = true
+		}
+		if captureChanged && s.Capture != nil {
+			s.Capture.NotifySettingsChanged()
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"quality": s.Buf.Quality(),
+			"fps":     s.Buf.FPS(),
+			"width":   s.Buf.Width(),
+			"height":  s.Buf.Height(),
 		})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -495,6 +571,7 @@ body { font-family: monospace; max-width: 600px; margin: 40px auto; padding: 0 2
 a { color: #0066cc; }
 label { display: block; margin: 16px 0 4px; font-weight: bold; }
 input[type=range] { width: 100%; }
+select { padding: 4px 8px; font-family: monospace; font-size: 1em; }
 .val { font-size: 1.2em; }
 .info { margin-top: 24px; padding: 12px; background: #f5f5f5; border-radius: 6px; }
 .info div { margin: 4px 0; }
@@ -509,30 +586,62 @@ nav a { margin-right: 12px; }
 <label for="quality">JPEG Quality: <span id="qval" class="val"></span></label>
 <input id="quality" type="range" min="30" max="95">
 
+<label for="fps">FPS:</label>
+<select id="fps">
+  <option value="10">10</option>
+  <option value="15">15</option>
+  <option value="20">20</option>
+  <option value="30">30</option>
+</select>
+
+<label for="res">Resolution:</label>
+<select id="res">
+  <option value="1920x1080">1080p</option>
+  <option value="1280x720">720p</option>
+  <option value="640x480">480p</option>
+</select>
+
 <div class="info" id="devinfo">Loading device info&hellip;</div>
 
 <script>
 (function(){
   var slider = document.getElementById('quality');
   var valSpan = document.getElementById('qval');
+  var fpsSelect = document.getElementById('fps');
+  var resSelect = document.getElementById('res');
   var info = document.getElementById('devinfo');
   var timer = null;
 
   fetch('/api/settings').then(function(r){ return r.json(); }).then(function(d){
     slider.value = d.quality;
     valSpan.textContent = d.quality;
+    fpsSelect.value = d.fps;
+    resSelect.value = d.width + 'x' + d.height;
   });
 
-  slider.oninput = function(){
-    valSpan.textContent = slider.value;
+  function sendSettings(obj) {
     clearTimeout(timer);
     timer = setTimeout(function(){
       fetch('/api/settings', {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({quality: parseInt(slider.value)})
+        body: JSON.stringify(obj)
       });
     }, 300);
+  }
+
+  slider.oninput = function(){
+    valSpan.textContent = slider.value;
+    sendSettings({quality: parseInt(slider.value)});
+  };
+
+  fpsSelect.onchange = function(){
+    sendSettings({fps: parseInt(fpsSelect.value)});
+  };
+
+  resSelect.onchange = function(){
+    var parts = resSelect.value.split('x');
+    sendSettings({width: parseInt(parts[0]), height: parseInt(parts[1])});
   };
 
   fetch('/health').then(function(r){ return r.json(); }).then(function(d){
@@ -613,7 +722,7 @@ a { color: #6af; }
 
 /* Mouse trackpad */
 #trackpad {
-  width: 100%; max-width: 500px; aspect-ratio: 1 / 1;
+  width: 100%; max-width: 300px; aspect-ratio: 1 / 1;
   border: 2px solid #555; border-radius: 4px;
   position: relative; cursor: crosshair;
   background: #1e1e1e; touch-action: none;
@@ -853,8 +962,10 @@ a { color: #6af; }
     }
   });
 
+  var trackpadPressed = false;
   trackpad.addEventListener('mousedown', function(e) {
     e.preventDefault();
+    trackpadPressed = true;
     if (inputMode === 'mouse') {
       var btn = e.button === 2 ? 2 : e.button === 1 ? 4 : 1;
       send({cmd:'mouse_press', buttons:btn});
@@ -865,8 +976,9 @@ a { color: #6af; }
     }
   });
 
-  trackpad.addEventListener('mouseup', function(e) {
-    e.preventDefault();
+  document.addEventListener('mouseup', function(e) {
+    if (!trackpadPressed) return;
+    trackpadPressed = false;
     if (inputMode === 'mouse') {
       var btn = e.button === 2 ? 2 : e.button === 1 ? 4 : 1;
       send({cmd:'mouse_release', buttons:btn});
