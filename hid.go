@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -212,12 +215,51 @@ func (hc *HIDController) Touch(contacts []TouchContact) error {
 }
 
 func findRelayPort() (string, error) {
+	// Linux: /dev/serial/by-id/ symlinks include product name and interface.
 	matches, err := filepath.Glob(relayDataGlob)
+	if err == nil && len(matches) > 0 {
+		return matches[0], nil
+	}
+
+	// macOS: use ioreg to find Roadie-Relay by USB product name.
+	if runtime.GOOS == "darwin" {
+		return findRelayPortMacOS()
+	}
+
+	return "", fmt.Errorf("no relay data port found")
+}
+
+// findRelayPortMacOS uses ioreg to find the Roadie-Relay USB device
+// and returns its data serial port (the second CDC interface).
+func findRelayPortMacOS() (string, error) {
+	out, err := exec.Command("ioreg", "-n", "Roadie-Relay", "-r", "-l").Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("ioreg failed: %w", err)
 	}
-	if len(matches) == 0 {
-		return "", fmt.Errorf("no relay data port found")
+	if len(out) == 0 {
+		return "", fmt.Errorf("Roadie-Relay not found in ioreg")
 	}
-	return matches[0], nil
+
+	// Extract all IOCalloutDevice paths — interface order means
+	// the first is console (CDC 0), the second is data (CDC 2).
+	var ports []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "IOCalloutDevice") {
+			// Line looks like: "IOCalloutDevice" = "/dev/cu.usbmodem2103"
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				p := strings.Trim(strings.TrimSpace(parts[1]), `"`)
+				if strings.HasPrefix(p, "/dev/") {
+					ports = append(ports, p)
+				}
+			}
+		}
+	}
+
+	if len(ports) == 0 {
+		return "", fmt.Errorf("Roadie-Relay found but no serial ports")
+	}
+	// Data port is the last one (second CDC interface).
+	return ports[len(ports)-1], nil
 }

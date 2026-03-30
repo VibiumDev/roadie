@@ -1,6 +1,6 @@
 # 🚐 Roadie
 
-Roadie sets up your equipment.
+Roadie sets up your equipment. Hardware KVM for AI-driven device provisioning.
 
 ## The Problem
 
@@ -12,36 +12,48 @@ The problem: you can't automate device setup *with software on the device* becau
 
 Roadie uses one device to set up another. It grabs video from an HDMI-to-USB capture dongle and serves it over HTTP, turning a remote device's physical display into a web page. A pair of microcontroller boards act as a USB KVM, sending keyboard and mouse input to the target device. An AI agent (or a human) can view the screen in a browser, grab frames for vision analysis, and send input back to the device — all over HTTP.
 
-### Why not MDM?
+### Why not VNC/KVM/MDM?
 
-Mobile Device Management (MDM) tools let you configure and control devices remotely over the network. They're great for ongoing management, but complex to set up and limited to specific platforms. Roadie tackles the initial setup part: use AI to bootstrap *any* device that supports KVM (video output + keyboard/mouse input): Macs, PCs, mobile devices, servers, embedded devices, anything with an HDMI port.
+**VNC (Virtual Network Computing) and remote desktop** require software running on the target. That's a non-starter for initial setup — you can't install VNC on a device that's still showing "Select Your Language."
+
+**Hardware KVM (Keyboard, Video, Mouse) switches** (like PiKVM or TinyPilot) work at the hardware level, but they're designed for servers and desktops. They don't support touch input, so they can't drive phones or tablets through setup. Roadie includes a multi-touch digitizer alongside keyboard and mouse, so it works with mobile devices too.
+
+**MDM (Mobile Device Management)** tools manage devices over the network but require enrollment, platform-specific agents, and an already-configured OS. Roadie tackles the part that comes before all of that: use AI to bootstrap *any* device with video output and USB input — Macs, PCs, phones, tablets, servers, embedded devices.
 
 ## Quick Start
 
-```bash
-make
-./roadie
-```
-
-Open `http://localhost:8080/view` or `http://roadie.local:8080/view` (Bonjour).
+1. [Flash both boards](#flash-the-boards) (first time only)
+2. Connect the boards with jumper wires (TX-to-RX, RX-to-TX, GND-to-GND)
+3. Plug the **relay** board into your host machine
+4. Plug the **HID** board into the target device
+5. Plug an HDMI capture dongle between the target's video output and the host
+6. Build and run:
+   ```bash
+   make
+   ./roadie
+   ```
+7. Open `http://localhost:8080/view` or `http://roadie.local:8080/view`
 
 ## Features
 
-- **HID control**: absolute mouse positioning and keyboard input via USB, controllable over HTTP/WebSocket
+- **HID control**: absolute mouse, multi-touch digitizer, and keyboard input via USB, controllable over HTTP/WebSocket
+- **Interactive viewer**: `/view` page with live feed and full HID control (mouse, touch, keyboard) directly on the stream
 - **Auto-detection**: finds external capture devices, skips built-in cameras
 - **Hot-swap**: plug/unplug devices without restarting
-- **Auto-crop**: detects and removes black bars from HDMI capture (pillarbox/letterbox)
+- **Auto-crop**: detects and removes black bars from HDMI capture (pillarbox/letterbox), remaps touch coordinates to match
+- **Runtime settings**: adjust quality, FPS, and resolution on the fly from the viewer
 - **Audio streaming**: optional PCM audio over WebSocket
 - **Bonjour/mDNS**: discoverable as `roadie.local` on your network
+- **Cross-platform**: runs on macOS and Linux (Raspberry Pi, Ubuntu, etc.)
 - **Resilient**: automatic reconnection with exponential backoff, signal loss detection
-- **Test page**: interactive `/test` page with mouse trackpad, keyboard input, and key combos
+- **Test page**: interactive `/test` page with MJPEG overlay, mouse trackpad, keyboard input, and key combos
 
 ## Endpoints
 
 | Endpoint | Description |
 |---|---|
-| `/view` | Live feed in your browser (with audio toggle) |
-| `/test` | Interactive HID test page (mouse, keyboard, combos) |
+| `/view` | Live feed with HID control (mouse, touch, keyboard), audio, and settings |
+| `/test` | HID test page with MJPEG overlay, mouse/touch trackpad, keyboard, and combos |
 | `/stream` | MJPEG stream (auto-cropped) |
 | `/snapshot` | Single JPEG frame (auto-cropped) |
 | `/raw-stream` | MJPEG stream (uncropped) |
@@ -51,7 +63,19 @@ Open `http://localhost:8080/view` or `http://roadie.local:8080/view` (Bonjour).
 | `/api/hid/*` | HID control (mouse, keyboard, combos) |
 | `/api/hid/ws` | WebSocket for real-time HID control |
 
-See [API.md](API.md) for the full API reference, including HID endpoints and USB keycode tables.
+See [API.md](API.md) for the full HTTP API reference, including HID endpoints and USB keycode tables.
+
+## Documentation
+
+| Doc | Description |
+|-----|-------------|
+| [API Reference](API.md) | HTTP/WebSocket endpoints, request/response formats |
+| [Protocol Reference](docs/reference/protocol.md) | Binary wire format between relay and HID boards |
+| [Board Reference](docs/reference/boards.md) | Hardware specs, wiring, USB identifiers, LED behavior |
+| [Architecture](docs/explanation/architecture.md) | System design, pipeline, and design decisions |
+| [Flash Boards](docs/how-to/flash-boards.md) | How to flash and re-flash the boards |
+| [Troubleshooting](docs/how-to/troubleshooting.md) | Common problems and fixes |
+| [REPL Tutorial](docs/tutorials/repl.md) | Interactive debugging via CircuitPython REPL |
 
 ## CLI Flags
 
@@ -74,6 +98,7 @@ See [API.md](API.md) for the full API reference, including HID endpoints and USB
 - 3x jumper wires (TX, RX, GND for UART between the two boards)
 - 1x UVC-compatible HDMI-to-USB capture dongle
 - (Optional) 3D-printed enclosure
+- (Mobile targets) USB-C 3-in-1 dongle with HDMI out, USB-A port (for HID board), and USB-C power delivery (to charge the phone while providing peripherals)
 
 ## Prerequisites
 
@@ -107,7 +132,7 @@ Only one board can be flashed at a time.
    make flash-relay
    ```
 
-5. The NeoPixel should blink **blue**. Label it **📥 IN**.
+5. The NeoPixel should glow **red**. Label it **📥 IN**.
 
 ## Connect and Run
 
@@ -120,8 +145,7 @@ Only one board can be flashed at a time.
    make
    ./roadie
    ```
-6. Open `http://localhost:8080/view` to see the target's screen
-7. Open `http://localhost:8080/test` to control mouse and keyboard
+6. Open `http://localhost:8080/view` to see and control the target's screen
 
 ## Re-flashing
 
@@ -133,10 +157,7 @@ make flash-relay-quick
 
 ## Troubleshooting
 
-- **"CIRCUITPY not mounted"**: make sure you're using a USB data cable, not a charge-only cable. On Linux, ensure the volume auto-mounts (install `udisks2` if needed).
-- **"No serial port found"**: the board may not have CircuitPython installed yet. The script will fall back to manual bootloader entry. On Linux, make sure your user is in the `dialout` group.
-- **"Buffer incorrect size"**: you forgot to unplug and re-plug after flashing. The board needs a full USB re-enumeration for the custom HID descriptor in boot.py to take effect.
-- **NeoPixel doesn't blink after flashing**: connect to the serial REPL to check for errors. Press Ctrl-C to interrupt, then Ctrl-D to soft-reboot.
+See [docs/how-to/troubleshooting.md](docs/how-to/troubleshooting.md) for common issues with flashing, serial connections, UART communication, and video capture.
 
 ## Development
 
@@ -164,7 +185,7 @@ make clean            # remove binary
 ## Architecture
 
 ```
-                    Host (Raspberry Pi)
+                    Host (Pi, Mac, Linux)
                +--------------------------+
                |   Go server (roadie)     |
 Browser  <---->|   HTTP / WebSocket       |
@@ -183,5 +204,6 @@ Browser  <---->|   HTTP / WebSocket       |
                       | USB HID
                +------v-------------------+
                |   Target device          |
+               |   (Mac, PC, Android, iOS)|
                +--------------------------+
 ```

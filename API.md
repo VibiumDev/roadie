@@ -12,13 +12,13 @@ Service discovery: `dns-sd -B _roadie._tcp` (mDNS/Bonjour)
 Index page with links to all endpoints.
 
 ### `GET /view`
-Live video feed with audio toggle and quality slider.
+Live video feed with full HID control. Click/touch the stream to send mouse or touch events to the target. Keyboard events are captured automatically (except when interacting with the toolbar). Includes audio toggle, quality/FPS/resolution settings, and mouse/touch input mode toggle. Input mode persists across page refreshes via `localStorage`.
 
 ### `GET /settings`
 Device info and JPEG quality adjustment UI.
 
 ### `GET /test`
-Interactive HID test page with mouse/touch trackpad, keyboard input, and key combo controls. Supports Mouse mode (pointer + scroll wheel) and Touch mode (multi-touch digitizer with pinch-to-zoom). Trackpad aspect ratio auto-adjusts to match the target's video signal. Communicates with the target via WebSocket (`/api/hid/ws`).
+Interactive HID test page with mouse/touch trackpad, keyboard input, and key combo controls. Supports Mouse mode (pointer + scroll wheel) and Touch mode (multi-touch digitizer with pinch-to-zoom). Trackpad overlays the auto-cropped MJPEG stream and auto-adjusts aspect ratio to match the target's video signal. Coordinates are remapped to account for crop offset so touches align with visible content. Input mode persists via `localStorage` (shared with `/view`). Communicates with the target via WebSocket (`/api/hid/ws`).
 
 ---
 
@@ -69,21 +69,27 @@ Get current settings.
 
 **Response:**
 ```json
-{"quality": 80}
+{"quality": 80, "fps": 30, "width": 1920, "height": 1080}
 ```
 
 ### `PUT /api/settings`
-Update settings.
+Update settings. All fields are optional — only provided fields are changed. Changing `fps`, `width`, or `height` triggers a capture restart.
 
 **Request:**
 ```json
-{"quality": 60}
+{"quality": 60, "fps": 15, "width": 1280, "height": 720}
 ```
-Quality is clamped to 30-95.
+
+| Field | Range | Description |
+|-------|-------|-------------|
+| `quality` | 30-95 | JPEG compression quality |
+| `fps` | 10-30 | Capture framerate |
+| `width` | | Capture width (must be set with `height`) |
+| `height` | | Capture height (must be set with `width`) |
 
 **Response:**
 ```json
-{"quality": 60}
+{"quality": 60, "fps": 15, "width": 1280, "height": 720}
 ```
 
 ---
