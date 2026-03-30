@@ -77,9 +77,9 @@ def translate(d):
             msgs.append(pack_key_type(next_seq(), text[i:i + 29]))
         return msgs
     elif cmd == "key_press":
-        return [pack_key_press(next_seq(), d["keycode"])]
+        return [("nowait", pack_key_press(next_seq(), d["keycode"]))]
     elif cmd == "key_release":
-        return [pack_key_release(next_seq(), d["keycode"])]
+        return [("nowait", pack_key_release(next_seq(), d["keycode"]))]
     elif cmd == "mouse_move":
         return [("nowait", pack_mouse_move(next_seq(), d["x"], d["y"]))]
     elif cmd == "mouse_click":
