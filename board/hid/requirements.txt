@@ -1,2 +1,2 @@
-absolute_mouse
+# absolute_mouse  -- replaced by mouse_device.py in repo
 adafruit_hid
