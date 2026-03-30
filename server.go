@@ -82,7 +82,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<!DOCTYPE html>
 <html>
 <head><title>Roadie</title><link rel="icon" href="data:,"></head>
-<body style="margin:0; background:#000; display:flex; height:100vh;">
+<body style="margin:0; background:#000; display:flex; height:100vh; overflow:hidden; overscroll-behavior:none;">
   <div id="overlay" style="display:flex; position:fixed; inset:0; background:rgba(0,0,0,0.85); color:#fff; font-family:monospace; font-size:1.2em; justify-content:center; align-items:center; text-align:center; z-index:100;">
     Connecting&hellip;
   </div>
@@ -92,7 +92,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
   <div id="toolbar" style="position:relative; display:flex; flex-direction:column; gap:4px; padding:8px 6px;">
     <button id="qbtn" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; font-size:1.1em; cursor:pointer; line-height:1; padding:0; display:flex; align-items:center; justify-content:center;" title="Settings">&#x2699;&#xFE0F;</button>
     <button id="unmute" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; font-size:1.1em; cursor:pointer; line-height:1; padding:0; display:none; align-items:center; justify-content:center;" title="Toggle audio">&#x1F507;</button>
-    <div id="qslider" style="display:none; position:absolute; top:8px; right:calc(100% - 2px); z-index:21; background:rgba(50,50,50,0.95); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color:#fff; font-family:monospace; font-size:0.85em; white-space:nowrap;">
+    <div id="qslider" style="display:none; position:absolute; top:8px; z-index:21; background:rgba(50,50,50,0.95); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color:#fff; font-family:monospace; font-size:0.85em; white-space:nowrap;">
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
         <label style="min-width:55px;">Quality</label>
         <input id="qrange" type="range" min="30" max="95" style="width:120px; vertical-align:middle;">
@@ -347,9 +347,27 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       resSelect.value = d.width + 'x' + d.height;
     });
 
+    function positionPanel() {
+      var toolbar = document.getElementById('toolbar');
+      var tr = toolbar.getBoundingClientRect();
+      // Show to the right if there's enough room (panel is ~220px wide)
+      if (window.innerWidth - tr.right > 230) {
+        qslider.style.left = 'calc(100% + 2px)';
+        qslider.style.right = '';
+      } else {
+        qslider.style.right = 'calc(100% - 2px)';
+        qslider.style.left = '';
+      }
+    }
+
     qbtn.onclick = function() {
       var vis = qslider.style.display !== 'none';
-      qslider.style.display = vis ? 'none' : 'block';
+      if (vis) {
+        qslider.style.display = 'none';
+      } else {
+        positionPanel();
+        qslider.style.display = 'block';
+      }
       if (!vis) scheduleHide();
     };
 
