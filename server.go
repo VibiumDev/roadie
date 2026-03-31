@@ -87,7 +87,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
   <div id="overlay" style="display:flex; position:fixed; inset:0; background:rgba(0,0,0,0.85); color:#fff; font-family:monospace; font-size:1.2em; justify-content:center; align-items:center; text-align:center; z-index:100;">
     Connecting&hellip;
   </div>
-  <div id="viewer" style="position:relative; flex-shrink:0;">
+  <div id="viewer" style="position:relative; flex:1; min-width:0; overflow:hidden;">
     <img id="feed" draggable="false" oncontextmenu="return false" style="max-width:100%; max-height:100vh; display:none; touch-action:none; cursor:crosshair;">
   </div>
   <div id="toolbar" style="position:relative; display:flex; flex-direction:column; gap:4px; padding:8px 6px;">
@@ -123,6 +123,22 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
           <button id="modeTouchBtn" style="padding:2px 10px; background:#333; color:#888; border:1px solid #555; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Touch</button>
         </div>
       </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+        <label style="min-width:55px;">Crop</label>
+        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input id="autocropCheck" type="checkbox" checked> Auto</label>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+        <label style="min-width:55px;">Zoom</label>
+        <input id="zoomRange" type="range" min="50" max="400" value="100" style="width:120px; vertical-align:middle;">
+        <span id="zoomVal" style="min-width:3em; text-align:right;">100%</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+        <label style="min-width:55px;">Align</label>
+        <div style="display:flex; gap:0;">
+          <button id="alignTLBtn" style="padding:2px 10px; background:#444; color:#fff; border:1px solid #6af; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Top-Left</button>
+          <button id="alignCenterBtn" style="padding:2px 10px; background:#333; color:#888; border:1px solid #555; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Center</button>
+        </div>
+      </div>
     </div>
   </div>
   <script>
@@ -153,7 +169,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     }
 
     img.onload = function() { tryHideOverlay(); };
-    img.onerror = function() { showOverlay(); };
+    img.onerror = function() { wasOk = false; showOverlay(); };
 
     function poll() {
       fetch('/health').then(function(r){ return r.json(); }).then(function(data){
@@ -338,20 +354,49 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     var qval = document.getElementById('qval');
     var fpsSelect = document.getElementById('fpsSelect');
     var resSelect = document.getElementById('resSelect');
+    var autocropCheck = document.getElementById('autocropCheck');
+    var zoomRange = document.getElementById('zoomRange');
+    var zoomVal = document.getElementById('zoomVal');
+    var alignTLBtn = document.getElementById('alignTLBtn');
+    var alignCenterBtn = document.getElementById('alignCenterBtn');
+    var alignment = 'top-left';
     var settingsTimer = null;
     var qHideTimer = null;
 
-    fetch('/api/settings').then(function(r){ return r.json(); }).then(function(d){
-      qrange.value = d.quality;
-      qval.textContent = d.quality;
-      fpsSelect.value = d.fps;
-      resSelect.value = d.width + 'x' + d.height;
-    });
+    function applyToUI(d) {
+      if (d.quality !== undefined) { qrange.value = d.quality; qval.textContent = d.quality; }
+      if (d.fps !== undefined) { fpsSelect.value = d.fps; }
+      if (d.width !== undefined && d.height !== undefined) { resSelect.value = d.width + 'x' + d.height; }
+      if (d.autocrop !== undefined) { autocropCheck.checked = d.autocrop; }
+    }
+
+    (function loadSettings() {
+      var saved = {};
+      try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+      if (Object.keys(saved).length > 0) {
+        applyToUI(saved);
+        fetch('/api/settings', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(saved)
+        });
+      } else {
+        fetch('/api/settings').then(function(r){ return r.json(); }).then(function(d){
+          applyToUI(d);
+        });
+      }
+    })();
+
+    function saveSettings(obj) {
+      var saved = {};
+      try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+      for (var k in obj) { saved[k] = obj[k]; }
+      localStorage.setItem('roadie-settings', JSON.stringify(saved));
+    }
 
     function positionPanel() {
       var toolbar = document.getElementById('toolbar');
       var tr = toolbar.getBoundingClientRect();
-      // Show to the right if there's enough room (panel is ~220px wide)
       if (window.innerWidth - tr.right > 230) {
         qslider.style.left = 'calc(100% + 2px)';
         qslider.style.right = '';
@@ -369,17 +414,11 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         positionPanel();
         qslider.style.display = 'block';
       }
-      if (!vis) scheduleHide();
     };
-
-    function scheduleHide() {
-      clearTimeout(qHideTimer);
-      qHideTimer = setTimeout(function(){ qslider.style.display = 'none'; }, 4000);
-    }
 
     function sendSettings(obj) {
       clearTimeout(settingsTimer);
-      scheduleHide();
+      saveSettings(obj);
       settingsTimer = setTimeout(function(){
         fetch('/api/settings', {
           method: 'PUT',
@@ -402,6 +441,68 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       var parts = resSelect.value.split('x');
       sendSettings({width: parseInt(parts[0]), height: parseInt(parts[1])});
     };
+
+    autocropCheck.onchange = function() {
+      sendSettings({autocrop: autocropCheck.checked});
+    };
+
+    function applyAlignment(mode) {
+      alignment = mode;
+      var viewer = document.getElementById('viewer');
+      if (mode === 'center') {
+        alignTLBtn.style.background = '#333'; alignTLBtn.style.color = '#888'; alignTLBtn.style.borderColor = '#555';
+        alignCenterBtn.style.background = '#444'; alignCenterBtn.style.color = '#fff'; alignCenterBtn.style.borderColor = '#6af';
+        viewer.style.display = 'flex';
+        viewer.style.justifyContent = 'center';
+        viewer.style.alignItems = 'center';
+      } else {
+        alignCenterBtn.style.background = '#333'; alignCenterBtn.style.color = '#888'; alignCenterBtn.style.borderColor = '#555';
+        alignTLBtn.style.background = '#444'; alignTLBtn.style.color = '#fff'; alignTLBtn.style.borderColor = '#6af';
+        viewer.style.display = '';
+        viewer.style.justifyContent = '';
+        viewer.style.alignItems = '';
+      }
+      applyZoom(parseInt(zoomRange.value));
+    }
+
+    function applyZoom(pct) {
+      zoomVal.textContent = pct + '%';
+      zoomRange.value = pct;
+      var viewer = document.getElementById('viewer');
+      var scale = pct / 100;
+      img.style.transform = scale === 1 ? '' : 'scale(' + scale + ')';
+      img.style.transformOrigin = alignment === 'center' ? 'center center' : 'top left';
+      viewer.style.overflow = 'hidden';
+    }
+
+    function snapZoom(val) {
+      var nearest = Math.round(val / 25) * 25;
+      return Math.abs(val - nearest) <= 3 ? nearest : val;
+    }
+
+    zoomRange.oninput = function() {
+      var pct = snapZoom(parseInt(zoomRange.value));
+      applyZoom(pct);
+      saveSettings({zoom: pct});
+    };
+
+    alignTLBtn.onclick = function() {
+      applyAlignment('top-left');
+      saveSettings({alignment: 'top-left'});
+    };
+
+    alignCenterBtn.onclick = function() {
+      applyAlignment('center');
+      saveSettings({alignment: 'center'});
+    };
+
+    // Restore zoom and alignment from saved settings.
+    (function() {
+      var saved = {};
+      try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+      if (saved.alignment) { applyAlignment(saved.alignment); }
+      if (saved.zoom !== undefined) { applyZoom(saved.zoom); }
+    })();
 
     // --- HID WebSocket ---
     var hidWs = null, hidReady = false;
@@ -643,6 +744,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 
 	interval := time.Duration(float64(time.Second) / float64(s.Buf.FPS()))
 
+	var hadFrame bool
 	for {
 		select {
 		case <-r.Context().Done():
@@ -650,9 +752,16 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		default:
 			frame := s.Source.Latest()
 			if frame == nil {
+				if hadFrame {
+					// Device disconnected — close the stream so the
+					// browser's <img> fires onerror and reconnects
+					// when capture resumes.
+					return
+				}
 				time.Sleep(interval)
 				continue
 			}
+			hadFrame = true
 
 			fmt.Fprintf(w, "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n", len(frame))
 			if _, err := w.Write(frame); err != nil {
@@ -780,17 +889,19 @@ func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"quality": s.Buf.Quality(),
-			"fps":     s.Buf.FPS(),
-			"width":   s.Buf.Width(),
-			"height":  s.Buf.Height(),
+			"quality":  s.Buf.Quality(),
+			"fps":      s.Buf.FPS(),
+			"width":    s.Buf.Width(),
+			"height":   s.Buf.Height(),
+			"autocrop": s.Buf.Autocrop(),
 		})
 	case http.MethodPut:
 		var body struct {
-			Quality *int `json:"quality"`
-			FPS     *int `json:"fps"`
-			Width   *int `json:"width"`
-			Height  *int `json:"height"`
+			Quality  *int  `json:"quality"`
+			FPS      *int  `json:"fps"`
+			Width    *int  `json:"width"`
+			Height   *int  `json:"height"`
+			Autocrop *bool `json:"autocrop"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -798,6 +909,9 @@ func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.Quality != nil {
 			s.Buf.SetQuality(*body.Quality)
+		}
+		if body.Autocrop != nil {
+			s.Buf.SetAutocrop(*body.Autocrop)
 		}
 		captureChanged := false
 		if body.FPS != nil && *body.FPS != s.Buf.FPS() {
@@ -814,10 +928,11 @@ func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"quality": s.Buf.Quality(),
-			"fps":     s.Buf.FPS(),
-			"width":   s.Buf.Width(),
-			"height":  s.Buf.Height(),
+			"quality":  s.Buf.Quality(),
+			"fps":      s.Buf.FPS(),
+			"width":    s.Buf.Width(),
+			"height":   s.Buf.Height(),
+			"autocrop": s.Buf.Autocrop(),
 		})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -864,6 +979,11 @@ nav a { margin-right: 12px; }
   <option value="640x480">480p</option>
 </select>
 
+<label><input id="autocrop" type="checkbox" checked> Auto-crop black borders</label>
+
+<label for="zoom">Zoom: <span id="zval" class="val">100%</span></label>
+<input id="zoom" type="range" min="50" max="400" value="100">
+
 <div class="info" id="devinfo">Loading device info&hellip;</div>
 
 <script>
@@ -872,18 +992,47 @@ nav a { margin-right: 12px; }
   var valSpan = document.getElementById('qval');
   var fpsSelect = document.getElementById('fps');
   var resSelect = document.getElementById('res');
+  var autocropCheck = document.getElementById('autocrop');
+  var zoomSlider = document.getElementById('zoom');
+  var zvalSpan = document.getElementById('zval');
   var info = document.getElementById('devinfo');
   var timer = null;
 
-  fetch('/api/settings').then(function(r){ return r.json(); }).then(function(d){
-    slider.value = d.quality;
-    valSpan.textContent = d.quality;
-    fpsSelect.value = d.fps;
-    resSelect.value = d.width + 'x' + d.height;
-  });
+  function applyToUI(d) {
+    if (d.quality !== undefined) { slider.value = d.quality; valSpan.textContent = d.quality; }
+    if (d.fps !== undefined) { fpsSelect.value = d.fps; }
+    if (d.width !== undefined && d.height !== undefined) { resSelect.value = d.width + 'x' + d.height; }
+    if (d.autocrop !== undefined) { autocropCheck.checked = d.autocrop; }
+    if (d.zoom !== undefined) { zoomSlider.value = d.zoom; zvalSpan.textContent = d.zoom + '%'; }
+  }
+
+  (function loadSettings() {
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+    if (Object.keys(saved).length > 0) {
+      applyToUI(saved);
+      fetch('/api/settings', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(saved)
+      });
+    } else {
+      fetch('/api/settings').then(function(r){ return r.json(); }).then(function(d){
+        applyToUI(d);
+      });
+    }
+  })();
+
+  function saveSettings(obj) {
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+    for (var k in obj) { saved[k] = obj[k]; }
+    localStorage.setItem('roadie-settings', JSON.stringify(saved));
+  }
 
   function sendSettings(obj) {
     clearTimeout(timer);
+    saveSettings(obj);
     timer = setTimeout(function(){
       fetch('/api/settings', {
         method: 'PUT',
@@ -905,6 +1054,15 @@ nav a { margin-right: 12px; }
   resSelect.onchange = function(){
     var parts = resSelect.value.split('x');
     sendSettings({width: parseInt(parts[0]), height: parseInt(parts[1])});
+  };
+
+  autocropCheck.onchange = function(){
+    sendSettings({autocrop: autocropCheck.checked});
+  };
+
+  zoomSlider.oninput = function(){
+    zvalSpan.textContent = zoomSlider.value + '%';
+    saveSettings({zoom: parseInt(zoomSlider.value)});
   };
 
   fetch('/health').then(function(r){ return r.json(); }).then(function(d){

@@ -49,6 +49,7 @@ type FrameBuffer struct {
 	fps      atomic.Int32
 	width    atomic.Int32
 	height   atomic.Int32
+	autocrop atomic.Int32 // 0 = unset (default on), 1 = on, 2 = off
 }
 
 // AddViewer increments the active viewer count.
@@ -94,6 +95,20 @@ func (fb *FrameBuffer) Height() int {
 		return 1080
 	}
 	return v
+}
+
+// SetAutocrop enables or disables automatic crop detection.
+func (fb *FrameBuffer) SetAutocrop(on bool) {
+	if on {
+		fb.autocrop.Store(1)
+	} else {
+		fb.autocrop.Store(2)
+	}
+}
+
+// Autocrop returns whether automatic crop detection is enabled (default true).
+func (fb *FrameBuffer) Autocrop() bool {
+	return fb.autocrop.Load() != 2
 }
 
 // SetQuality sets the JPEG quality, clamped to [30, 95].
@@ -318,8 +333,6 @@ const maxConsecutiveBlack = 10
 const blackThreshold = 5
 
 // isBlackFrame returns true if every sampled pixel is below blackThreshold.
-// This detects solid black "no signal" frames without false-positiving on
-// dark content (which always has some bright pixels like text or UI).
 func isBlackFrame(img image.Image) bool {
 	bounds := img.Bounds()
 	step := 1
@@ -336,6 +349,26 @@ func isBlackFrame(img image.Image) bool {
 		}
 	}
 	return true
+}
+
+// sampleFingerprint computes a quick hash of sparsely sampled pixel values.
+// Two frames with the same fingerprint are effectively identical.
+func sampleFingerprint(img image.Image) uint64 {
+	bounds := img.Bounds()
+	step := 1
+	if w := bounds.Dx(); w > 100 {
+		step = w / 50
+	}
+	var h uint64
+	for y := bounds.Min.Y; y < bounds.Max.Y; y += step {
+		for x := bounds.Min.X; x < bounds.Max.X; x += step {
+			r, g, b, _ := img.At(x, y).RGBA()
+			// FNV-1a-style mixing
+			h ^= uint64(r>>8)<<16 | uint64(g>>8)<<8 | uint64(b>>8)
+			h *= 0x100000001b3
+		}
+	}
+	return h
 }
 
 // cropThreshold is the per-channel brightness (0-255) below which a pixel is
@@ -455,9 +488,9 @@ func isMajorCropChange(activeCrop, newRect, fullBounds image.Rectangle) bool {
 	return oldLandscape != newLandscape
 }
 
-// InitObserver starts the AVFoundation device observer which automatically
-// registers and unregisters camera drivers as hardware is plugged/unplugged.
-// Must be called once at startup before any device detection.
+// InitObserver starts the platform device observer (macOS only) which
+// automatically registers/unregisters camera drivers on hotplug.
+// On Linux this is a no-op; the CaptureManager re-scans devices each loop iteration instead.
 func InitObserver() error {
 	return camera.StartObserver()
 }
@@ -482,6 +515,7 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 	// Query device capabilities and pick the best matching format.
 	props := d.Properties()
 	if len(props) == 0 {
+		d.Close()
 		return nil, fmt.Errorf("device %q reported no supported formats", dev.Name)
 	}
 
@@ -489,11 +523,13 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 
 	recorder, ok := d.(driver.VideoRecorder)
 	if !ok {
+		d.Close()
 		return nil, fmt.Errorf("device %q does not support video recording", dev.Name)
 	}
 
 	reader, err := recorder.VideoRecord(best)
 	if err != nil {
+		d.Close()
 		return nil, fmt.Errorf("failed to start recording on %q: %w", dev.Name, err)
 	}
 
@@ -503,10 +539,11 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 		defer d.Close()
 
 		var consecutiveErrors int
-		var consecutiveBlack int
+		var consecutiveStatic int
 		var activeCrop image.Rectangle
 		var frameCount int
 		var prevBlack bool
+		var prevFingerprint uint64
 		jpegOpts := &jpeg.Options{}
 		for {
 			select {
@@ -529,30 +566,40 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 			consecutiveErrors = 0
 			frameCount++
 
+			// No-signal detection: a real no-signal produces identical
+			// black frames.  Dark movie content varies frame-to-frame
+			// due to compression noise, so we require both conditions.
 			black := isBlackFrame(img)
-			if black {
-				consecutiveBlack++
-				if consecutiveBlack == maxConsecutiveBlack {
-					log.Printf("device %q: no signal (black frames)", dev.Name)
+			fp := sampleFingerprint(img)
+			static := fp == prevFingerprint
+			prevFingerprint = fp
+			if black && static {
+				consecutiveStatic++
+				if consecutiveStatic == maxConsecutiveBlack {
+					log.Printf("device %q: no signal (static black frames)", dev.Name)
 					buf.SetStatus(StatusNoSignal)
 				}
 			} else {
-				if consecutiveBlack >= maxConsecutiveBlack {
+				if consecutiveStatic >= maxConsecutiveBlack {
 					log.Printf("device %q: signal restored", dev.Name)
 					buf.SetStatus(StatusConnected)
 				}
-				consecutiveBlack = 0
+				consecutiveStatic = 0
 			}
 
 			// Periodic crop detection: first frame, every ~1 s, or on signal transitions.
 			transitioned := black != prevBlack
 			prevBlack = black
 			fullBounds := img.Bounds()
-			if frameCount == 1 || transitioned || frameCount%fps == 0 {
-				rect := detectContentRect(img, cropThreshold)
-				if isMajorCropChange(activeCrop, rect, fullBounds) {
-					activeCrop = rect
+			if buf.Autocrop() {
+				if frameCount == 1 || transitioned || frameCount%fps == 0 {
+					rect := detectContentRect(img, cropThreshold)
+					if isMajorCropChange(activeCrop, rect, fullBounds) {
+						activeCrop = rect
+					}
 				}
+			} else {
+				activeCrop = image.Rectangle{}
 			}
 
 			if activeCrop == (image.Rectangle{}) || activeCrop == fullBounds {
@@ -669,7 +716,10 @@ func (cm *CaptureManager) Run() {
 	for {
 		cm.Buf.SetStatus(StatusConnecting)
 
-		// Try to detect a device from the driver manager (kept current by the observer).
+		// Re-scan /dev/video* so the driver manager picks up
+		// newly connected (or reconnected) devices on Linux.
+		camera.Initialize()
+
 		dev, err := DetectDevice(cm.Filter)
 		if err != nil {
 			select {
@@ -686,7 +736,6 @@ func (cm *CaptureManager) Run() {
 		cm.mu.Lock()
 		cm.device = dev
 		cm.mu.Unlock()
-		retryDelay = 2 * time.Second
 		cm.Buf.SetStatus(StatusConnected)
 
 		log.Printf("device %q detected, starting capture", dev.Name)
@@ -707,6 +756,7 @@ func (cm *CaptureManager) Run() {
 			}
 		}
 
+		retryDelay = 2 * time.Second
 		cm.Buf.SetStatus(StatusConnected)
 
 		// Start audio capture (optional — failure is non-fatal).
