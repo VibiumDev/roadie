@@ -45,6 +45,9 @@ Byte 1: echo of sequence number
 |------|------|---------|------|
 | 0x00 | NOOP | (none) | — |
 | 0x01 | PING | (none) | yes |
+| 0x40 | RESET | (none) | yes |
+
+RESET reboots the HID board via `microcontroller.reset()`. The board sends an OK response before resetting, so the relay receives confirmation. The HID board restarts in ~1-2 seconds.
 
 ### Keyboard
 
@@ -109,7 +112,11 @@ The relay board accepts newline-delimited JSON on its USB CDC data port. The Go 
 {"cmd":"mouse_release","buttons":1}
 {"cmd":"mouse_scroll","amount":5}
 {"cmd":"touch","contacts":[{"id":0,"tip":true,"x":16383,"y":16383}]}
+{"cmd":"reset_hid"}
+{"cmd":"reset_self"}
 ```
+
+`reset_hid` translates to the binary RESET command sent over UART to the HID board. `reset_self` reboots the relay board directly (no UART involved).
 
 ## Heartbeat
 

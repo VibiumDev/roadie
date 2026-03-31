@@ -122,6 +122,36 @@ Service status and device info.
 
 ---
 
+## Device Reset
+
+### `POST /api/capture/reset`
+Reset the USB capture device (unbind/rebind). Forces HDMI re-negotiation — useful when the signal is glitchy after initial connection. The stream will briefly disconnect and auto-recover.
+
+**Response:**
+```json
+{"status": "ok"}
+```
+
+Requires Linux and a udev rule (installed by `make setup`). Returns `503` if capture is not available.
+
+### `POST /api/hid/reset`
+Reset the HID board. The relay sends a reset command over UART; the HID board reboots.
+
+**Response:**
+```json
+{"status": "ok"}
+```
+
+### `POST /api/relay/reset`
+Reset the relay board. The board reboots immediately, dropping the USB serial connection. The server auto-reconnects within a few seconds.
+
+**Response:**
+```json
+{"status": "ok"}
+```
+
+---
+
 ## HID Control
 
 All HID endpoints require the relay board to be connected via USB serial. Returns `503` if HID is not available.

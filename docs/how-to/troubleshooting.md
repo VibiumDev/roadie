@@ -70,6 +70,25 @@ ioreg -n Roadie-Relay -r -l | grep IOCalloutDevice
 
 If no results, the relay board isn't plugged in or isn't running CircuitPython with the correct `boot.py`.
 
+## Device Reset
+
+**Glitchy HDMI signal (wrong colors, static on first connection)**
+Use the Video Reset button in the settings panel, or:
+```bash
+curl -X POST http://localhost:8080/api/capture/reset
+```
+This performs a USB unbind/rebind on the capture dongle, forcing HDMI re-negotiation. Requires `make setup` to install the udev rule.
+
+**HID or relay board unresponsive**
+Reset the boards from the settings panel, or:
+```bash
+curl -X POST http://localhost:8080/api/hid/reset    # reset HID board
+curl -X POST http://localhost:8080/api/relay/reset   # reset relay board
+```
+
+**"permission denied" on capture reset**
+Run `make setup` to install the udev rule that grants access to USB unbind/rebind. You may need to unplug/replug the capture dongle once after installing the rule.
+
 ## Video Capture
 
 **"No capture device found"**
