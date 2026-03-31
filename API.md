@@ -275,6 +275,68 @@ No server-to-client messages. Connection auto-reconnects on the `/test` page.
 
 ---
 
+## WebDriver BiDi
+
+### `WS /session`
+
+A [WebDriver BiDi](https://w3c.github.io/webdriver-bidi/)-flavored WebSocket endpoint. This allows BiDi-speaking automation tools (like [Vibium](https://github.com/VibiumDev/vibium)) to control a physical device through Roadie using the same protocol they use for browsers.
+
+Roadie implements a minimal subset of BiDi — only the methods that map to hardware KVM capabilities.
+
+**Protocol:** JSON over WebSocket. Client sends `{"id": <int>, "method": "<method>", "params": {...}}`. Server responds with `{"type": "success", "id": <int>, "result": {...}}` or `{"type": "error", "id": <int>, "error": "<code>", "message": "<detail>"}`.
+
+**Supported methods:**
+
+| Method | Description |
+|--------|-------------|
+| `session.status` | Check if Roadie is ready (capture + HID connected) |
+| `session.new` | Create a session (one at a time) |
+| `session.end` | End the session, release all held input |
+| `browsingContext.getTree` | Returns a single context (`"screen"`) representing the target display |
+| `browsingContext.captureScreenshot` | Returns a base64-encoded JPEG of the current frame |
+| `roadie:screen.getViewport` | Returns the current viewport (cropped image) width and height |
+| `input.performActions` | Execute keyboard, mouse, and touch actions |
+| `input.releaseActions` | Release all held keys, buttons, and touches |
+
+**Example session (using [websocat](https://github.com/vi/websocat)):**
+
+```bash
+websocat ws://localhost:8080/session
+```
+
+```json
+{"id": 1, "method": "session.new", "params": {"capabilities": {}}}
+{"id": 2, "method": "roadie:screen.getViewport", "params": {}}
+{"id": 3, "method": "browsingContext.captureScreenshot", "params": {"context": "screen"}}
+{"id": 4, "method": "input.performActions", "params": {"context": "screen", "actions": [{"type": "pointer", "id": "mouse", "actions": [{"type": "pointerMove", "x": 243, "y": 530}, {"type": "pointerDown", "button": 0}, {"type": "pointerUp", "button": 0}]}]}}
+{"id": 5, "method": "input.performActions", "params": {"context": "screen", "actions": [{"type": "pointer", "id": "finger0", "parameters": {"pointerType": "touch"}, "actions": [{"type": "pointerMove", "x": 243, "y": 530}, {"type": "pointerDown", "button": 0}, {"type": "pointerUp", "button": 0}]}]}}
+{"id": 6, "method": "session.end", "params": {}}
+```
+
+**Example: draw a checkbox with touch (using [websocat](https://github.com/vi/websocat)):**
+
+Draws a square then a checkmark whose final stroke extends past the box.
+
+```bash
+websocat ws://localhost:8080/session
+```
+
+```json
+{"id": 1, "method": "session.new", "params": {"capabilities": {}}}
+{"id": 2, "method": "input.performActions", "params": {"context": "screen", "actions": [{"type": "pointer", "id": "finger0", "parameters": {"pointerType": "touch"}, "actions": [{"type": "pointerMove", "x": 143, "y": 430}, {"type": "pointerDown", "button": 0}, {"type": "pointerMove", "x": 343, "y": 430, "duration": 250}, {"type": "pointerMove", "x": 343, "y": 630, "duration": 250}, {"type": "pointerMove", "x": 143, "y": 630, "duration": 250}, {"type": "pointerMove", "x": 143, "y": 430, "duration": 250}, {"type": "pointerUp", "button": 0}, {"type": "pointerMove", "x": 170, "y": 510}, {"type": "pointerDown", "button": 0}, {"type": "pointerMove", "x": 230, "y": 580, "duration": 200}, {"type": "pointerMove", "x": 370, "y": 380, "duration": 350}, {"type": "pointerUp", "button": 0}]}]}}
+{"id": 3, "method": "session.end", "params": {}}
+```
+
+**Viewport size:** `session.new` returns `roadie:viewport: {width, height}` in capabilities, and `browsingContext.captureScreenshot` includes it in the result. This tells you the coordinate space for `input.performActions` — pixel coordinates are relative to this viewport (the cropped screenshot). Roadie translates them to the 0–32767 HID absolute coordinate range internally.
+
+**Touch input:** Use pointer actions with `"parameters": {"pointerType": "touch"}`. Up to 2 simultaneous touch contacts are supported.
+
+**Key input:** Key values follow the [WebDriver key mapping](https://w3c.github.io/webdriver/#keyboard-actions) — printable characters as literals, special keys as Unicode Private Use Area values (e.g., `"\uE007"` for Enter, `"\uE008"` for Shift).
+
+**Session limit:** Only one BiDi session can be active at a time. The session is automatically cleaned up when the WebSocket disconnects.
+
+---
+
 ## USB HID Keycodes
 
 Common keycodes for use with `/api/hid/key` and the WebSocket `key_press`/`key_release` commands.

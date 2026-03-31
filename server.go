@@ -44,6 +44,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/api/hid/touch", s.handleHIDTouch)
 	mux.HandleFunc("/api/hid/status", s.handleHIDStatus)
 	mux.HandleFunc("/api/hid/ws", s.handleHIDWebSocket)
+	mux.HandleFunc("/session", s.handleBiDi)
 	return mux
 }
 
