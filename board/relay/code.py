@@ -6,10 +6,11 @@ import board
 import busio
 import usb_cdc
 import digitalio
+import microcontroller
 import neopixel_write
 from protocol import (
     MSG_SIZE, RESP_SIZE, BAUD, STATUS_OK,
-    CMD_PING, CMD_KEY_TYPE,
+    CMD_PING, CMD_KEY_TYPE, CMD_RESET,
     pack_msg, pack_key_press, pack_key_release, pack_key_type,
     pack_mouse_move, pack_mouse_click, pack_mouse_press, pack_mouse_release,
     pack_mouse_scroll, pack_touch,
@@ -95,6 +96,8 @@ def translate(d):
         for c in d.get("contacts", []):
             contacts.append((c["id"], 1 if c["tip"] else 0, c["x"], c["y"]))
         return [("nowait", pack_touch(next_seq(), contacts))]
+    elif cmd == "reset_hid":
+        return [pack_msg(CMD_RESET, next_seq())]
     else:
         print("unknown cmd: %s" % cmd)
         return []
@@ -107,6 +110,10 @@ def process_command(line):
     except ValueError:
         print("json err: %s" % line)
         return
+
+    if d.get("cmd") == "reset_self":
+        microcontroller.reset()
+        return  # unreachable, but clear
 
     msgs = translate(d)
     for i, item in enumerate(msgs):

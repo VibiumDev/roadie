@@ -8,11 +8,12 @@ import usb_hid
 from adafruit_hid.keyboard import Keyboard
 from adafruit_hid.keyboard_layout_us import KeyboardLayoutUS
 from absolute_mouse import Mouse as AbsoluteMouse
+import microcontroller
 from protocol import (
     MSG_SIZE, BAUD, STATUS_OK, STATUS_ERR,
     CMD_PING, CMD_KEY_PRESS, CMD_KEY_RELEASE, CMD_KEY_TYPE,
     CMD_MOUSE_MOVE, CMD_MOUSE_CLICK, CMD_MOUSE_PRESS, CMD_MOUSE_RELEASE,
-    CMD_MOUSE_SCROLL, CMD_TOUCH,
+    CMD_MOUSE_SCROLL, CMD_TOUCH, CMD_RESET,
     unpack_msg, pack_resp,
 )
 from digitizer import Digitizer
@@ -109,6 +110,9 @@ def handle_command(cmd, seq, payload):
             digitizer.touch(contacts)
             return STATUS_OK
 
+        elif cmd == CMD_RESET:
+            return STATUS_OK  # response sent by caller, then main loop resets
+
         else:
             print("unknown cmd: 0x%02x" % cmd)
             return STATUS_ERR
@@ -136,6 +140,10 @@ while True:
 
         status = handle_command(cmd, seq, payload)
         uart.write(pack_resp(status, seq))
+
+        if cmd == CMD_RESET:
+            time.sleep(0.05)  # let UART flush
+            microcontroller.reset()
 
         # skip LED blink for high-frequency commands to avoid back-pressure
         if cmd not in (CMD_KEY_PRESS, CMD_KEY_RELEASE, CMD_MOUSE_MOVE, CMD_MOUSE_SCROLL, CMD_TOUCH):

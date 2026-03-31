@@ -93,10 +93,35 @@ func (hc *HIDController) Run() {
 		retryDelay = 2 * time.Second
 		log.Printf("HID relay connected: %s", path)
 
-		// Wait for disconnect or shutdown.
-		<-hc.ctx.Done()
-		port.Close()
-		return
+		// Monitor connection: periodic pings detect disconnect.
+		for {
+			select {
+			case <-hc.ctx.Done():
+				port.Close()
+				return
+			case <-time.After(5 * time.Second):
+				hc.mu.Lock()
+				disconnected := hc.port == nil
+				hc.mu.Unlock()
+				if disconnected {
+					log.Printf("HID relay disconnected")
+					break
+				}
+				if err := hc.Ping(); err != nil {
+					log.Printf("HID relay ping failed: %v", err)
+					break
+				}
+				continue
+			}
+			break
+		}
+
+		// Small delay before reconnect attempt.
+		select {
+		case <-hc.ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
 	}
 }
 
@@ -212,6 +237,18 @@ type TouchContact struct {
 // Touch sends a multi-touch report with up to 2 contacts.
 func (hc *HIDController) Touch(contacts []TouchContact) error {
 	return hc.sendJSON(map[string]any{"cmd": "touch", "contacts": contacts})
+}
+
+// ResetHID sends a reset command to the HID board via the relay.
+// The HID board will reboot after acknowledging the command.
+func (hc *HIDController) ResetHID() error {
+	return hc.sendJSON(map[string]any{"cmd": "reset_hid"})
+}
+
+// ResetRelay sends a reset command that causes the relay board to reboot.
+// The serial connection will drop and reconnect automatically.
+func (hc *HIDController) ResetRelay() error {
+	return hc.sendJSON(map[string]any{"cmd": "reset_self"})
 }
 
 func findRelayPort() (string, error) {

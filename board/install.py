@@ -39,8 +39,8 @@ VENV_DIR = REPO_ROOT / ".venv"
 # ---------------------------------------------------------------------------
 
 BOARDS = {
-    "relay": {"volume": "ROADIE_RLY", "label": "📥 IN"},
-    "hid":   {"volume": "ROADIE_HID", "label": "📤 OUT"},
+    "relay": {"volume": "ROADIE_RLY", "label": "📥 IN", "name": "Relay"},
+    "hid":   {"volume": "ROADIE_HID", "label": "📤 OUT", "name": "HID"},
 }
 
 # All volume names we might find a CircuitPython board mounted as
@@ -544,7 +544,7 @@ def main():
                 fail(f"{volume_name} not mounted. Is the {board} board plugged in?")
             if sync_board(board):
                 need_power_cycle.append(board)
-            info(f"{board} synced")
+            info(f"{BOARDS[board]['name']} synced.")
             # Board may remount after file changes trigger a reload.
             # Wait for it to settle, then eject. Retry if it remounts.
             time.sleep(MOUNT_SETTLE)

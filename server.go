@@ -37,6 +37,8 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/audio", s.handleAudio)
 	mux.HandleFunc("/test", s.handleTest)
 	mux.HandleFunc("/api/capture/reset", s.handleCaptureReset)
+	mux.HandleFunc("/api/hid/reset", s.handleHIDReset)
+	mux.HandleFunc("/api/relay/reset", s.handleRelayReset)
 	mux.HandleFunc("/api/hid/type", s.handleHIDType)
 	mux.HandleFunc("/api/hid/key", s.handleHIDKey)
 	mux.HandleFunc("/api/hid/mouse/move", s.handleHIDMouseMove)
@@ -143,6 +145,14 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.1);">
         <label style="min-width:55px;">Video</label>
         <button id="resetVideoBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer;">Reset</button>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+        <label style="min-width:55px;">HID</label>
+        <button id="resetHIDBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer;">Reset</button>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+        <label style="min-width:55px;">Relay</label>
+        <button id="resetRelayBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer;">Reset</button>
       </div>
     </div>
   </div>
@@ -513,8 +523,8 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       if (saved.zoom !== undefined) { applyZoom(saved.zoom); }
     })();
 
-    (function() {
-      var btn = document.getElementById('resetVideoBtn');
+    function setupResetBtn(id, url) {
+      var btn = document.getElementById(id);
       var armed = false, armTimer;
       function disarm() {
         if (!armed) return;
@@ -539,7 +549,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         disarm();
         btn.disabled = true;
         btn.textContent = 'Resetting\u2026';
-        fetch('/api/capture/reset', {method:'POST'}).then(function(r){ return r.json(); }).then(function(){
+        fetch(url, {method:'POST'}).then(function(r){ return r.json(); }).then(function(){
           btn.textContent = 'Reset';
           btn.disabled = false;
         }).catch(function(){
@@ -547,7 +557,10 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
           btn.disabled = false;
         });
       };
-    })();
+    }
+    setupResetBtn('resetVideoBtn', '/api/capture/reset');
+    setupResetBtn('resetHIDBtn', '/api/hid/reset');
+    setupResetBtn('resetRelayBtn', '/api/relay/reset');
 
     // --- HID WebSocket ---
     var hidWs = null, hidReady = false;
@@ -996,6 +1009,40 @@ func (s *Server) handleCaptureReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Capture.ResetUSB(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleHIDReset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.HID == nil {
+		http.Error(w, "HID not available", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.HID.ResetHID(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleRelayReset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.HID == nil {
+		http.Error(w, "HID not available", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.HID.ResetRelay(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

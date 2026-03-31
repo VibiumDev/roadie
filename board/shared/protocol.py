@@ -19,6 +19,8 @@ CMD_MOUSE_SCROLL  = 0x24
 
 CMD_TOUCH         = 0x30
 
+CMD_RESET         = 0x40
+
 # status codes (returned in 2-byte response)
 STATUS_OK   = 0x00
 STATUS_ERR  = 0x01
