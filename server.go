@@ -36,6 +36,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/api/settings", s.handleAPISettings)
 	mux.HandleFunc("/audio", s.handleAudio)
 	mux.HandleFunc("/test", s.handleTest)
+	mux.HandleFunc("/api/capture/reset", s.handleCaptureReset)
 	mux.HandleFunc("/api/hid/type", s.handleHIDType)
 	mux.HandleFunc("/api/hid/key", s.handleHIDKey)
 	mux.HandleFunc("/api/hid/mouse/move", s.handleHIDMouseMove)
@@ -139,6 +140,10 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
           <button id="alignCenterBtn" style="padding:2px 10px; background:#333; color:#888; border:1px solid #555; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Center</button>
         </div>
       </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.1);">
+        <label style="min-width:55px;">Video</label>
+        <button id="resetVideoBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer;">Reset</button>
+      </div>
     </div>
   </div>
   <script>
@@ -170,15 +175,19 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 
     img.onload = function() { tryHideOverlay(); };
     img.onerror = function() { wasOk = false; showOverlay(); };
+    var prevHealthOk = true;
 
     function poll() {
       fetch('/health').then(function(r){ return r.json(); }).then(function(data){
         if (data.status === 'ok') {
+          if (!prevHealthOk) { wasOk = false; }
           healthOk = true;
+          prevHealthOk = true;
           startStream();
           tryHideOverlay();
         } else {
           healthOk = false;
+          prevHealthOk = false;
           if (data.status === 'no_signal') { showOverlay('No signal \u2014 check HDMI connection to capture device'); }
           else if (data.status === 'connecting') { showOverlay('Connecting\u2026'); }
           else { showOverlay(); }
@@ -502,6 +511,42 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
       if (saved.alignment) { applyAlignment(saved.alignment); }
       if (saved.zoom !== undefined) { applyZoom(saved.zoom); }
+    })();
+
+    (function() {
+      var btn = document.getElementById('resetVideoBtn');
+      var armed = false, armTimer;
+      function disarm() {
+        if (!armed) return;
+        clearTimeout(armTimer);
+        armed = false;
+        btn.textContent = 'Reset';
+        btn.style.background = '#633';
+        btn.style.borderColor = '#955';
+      }
+      document.getElementById('qslider').addEventListener('click', function(e) {
+        if (e.target !== btn) disarm();
+      });
+      btn.onclick = function() {
+        if (!armed) {
+          armed = true;
+          btn.textContent = 'Confirm';
+          btn.style.background = '#a33';
+          btn.style.borderColor = '#f66';
+          armTimer = setTimeout(disarm, 3000);
+          return;
+        }
+        disarm();
+        btn.disabled = true;
+        btn.textContent = 'Resetting\u2026';
+        fetch('/api/capture/reset', {method:'POST'}).then(function(r){ return r.json(); }).then(function(){
+          btn.textContent = 'Reset';
+          btn.disabled = false;
+        }).catch(function(){
+          btn.textContent = 'Reset';
+          btn.disabled = false;
+        });
+      };
     })();
 
     // --- HID WebSocket ---
@@ -939,6 +984,23 @@ func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) handleCaptureReset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.Capture == nil {
+		http.Error(w, "capture not available", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.Capture.ResetUSB(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {

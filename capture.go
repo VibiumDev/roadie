@@ -16,6 +16,7 @@ import (
 	"github.com/pion/mediadevices"
 	"github.com/pion/mediadevices/pkg/driver"
 	"github.com/pion/mediadevices/pkg/driver/camera"
+	"github.com/pion/mediadevices/pkg/driver/microphone"
 	"github.com/pion/mediadevices/pkg/prop"
 )
 
@@ -681,6 +682,7 @@ type CaptureManager struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	settingsChanged chan struct{}
+	usbReset        chan chan error
 
 	mu     sync.RWMutex
 	device deviceInfo
@@ -696,6 +698,7 @@ func NewCaptureManager(filter string, buf *FrameBuffer, ab *AudioBroadcaster) *C
 		ctx:             ctx,
 		cancel:          cancel,
 		settingsChanged: make(chan struct{}, 1),
+		usbReset:        make(chan chan error),
 	}
 }
 
@@ -716,9 +719,15 @@ func (cm *CaptureManager) Run() {
 	for {
 		cm.Buf.SetStatus(StatusConnecting)
 
-		// Re-scan /dev/video* so the driver manager picks up
-		// newly connected (or reconnected) devices on Linux.
+		// Re-scan /dev/video* and audio devices so the driver manager
+		// picks up newly connected (or reconnected) devices on Linux.
 		camera.Initialize()
+		// Clear stale microphone drivers and re-register fresh ones.
+		mgr := driver.GetManager()
+		for _, d := range mgr.Query(driver.FilterAudioRecorder()) {
+			mgr.Delete(d.ID())
+		}
+		microphone.Initialize()
 
 		dev, err := DetectDevice(cm.Filter)
 		if err != nil {
@@ -781,16 +790,27 @@ func (cm *CaptureManager) Run() {
 
 		// Monitor: wait for device disconnect, shutdown, or settings change.
 		reason := cm.monitorCapture(done)
+		log.Printf("capture monitor exited: reason=%s", reason)
 
 		// Tear down capture + audio.
 		captureCancel()
 		if audioCancel != nil {
 			audioCancel()
 		}
+		// Wait for capture + audio goroutines — with a timeout for USB reset,
+		// where readers may be stuck on dead file descriptors.
 		if audioDone != nil {
-			<-audioDone
+			select {
+			case <-audioDone:
+			case <-time.After(5 * time.Second):
+				log.Printf("audio capture goroutine did not exit in time, proceeding")
+			}
 		}
-		<-done
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			log.Printf("capture goroutine did not exit in time, proceeding")
+		}
 
 		switch reason {
 		case "shutdown":
@@ -804,12 +824,15 @@ func (cm *CaptureManager) Run() {
 			}
 		case "settings":
 			log.Printf("settings changed, restarting capture on %q", dev.Name)
+		case "reset":
+			cm.Buf.Clear()
+			log.Printf("USB reset on %q, restarting capture", dev.Name)
 		}
 	}
 }
 
-// monitorCapture watches for device disconnect, shutdown, or settings change.
-// Returns the reason: "disconnect", "shutdown", or "settings".
+// monitorCapture watches for device disconnect, shutdown, settings change, or USB reset.
+// Returns the reason: "disconnect", "shutdown", "settings", or "reset".
 func (cm *CaptureManager) monitorCapture(done <-chan struct{}) string {
 	select {
 	case <-cm.ctx.Done():
@@ -818,6 +841,29 @@ func (cm *CaptureManager) monitorCapture(done <-chan struct{}) string {
 		return "disconnect"
 	case <-cm.settingsChanged:
 		return "settings"
+	case result := <-cm.usbReset:
+		log.Println("resetting USB capture device")
+		err := resetCaptureUSB()
+		if err != nil {
+			log.Printf("USB reset failed: %v", err)
+		} else {
+			log.Println("USB capture device reset complete")
+		}
+		result <- err
+		return "reset"
+	}
+}
+
+// ResetUSB performs a USB unbind/rebind on the capture device, forcing
+// HDMI re-negotiation. The request is handled by the capture loop to
+// ensure proper sequencing: unbind → rebind → re-detect.
+func (cm *CaptureManager) ResetUSB() error {
+	result := make(chan error, 1)
+	select {
+	case cm.usbReset <- result:
+		return <-result
+	case <-cm.ctx.Done():
+		return cm.ctx.Err()
 	}
 }
 

@@ -1,6 +1,6 @@
 BINARY = roadie
 
-.PHONY: build test setup flash-relay flash-hid flash-relay-quick flash-hid-quick sync sync-hid sync-relay test-circular clean
+.PHONY: build test setup uninstall flash-relay flash-hid flash-relay-quick flash-hid-quick sync sync-hid sync-relay test-circular clean
 
 build:
 	go build -o $(BINARY) .
@@ -10,7 +10,10 @@ test:
 
 setup:
 	python3 board/install.py --setup-only
-	sudo cp board/99-roadie-hid.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules
+	sudo cp board/99-roadie-hid.rules board/99-roadie-capture.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger
+
+uninstall:
+	sudo rm -f /etc/udev/rules.d/99-roadie-hid.rules /etc/udev/rules.d/99-roadie-capture.rules && sudo udevadm control --reload-rules
 
 flash-relay:
 	python3 board/install.py relay

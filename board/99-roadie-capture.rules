@@ -1,0 +1,5 @@
+# Roadie Capture: allow the current user's group to reset USB capture devices
+# by writing to the kernel's USB driver unbind/bind files.
+SUBSYSTEM=="usb", DRIVER=="uvcvideo", \
+  RUN+="/bin/chmod 0660 /sys/bus/usb/drivers/usb/unbind /sys/bus/usb/drivers/usb/bind", \
+  RUN+="/bin/chgrp video /sys/bus/usb/drivers/usb/unbind /sys/bus/usb/drivers/usb/bind"
