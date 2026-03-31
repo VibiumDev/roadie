@@ -660,13 +660,11 @@ func (cm *CaptureManager) NotifySettingsChanged() {
 	}
 }
 
-// Run loops: detect device → wait for viewers → start capture → monitor → repeat.
-// Capture only runs while at least one client is streaming. A grace period
-// prevents thrashing on page refreshes.
+// Run loops: detect device → start capture → monitor → repeat.
+// Capture runs continuously while a device is connected.
 func (cm *CaptureManager) Run() {
 	retryDelay := 2 * time.Second
 	const maxRetryDelay = 30 * time.Second
-	const gracePeriod = 5 * time.Second
 
 	for {
 		cm.Buf.SetStatus(StatusConnecting)
@@ -691,13 +689,7 @@ func (cm *CaptureManager) Run() {
 		retryDelay = 2 * time.Second
 		cm.Buf.SetStatus(StatusConnected)
 
-		// Device found — wait for viewers before starting capture.
-		log.Printf("device %q detected, waiting for viewers", dev.Name)
-		if !cm.waitForViewers() {
-			return // shutdown
-		}
-
-		log.Printf("viewer connected, starting capture on %q", dev.Name)
+		log.Printf("device %q detected, starting capture", dev.Name)
 
 		captureCtx, captureCancel := context.WithCancel(cm.ctx)
 		done, err := StartCapture(captureCtx, dev, cm.Buf.Width(), cm.Buf.Height(), cm.Buf.FPS(), cm.Buf)
@@ -737,8 +729,8 @@ func (cm *CaptureManager) Run() {
 			}
 		}
 
-		// Monitor: wait for device disconnect, shutdown, or all viewers gone.
-		reason := cm.monitorCapture(done, gracePeriod)
+		// Monitor: wait for device disconnect, shutdown, or settings change.
+		reason := cm.monitorCapture(done)
 
 		// Tear down capture + audio.
 		captureCancel()
@@ -760,70 +752,22 @@ func (cm *CaptureManager) Run() {
 				return
 			case <-time.After(2 * time.Second):
 			}
-		case "idle":
-			log.Printf("no viewers, pausing capture on %q", dev.Name)
-			// Loop back — will re-detect device and wait for viewers.
 		case "settings":
 			log.Printf("settings changed, restarting capture on %q", dev.Name)
-			// Loop back — will re-detect device and start immediately (viewers still connected).
 		}
 	}
 }
 
-// waitForViewers blocks until at least one viewer connects or the context is cancelled.
-// Returns true if viewers appeared, false on shutdown.
-func (cm *CaptureManager) waitForViewers() bool {
-	for {
-		if cm.Buf.Viewers() > 0 {
-			return true
-		}
-		select {
-		case <-cm.ctx.Done():
-			return false
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
-}
-
-// monitorCapture watches for device disconnect, shutdown, settings change, or all viewers leaving.
-// Returns the reason: "disconnect", "shutdown", "settings", or "idle".
-func (cm *CaptureManager) monitorCapture(done <-chan struct{}, grace time.Duration) string {
-	var graceTimer *time.Timer
-	var graceC <-chan time.Time
-
-	for {
-		select {
-		case <-cm.ctx.Done():
-			if graceTimer != nil {
-				graceTimer.Stop()
-			}
-			return "shutdown"
-		case <-done:
-			if graceTimer != nil {
-				graceTimer.Stop()
-			}
-			return "disconnect"
-		case <-cm.settingsChanged:
-			if graceTimer != nil {
-				graceTimer.Stop()
-			}
-			return "settings"
-		case <-graceC:
-			return "idle"
-		case <-time.After(500 * time.Millisecond):
-			if cm.Buf.Viewers() == 0 {
-				if graceTimer == nil {
-					graceTimer = time.NewTimer(grace)
-					graceC = graceTimer.C
-				}
-			} else {
-				if graceTimer != nil {
-					graceTimer.Stop()
-					graceTimer = nil
-					graceC = nil
-				}
-			}
-		}
+// monitorCapture watches for device disconnect, shutdown, or settings change.
+// Returns the reason: "disconnect", "shutdown", or "settings".
+func (cm *CaptureManager) monitorCapture(done <-chan struct{}) string {
+	select {
+	case <-cm.ctx.Done():
+		return "shutdown"
+	case <-done:
+		return "disconnect"
+	case <-cm.settingsChanged:
+		return "settings"
 	}
 }
 
