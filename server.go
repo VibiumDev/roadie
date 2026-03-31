@@ -876,7 +876,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 			"channels":   p.Channels,
 		}
 	}
-	json.NewEncoder(w).Encode(resp)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	enc.Encode(resp)
 }
 
 func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
