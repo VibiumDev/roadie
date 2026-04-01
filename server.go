@@ -63,6 +63,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 <style>
 body { font-family: monospace; max-width: 600px; margin: 40px auto; padding: 0 20px; }
 a { color: #0066cc; }
+li { padding: 8px 0; font-size: 1.1em; }
 </style>
 </head>
 <body>
@@ -91,6 +92,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
   :root[data-theme="light"] { --page-bg:#e8e8ed; --kbd-bg:#d4d4d9; --kbd-key:rgba(255,255,255,0.85); --kbd-key-active:rgba(255,255,255,0.55); --kbd-text:#1a1a1a; --kbd-border:rgba(0,0,0,0.08); }
   @media (prefers-color-scheme:light) { :root[data-theme="system"] { --page-bg:#e8e8ed; --kbd-bg:#d4d4d9; --kbd-key:rgba(255,255,255,0.85); --kbd-key-active:rgba(255,255,255,0.55); --kbd-text:#1a1a1a; --kbd-border:rgba(0,0,0,0.08); } }
   body { background:var(--page-bg); }
+  @keyframes spin { to { transform:rotate(360deg); } }
   #onscreen-kbd .kr { display:flex; gap:3px; margin-bottom:3px; justify-content:center; }
   #onscreen-kbd .kr:last-child { margin-bottom:0; }
   #onscreen-kbd .kk { width:40px; height:40px; flex-shrink:0; background:var(--kbd-key); color:var(--kbd-text); border:1px solid var(--kbd-border); border-radius:5px; font-family:-apple-system,BlinkMacSystemFont,sans-serif; font-size:12px; font-weight:400; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
@@ -192,15 +194,15 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.1);">
         <label style="min-width:55px;">Video</label>
-        <button id="resetVideoBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer;">Reset</button>
+        <button id="resetVideoBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">HID</label>
-        <button id="resetHIDBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer;">Reset</button>
+        <button id="resetHIDBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">Relay</label>
-        <button id="resetRelayBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer;">Reset</button>
+        <button id="resetRelayBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>
       </div>
     </div>
   </div>
@@ -594,38 +596,44 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 
     function setupResetBtn(id, url) {
       var btn = document.getElementById(id);
-      var armed = false, armTimer;
-      function disarm() {
-        if (!armed) return;
-        clearTimeout(armTimer);
-        armed = false;
-        btn.textContent = 'Reset';
-        btn.style.background = '#633';
-        btn.style.borderColor = '#955';
-      }
-      document.getElementById('qslider').addEventListener('click', function(e) {
-        if (e.target !== btn) disarm();
-      });
-      btn.onclick = function() {
-        if (!armed) {
-          armed = true;
-          btn.textContent = 'Confirm';
-          btn.style.background = '#a33';
-          btn.style.borderColor = '#f66';
-          armTimer = setTimeout(disarm, 3000);
-          return;
+      var fill = document.createElement('div');
+      fill.style.cssText = 'position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,80,80,0.4);transition:none;pointer-events:none;';
+      btn.appendChild(fill);
+      var label = document.createElement('span');
+      label.style.position = 'relative';
+      label.textContent = 'Reset';
+      btn.appendChild(label);
+      var raf = null, startTime = 0, HOLD_MS = 1500;
+      function animateFill() {
+        var elapsed = Date.now() - startTime;
+        var pct = Math.min(0.2 + (elapsed / HOLD_MS) * 0.8, 1);
+        fill.style.width = (pct * 100) + '%';
+        if (pct >= 1) {
+          cancelHold();
+          btn.style.minWidth = btn.offsetWidth + 'px';
+          label.innerHTML = '<svg style="animation:spin 1s linear infinite" xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41m-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9"/><path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5 5 0 0 0 8 3M3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9z"/></svg>';
+          btn.disabled = true;
+          fetch(url, {method:'POST'}).then(function(r){ return r.json(); }).then(function(){
+            setTimeout(function() { label.textContent = 'Reset'; btn.disabled = false; btn.style.minWidth = ''; }, 2000);
+          }).catch(function(){
+            setTimeout(function() { label.textContent = 'Reset'; btn.disabled = false; btn.style.minWidth = ''; }, 2000);
+          });
+        } else {
+          raf = requestAnimationFrame(animateFill);
         }
-        disarm();
-        btn.disabled = true;
-        btn.textContent = 'Resetting\u2026';
-        fetch(url, {method:'POST'}).then(function(r){ return r.json(); }).then(function(){
-          btn.textContent = 'Reset';
-          btn.disabled = false;
-        }).catch(function(){
-          btn.textContent = 'Reset';
-          btn.disabled = false;
-        });
-      };
+      }
+      function cancelHold() {
+        if (raf) { cancelAnimationFrame(raf); raf = null; }
+        fill.style.width = '0';
+        startTime = 0;
+      }
+      btn.addEventListener('pointerdown', function(e) {
+        e.preventDefault();
+        startTime = Date.now();
+        raf = requestAnimationFrame(animateFill);
+      });
+      btn.addEventListener('pointerup', cancelHold);
+      btn.addEventListener('pointerleave', cancelHold);
     }
     setupResetBtn('resetVideoBtn', '/api/capture/reset');
     setupResetBtn('resetHIDBtn', '/api/hid/reset');
@@ -878,8 +886,8 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         oskPanel.style.margin = '0 auto';
       }
     }
-    kbdBtn.onclick = function() {
-      oskVisible = !oskVisible;
+    function showKbd(show) {
+      oskVisible = show;
       if (oskVisible) {
         oskPanel.style.display = 'block';
         syncKbdWidth();
@@ -888,8 +896,11 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         oskPanel.style.display = 'none';
       }
       kbdBtn.style.opacity = oskVisible ? '1' : '0.4';
+    }
+    kbdBtn.onclick = function() {
+      showKbd(!oskVisible);
+      saveSettings({kbdVisible: oskVisible});
     };
-    window.addEventListener('resize', syncKbdWidth);
 
     var kbdZoomRange = document.getElementById('kbdZoomRange');
     var kbdZoomVal = document.getElementById('kbdZoomVal');
@@ -908,6 +919,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       var saved = {};
       try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
       if (saved.kbdZoom !== undefined) { kbdZoomPct = saved.kbdZoom; }
+      if (saved.kbdVisible) { showKbd(true); }
     })();
 
     var MOD_CODES = {224:1,225:1,226:1,227:1,228:1,229:1,230:1,231:1,57:1};
@@ -972,7 +984,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     // 15 cols x 6 rows ortholinear + gap + 4 numpad (on wide screens)
     // [label, keycode, width, sigil]
     var rows = [
-      {m:[['esc',41],['F1',58],['F2',59],['F3',60],['F4',61],['F5',62],['F6',63],['F7',64],['F8',65],['F9',66],['F10',67],['F11',68],['F12',69],['<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M.5 6a.5.5 0 0 0-.488.608l1.652 7.434A2.5 2.5 0 0 0 4.104 16h5.792a2.5 2.5 0 0 0 2.44-1.958l.131-.59a3 3 0 0 0 1.3-5.854l.221-.99A.5.5 0 0 0 13.5 6zM13 12.5a2 2 0 0 1-.316-.025l.867-3.898A2.001 2.001 0 0 1 13 12.5M2.64 13.825 1.123 7h11.754l-1.517 6.825A1.5 1.5 0 0 1 9.896 15H4.104a1.5 1.5 0 0 1-1.464-1.175"/><path d="m4.4.8-.003.004-.014.019a4 4 0 0 0-.204.31 2 2 0 0 0-.141.267c-.026.06-.034.092-.037.103v.004a.6.6 0 0 0 .091.248c.075.133.178.272.308.445l.01.012c.118.158.26.347.37.543.112.2.22.455.22.745 0 .188-.065.368-.119.494a3 3 0 0 1-.202.388 5 5 0 0 1-.253.382l-.018.025-.005.008-.002.002A.5.5 0 0 1 3.6 4.2l.003-.004.014-.019a4 4 0 0 0 .204-.31 2 2 0 0 0 .141-.267c.026-.06.034-.092.037-.103a.6.6 0 0 0-.09-.252A4 4 0 0 0 3.6 2.8l-.01-.012a5 5 0 0 1-.37-.543A1.53 1.53 0 0 1 3 1.5c0-.188.065-.368.119-.494.059-.138.134-.274.202-.388a6 6 0 0 1 .253-.382l.025-.035A.5.5 0 0 1 4.4.8m3 0-.003.004-.014.019a4 4 0 0 0-.204.31 2 2 0 0 0-.141.267c-.026.06-.034.092-.037.103v.004a.6.6 0 0 0 .091.248c.075.133.178.272.308.445l.01.012c.118.158.26.347.37.543.112.2.22.455.22.745 0 .188-.065.368-.119.494a3 3 0 0 1-.202.388 5 5 0 0 1-.253.382l-.018.025-.005.008-.002.002A.5.5 0 0 1 6.6 4.2l.003-.004.014-.019a4 4 0 0 0 .204-.31 2 2 0 0 0 .141-.267c.026-.06.034-.092.037-.103a.6.6 0 0 0-.09-.252A4 4 0 0 0 6.6 2.8l-.01-.012a5 5 0 0 1-.37-.543A1.53 1.53 0 0 1 6 1.5c0-.188.065-.368.119-.494.059-.138.134-.274.202-.388a6 6 0 0 1 .253-.382l.025-.035A.5.5 0 0 1 7.4.8m3 0-.003.004-.014.019a4 4 0 0 0-.204.31 2 2 0 0 0-.141.267c-.026.06-.034.092-.037.103v.004a.6.6 0 0 0 .091.248c.075.133.178.272.308.445l.01.012c.118.158.26.347.37.543.112.2.22.455.22.745 0 .188-.065.368-.119.494a3 3 0 0 1-.202.388 5 5 0 0 1-.252.382l-.019.025-.005.008-.002.002A.5.5 0 0 1 9.6 4.2l.003-.004.014-.019a4 4 0 0 0 .204-.31 2 2 0 0 0 .141-.267c.026-.06.034-.092.037-.103a.6.6 0 0 0-.09-.252A4 4 0 0 0 9.6 2.8l-.01-.012a5 5 0 0 1-.37-.543A1.53 1.53 0 0 1 9 1.5c0-.188.065-.368.119-.494.059-.138.134-.274.202-.388a6 6 0 0 1 .253-.382l.025-.035A.5.5 0 0 1 10.4.8"/></svg>',249],['delete',76,0,'\u2326']], p:[['clear',83,0,'small'],['=',103],['/',84],['*',85]]},
+      {m:[['esc',41],['F1',58,0,'small'],['F2',59,0,'small'],['F3',60,0,'small'],['F4',61,0,'small'],['F5',62,0,'small'],['F6',63,0,'small'],['F7',64,0,'small'],['F8',65,0,'small'],['F9',66,0,'small'],['F10',67,0,'small'],['F11',68,0,'small'],['F12',69,0,'small'],['<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M.5 6a.5.5 0 0 0-.488.608l1.652 7.434A2.5 2.5 0 0 0 4.104 16h5.792a2.5 2.5 0 0 0 2.44-1.958l.131-.59a3 3 0 0 0 1.3-5.854l.221-.99A.5.5 0 0 0 13.5 6zM13 12.5a2 2 0 0 1-.316-.025l.867-3.898A2.001 2.001 0 0 1 13 12.5M2.64 13.825 1.123 7h11.754l-1.517 6.825A1.5 1.5 0 0 1 9.896 15H4.104a1.5 1.5 0 0 1-1.464-1.175"/><path d="m4.4.8-.003.004-.014.019a4 4 0 0 0-.204.31 2 2 0 0 0-.141.267c-.026.06-.034.092-.037.103v.004a.6.6 0 0 0 .091.248c.075.133.178.272.308.445l.01.012c.118.158.26.347.37.543.112.2.22.455.22.745 0 .188-.065.368-.119.494a3 3 0 0 1-.202.388 5 5 0 0 1-.253.382l-.018.025-.005.008-.002.002A.5.5 0 0 1 3.6 4.2l.003-.004.014-.019a4 4 0 0 0 .204-.31 2 2 0 0 0 .141-.267c.026-.06.034-.092.037-.103a.6.6 0 0 0-.09-.252A4 4 0 0 0 3.6 2.8l-.01-.012a5 5 0 0 1-.37-.543A1.53 1.53 0 0 1 3 1.5c0-.188.065-.368.119-.494.059-.138.134-.274.202-.388a6 6 0 0 1 .253-.382l.025-.035A.5.5 0 0 1 4.4.8m3 0-.003.004-.014.019a4 4 0 0 0-.204.31 2 2 0 0 0-.141.267c-.026.06-.034.092-.037.103v.004a.6.6 0 0 0 .091.248c.075.133.178.272.308.445l.01.012c.118.158.26.347.37.543.112.2.22.455.22.745 0 .188-.065.368-.119.494a3 3 0 0 1-.202.388 5 5 0 0 1-.253.382l-.018.025-.005.008-.002.002A.5.5 0 0 1 6.6 4.2l.003-.004.014-.019a4 4 0 0 0 .204-.31 2 2 0 0 0 .141-.267c.026-.06.034-.092.037-.103a.6.6 0 0 0-.09-.252A4 4 0 0 0 6.6 2.8l-.01-.012a5 5 0 0 1-.37-.543A1.53 1.53 0 0 1 6 1.5c0-.188.065-.368.119-.494.059-.138.134-.274.202-.388a6 6 0 0 1 .253-.382l.025-.035A.5.5 0 0 1 7.4.8m3 0-.003.004-.014.019a4 4 0 0 0-.204.31 2 2 0 0 0-.141.267c-.026.06-.034.092-.037.103v.004a.6.6 0 0 0 .091.248c.075.133.178.272.308.445l.01.012c.118.158.26.347.37.543.112.2.22.455.22.745 0 .188-.065.368-.119.494a3 3 0 0 1-.202.388 5 5 0 0 1-.252.382l-.019.025-.005.008-.002.002A.5.5 0 0 1 9.6 4.2l.003-.004.014-.019a4 4 0 0 0 .204-.31 2 2 0 0 0 .141-.267c.026-.06.034-.092.037-.103a.6.6 0 0 0-.09-.252A4 4 0 0 0 9.6 2.8l-.01-.012a5 5 0 0 1-.37-.543A1.53 1.53 0 0 1 9 1.5c0-.188.065-.368.119-.494.059-.138.134-.274.202-.388a6 6 0 0 1 .253-.382l.025-.035A.5.5 0 0 1 10.4.8"/></svg>',249],['delete',76,0,'\u2326']], p:[['clear',83,0,'small'],['=',103],['/',84],['*',85]]},
       {m:[[String.fromCharCode(96),53,0,'~'],['1',30,0,'!'],['2',31,0,'@'],['3',32,0,'#'],['4',33,0,'$'],['5',34,0,'%'],['6',35,0,'^'],['7',36,0,'&'],['8',37,0,'*'],['9',38,0,'('],['0',39,0,')'],['-',45,0,'_'],['=',46,0,'+'],['delete',42,0,'\u232b'],['home',74,0,'small']], p:[['7',95],['8',96],['9',97],['-',86]]},
       {m:[['tab',43,0,'\u21e5'],['Q',20],['W',26],['E',8],['R',21],['T',23],['Y',28],['U',24],['I',12],['O',18],['P',19],['[',47,0,'{'],[']',48,0,'}'],['\\',49,0,'|'],['end',77,0,'small']], p:[['4',92],['5',93],['6',94],['+',87]]},
       {m:[['caps lock',57,0,'\u21ea'],['A',4],['S',22],['D',7],['F',9],['G',10],['H',11],['J',13],['K',14],['L',15],[';',51,0,':'],["'",52,0,'"'],['return',40,0,'\u21a9'],['page up',75,0,'small'],['page down',78,0,'small']], p:[['1',89],['2',90],['3',91],['enter',88,0,'\u21a9']]},
