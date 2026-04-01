@@ -87,15 +87,15 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 <html>
 <head><title>Roadie</title><link rel="icon" href="data:,">
 <style>
-  :root { --page-bg:#000; --kbd-bg:#111; --kbd-key:rgba(255,255,255,0.12); --kbd-key-active:rgba(255,255,255,0.25); --kbd-text:#fff; --kbd-border:transparent; }
-  :root[data-theme="light"] { --page-bg:#e5e5ea; --kbd-bg:#d1d1d6; --kbd-key:rgba(255,255,255,0.9); --kbd-key-active:rgba(255,255,255,0.6); --kbd-text:#000; --kbd-border:rgba(0,0,0,0.1); }
-  @media (prefers-color-scheme:light) { :root[data-theme="system"] { --page-bg:#e5e5ea; --kbd-bg:#d1d1d6; --kbd-key:rgba(255,255,255,0.9); --kbd-key-active:rgba(255,255,255,0.6); --kbd-text:#000; --kbd-border:rgba(0,0,0,0.1); } }
+  :root { --page-bg:#1a1a1a; --kbd-bg:#222; --kbd-key:rgba(255,255,255,0.12); --kbd-key-active:rgba(255,255,255,0.25); --kbd-text:#fff; --kbd-border:transparent; }
+  :root[data-theme="light"] { --page-bg:#e8e8ed; --kbd-bg:#d4d4d9; --kbd-key:rgba(255,255,255,0.85); --kbd-key-active:rgba(255,255,255,0.55); --kbd-text:#1a1a1a; --kbd-border:rgba(0,0,0,0.08); }
+  @media (prefers-color-scheme:light) { :root[data-theme="system"] { --page-bg:#e8e8ed; --kbd-bg:#d4d4d9; --kbd-key:rgba(255,255,255,0.85); --kbd-key-active:rgba(255,255,255,0.55); --kbd-text:#1a1a1a; --kbd-border:rgba(0,0,0,0.08); } }
   body { background:var(--page-bg); }
   #onscreen-kbd .kr { display:flex; gap:3px; margin-bottom:3px; justify-content:center; }
   #onscreen-kbd .kr:last-child { margin-bottom:0; }
   #onscreen-kbd .kk { width:40px; height:40px; flex-shrink:0; background:var(--kbd-key); color:var(--kbd-text); border:1px solid var(--kbd-border); border-radius:5px; font-family:-apple-system,BlinkMacSystemFont,sans-serif; font-size:12px; font-weight:400; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
   #onscreen-kbd .kk:active, #onscreen-kbd .kk.pressed { background:var(--kbd-key-active); }
-  #onscreen-kbd .kk.mod-active { background:var(--kbd-key-active); box-shadow:0 0 0 1.5px #f90; color:#f90; }
+  #onscreen-kbd .kk.mod-active { background:var(--kbd-key-active); box-shadow:0 0 0 1.5px rgba(255,255,255,0.5); }
   #onscreen-kbd .kk.blank { visibility:hidden; }
   #onscreen-kbd .kk.space { width:255px; }
   #onscreen-kbd .kgap { width:12px; flex-shrink:0; }
@@ -104,11 +104,11 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 </style>
 </head>
 <body style="margin:0; display:flex; height:100vh; overflow:hidden; overscroll-behavior:none;">
-  <div id="overlay" style="display:flex; position:fixed; inset:0; background:rgba(0,0,0,0.85); color:#fff; font-family:monospace; font-size:1.2em; justify-content:center; align-items:center; text-align:center; z-index:100;">
-    Connecting&hellip;
-  </div>
   <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
     <div id="viewer" style="position:relative; flex:1; min-width:0; min-height:0; overflow:hidden;">
+      <div id="overlay" style="display:flex; position:absolute; inset:0; background:rgba(0,0,0,0.85); color:#fff; font-family:monospace; font-size:1.2em; justify-content:center; align-items:center; text-align:center; z-index:10;">
+        Connecting&hellip;
+      </div>
       <img id="feed" draggable="false" oncontextmenu="return false" style="max-width:100%; max-height:100%; display:none; touch-action:none; cursor:crosshair;">
     </div>
     <div id="onscreen-kbd" style="display:none; background:var(--kbd-bg); user-select:none; -webkit-user-select:none; overflow-x:auto;">
@@ -123,7 +123,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     </div>
   </div>
   <div id="toolbar" style="position:relative; display:flex; flex-direction:column; gap:4px; padding:8px 6px;">
-    <style>#toolbar button { outline:none; color:#f90; } #toolbar button:focus { outline:none; }</style>
+    <style>#toolbar button { outline:none; color:#ccc; } #toolbar button:focus { outline:none; }</style>
     <button id="qbtn" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Settings"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/></svg></button>
     <button id="unmute" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Toggle audio"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M6.717 3.55A.5.5 0 0 1 7 4v8a.5.5 0 0 1-.812.39L3.825 10.5H1.5A.5.5 0 0 1 1 10V6a.5.5 0 0 1 .5-.5h2.325l2.363-1.89a.5.5 0 0 1 .529-.06m7.137 2.096a.5.5 0 0 1 0 .708L12.207 8l1.647 1.646a.5.5 0 0 1-.708.708L11.5 8.707l-1.646 1.647a.5.5 0 0 1-.708-.708L10.793 8 9.146 6.354a.5.5 0 1 1 .708-.708L11.5 7.293l1.646-1.647a.5.5 0 0 1 .708 0"/></svg></button>
     <button id="kbdBtn" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center; opacity:0.4;" title="On-screen keyboard"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M0 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm13 .25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M2.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 3 8.75v-.5A.25.25 0 0 0 2.75 8zM4 8.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 5 8.75v-.5A.25.25 0 0 0 4.75 8h-.5a.25.25 0 0 0-.25.25M6.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 7 8.75v-.5A.25.25 0 0 0 6.75 8zM8 8.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 9 8.75v-.5A.25.25 0 0 0 8.75 8h-.5a.25.25 0 0 0-.25.25M13.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm0 2a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm-3-2a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h1.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm.75 2.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M11.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zM9 6.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5A.25.25 0 0 0 9.75 6h-.5a.25.25 0 0 0-.25.25M7.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 8 6.75v-.5A.25.25 0 0 0 7.75 6zM5 6.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 6 6.75v-.5A.25.25 0 0 0 5.75 6h-.5a.25.25 0 0 0-.25.25M2.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h1.5A.25.25 0 0 0 4 6.75v-.5A.25.25 0 0 0 3.75 6zM2 10.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M4.25 10a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h5.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25z"/></svg></button>
@@ -933,36 +933,60 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         btns[i].classList.toggle('mod-active', !!activeModifiers[c]);
       }
     }
-    function mkKey(label, code, w) {
+    function mkKey(label, code, w, sigil) {
       var btn = document.createElement('button');
       btn.className = 'kk';
-      btn.textContent = label;
       btn.setAttribute('data-code', code);
       if (w) btn.style.width = w + 'px';
       if (MOD_CODES[code]) btn.setAttribute('data-mod', '1');
       if (code === 0 && !label) btn.classList.add('blank');
+      if (sigil === 'hide') {
+        btn.style.width = '0';
+        btn.style.minWidth = '0';
+        btn.style.padding = '0';
+        btn.style.border = 'none';
+        btn.style.visibility = 'hidden';
+        btn.style.marginLeft = '-3px';
+      } else if (sigil === 'small') {
+        btn.style.fontSize = '8px';
+        btn.textContent = label;
+      } else if (sigil) {
+        var isShiftChar = sigil.length === 1 && sigil.charCodeAt(0) < 128;
+        if (isShiftChar) {
+          btn.innerHTML = '<span style="font-size:11px;line-height:1;opacity:0.6">' + sigil + '</span><span style="font-size:11px;line-height:1">' + label + '</span>';
+        } else {
+          btn.innerHTML = '<span style="font-size:14px;line-height:1">' + sigil + '</span><span style="font-size:8px;line-height:1">' + label + '</span>';
+        }
+        btn.style.flexDirection = 'column';
+        btn.style.gap = '1px';
+      } else if (label.indexOf('<svg') === 0) {
+        btn.innerHTML = label;
+      } else {
+        btn.textContent = label;
+      }
       btn.addEventListener('pointerdown', function(e) { e.preventDefault(); if (code) oskPress(code); });
       return btn;
     }
     function mkGap() { var d = document.createElement('div'); d.className = 'kgap numpad'; return d; }
 
     // 15 cols x 6 rows ortholinear + gap + 4 numpad (on wide screens)
+    // [label, keycode, width, sigil]
     var rows = [
-      {m:[['Esc',41],['F1',58],['F2',59],['F3',60],['F4',61],['F5',62],['F6',63],['F7',64],['F8',65],['F9',66],['F10',67],['F11',68],['F12',69],['PrtSc',70],['Del',76]], p:[['Num',83],['/',84],['*',85],['-',86]]},
-      {m:[[String.fromCharCode(96),53],['1',30],['2',31],['3',32],['4',33],['5',34],['6',35],['7',36],['8',37],['9',38],['0',39],['-',45],['=',46],['Bksp',42],['Home',74]], p:[['7',95],['8',96],['9',97],['+',87]]},
-      {m:[['Tab',43],['Q',20],['W',26],['E',8],['R',21],['T',23],['Y',28],['U',24],['I',12],['O',18],['P',19],['[',47],[']',48],['\\\\',49],['End',77]], p:[['4',92],['5',93],['6',94],['',0]]},
-      {m:[['Caps',57],['A',4],['S',22],['D',7],['F',9],['G',10],['H',11],['J',13],['K',14],['L',15],[';',51],["'",52],['Enter',40],['PgUp',75],['PgDn',78]], p:[['1',89],['2',90],['3',91],['Ent',88]]},
-      {m:[['Shift',225],['Z',29],['X',27],['C',6],['V',25],['B',5],['N',17],['M',16],[',',54],['.',55],['/',56],['Shift',229],['Ins',73],['\u2191',82],['Del',76]], p:[['0',98],['0',98],['.',99],['',0]]},
-      {m:[['Ctrl',224],['Opt',226],['Cmd',227],['',44,255],['Cmd',231],['Opt',230],['Ctrl',228],['\u2190',80],['\u2193',81],['\u2192',79]], p:[['',0],['',0],['',0],['',0]]}
+      {m:[['esc',41],['F1',58],['F2',59],['F3',60],['F4',61],['F5',62],['F6',63],['F7',64],['F8',65],['F9',66],['F10',67],['F11',68],['F12',69],['<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M.5 6a.5.5 0 0 0-.488.608l1.652 7.434A2.5 2.5 0 0 0 4.104 16h5.792a2.5 2.5 0 0 0 2.44-1.958l.131-.59a3 3 0 0 0 1.3-5.854l.221-.99A.5.5 0 0 0 13.5 6zM13 12.5a2 2 0 0 1-.316-.025l.867-3.898A2.001 2.001 0 0 1 13 12.5M2.64 13.825 1.123 7h11.754l-1.517 6.825A1.5 1.5 0 0 1 9.896 15H4.104a1.5 1.5 0 0 1-1.464-1.175"/><path d="m4.4.8-.003.004-.014.019a4 4 0 0 0-.204.31 2 2 0 0 0-.141.267c-.026.06-.034.092-.037.103v.004a.6.6 0 0 0 .091.248c.075.133.178.272.308.445l.01.012c.118.158.26.347.37.543.112.2.22.455.22.745 0 .188-.065.368-.119.494a3 3 0 0 1-.202.388 5 5 0 0 1-.253.382l-.018.025-.005.008-.002.002A.5.5 0 0 1 3.6 4.2l.003-.004.014-.019a4 4 0 0 0 .204-.31 2 2 0 0 0 .141-.267c.026-.06.034-.092.037-.103a.6.6 0 0 0-.09-.252A4 4 0 0 0 3.6 2.8l-.01-.012a5 5 0 0 1-.37-.543A1.53 1.53 0 0 1 3 1.5c0-.188.065-.368.119-.494.059-.138.134-.274.202-.388a6 6 0 0 1 .253-.382l.025-.035A.5.5 0 0 1 4.4.8m3 0-.003.004-.014.019a4 4 0 0 0-.204.31 2 2 0 0 0-.141.267c-.026.06-.034.092-.037.103v.004a.6.6 0 0 0 .091.248c.075.133.178.272.308.445l.01.012c.118.158.26.347.37.543.112.2.22.455.22.745 0 .188-.065.368-.119.494a3 3 0 0 1-.202.388 5 5 0 0 1-.253.382l-.018.025-.005.008-.002.002A.5.5 0 0 1 6.6 4.2l.003-.004.014-.019a4 4 0 0 0 .204-.31 2 2 0 0 0 .141-.267c.026-.06.034-.092.037-.103a.6.6 0 0 0-.09-.252A4 4 0 0 0 6.6 2.8l-.01-.012a5 5 0 0 1-.37-.543A1.53 1.53 0 0 1 6 1.5c0-.188.065-.368.119-.494.059-.138.134-.274.202-.388a6 6 0 0 1 .253-.382l.025-.035A.5.5 0 0 1 7.4.8m3 0-.003.004-.014.019a4 4 0 0 0-.204.31 2 2 0 0 0-.141.267c-.026.06-.034.092-.037.103v.004a.6.6 0 0 0 .091.248c.075.133.178.272.308.445l.01.012c.118.158.26.347.37.543.112.2.22.455.22.745 0 .188-.065.368-.119.494a3 3 0 0 1-.202.388 5 5 0 0 1-.252.382l-.019.025-.005.008-.002.002A.5.5 0 0 1 9.6 4.2l.003-.004.014-.019a4 4 0 0 0 .204-.31 2 2 0 0 0 .141-.267c.026-.06.034-.092.037-.103a.6.6 0 0 0-.09-.252A4 4 0 0 0 9.6 2.8l-.01-.012a5 5 0 0 1-.37-.543A1.53 1.53 0 0 1 9 1.5c0-.188.065-.368.119-.494.059-.138.134-.274.202-.388a6 6 0 0 1 .253-.382l.025-.035A.5.5 0 0 1 10.4.8"/></svg>',249],['delete',76,0,'\u2326']], p:[['clear',83,0,'small'],['=',103],['/',84],['*',85]]},
+      {m:[[String.fromCharCode(96),53,0,'~'],['1',30,0,'!'],['2',31,0,'@'],['3',32,0,'#'],['4',33,0,'$'],['5',34,0,'%'],['6',35,0,'^'],['7',36,0,'&'],['8',37,0,'*'],['9',38,0,'('],['0',39,0,')'],['-',45,0,'_'],['=',46,0,'+'],['delete',42,0,'\u232b'],['home',74,0,'small']], p:[['7',95],['8',96],['9',97],['-',86]]},
+      {m:[['tab',43,0,'\u21e5'],['Q',20],['W',26],['E',8],['R',21],['T',23],['Y',28],['U',24],['I',12],['O',18],['P',19],['[',47,0,'{'],[']',48,0,'}'],['\\',49,0,'|'],['end',77,0,'small']], p:[['4',92],['5',93],['6',94],['+',87]]},
+      {m:[['caps lock',57,0,'\u21ea'],['A',4],['S',22],['D',7],['F',9],['G',10],['H',11],['J',13],['K',14],['L',15],[';',51,0,':'],["'",52,0,'"'],['return',40,0,'\u21a9'],['page up',75,0,'small'],['page down',78,0,'small']], p:[['1',89],['2',90],['3',91],['enter',88,0,'\u21a9']]},
+      {m:[['shift',225,0,'\u21e7'],['Z',29],['X',27],['C',6],['V',25],['B',5],['N',17],['M',16],[',',54,0,'<'],['.',55,0,'>'],['/',56,0,'?'],['shift',229,0,'\u21e7'],['',0],['\u2191',82],['',0]], p:[['0',98,83],['',0,0,'hide'],['.',99],['',0]]},
+      {m:[['control',224,0,'\u2303'],['option',226,0,'\u2325'],['command',227,0,'\u2318'],['',44,255],['command',231,0,'\u2318'],['option',230,0,'\u2325'],['control',228,0,'\u2303'],['\u2190',80],['\u2193',81],['\u2192',79]], p:[['',0],['',0],['',0],['',0]]}
     ];
     for (var ri = 0; ri < rows.length; ri++) {
       var el = document.getElementById('kr-' + ri);
       var m = rows[ri].m, p = rows[ri].p;
-      for (var i = 0; i < m.length; i++) { el.appendChild(mkKey(m[i][0], m[i][1], m[i][2])); }
+      for (var i = 0; i < m.length; i++) { el.appendChild(mkKey(m[i][0], m[i][1], m[i][2], m[i][3])); }
       if (p) {
         el.appendChild(mkGap());
         for (var j = 0; j < p.length; j++) {
-          var k = mkKey(p[j][0], p[j][1]);
+          var k = mkKey(p[j][0], p[j][1], p[j][2], p[j][3]);
           k.classList.add('numpad');
           el.appendChild(k);
         }
