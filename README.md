@@ -47,7 +47,7 @@ Browser  <---->|   HTTP / WebSocket       |
 
 **VNC and remote desktop** require software running on the target. If the target is mid-setup, locked out, or doesn't have an OS yet, they can't help.
 
-**Other hardware KVMs** also work at the hardware level, but generally don't target mobile devices or multi-touch. Roadie adds multi-touch alongside keyboard and mouse, so it works with phones and tablets too.
+**Other hardware KVMs** also work at the hardware level, but generally don't target mobile devices or multi-touch, and aren't designed for programmatic control by automation tools or AI agents. Roadie adds multi-touch alongside keyboard and mouse, and includes a WebDriver BiDi endpoint so browser automation libraries can drive it.
 
 **MDM** tools manage devices over the network but require enrollment, platform-specific agents, and an already-configured OS. Roadie works at the hardware level — it doesn't care what OS is running or whether the device is enrolled in anything.
 
