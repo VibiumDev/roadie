@@ -2,7 +2,7 @@
 
 USB KVM (⌨️Keyboard, 🖥️Video, 🖱️Mouse / 👆🏽Multi-touch) controllable over HTTP.
 
-<!-- TODO: hero image or gif showing /view controlling a phone -->
+![Roadie controlling a Mac Setup Assistant](docs/screenshots/mac-setup-assistant.png)
 
 Roadie turns a cheap HDMI capture dongle and a pair of microcontroller boards into a browser-based KVM that works with anything that has a screen and a USB port: laptops, desktops, phones, tablets, servers, embedded devices. View the target's display in a browser, and send keyboard, mouse, and multi-touch input back to it — no software required on the target.
 
