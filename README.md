@@ -20,27 +20,29 @@ Automate Roadie with [Vibium](https://github.com/VibiumDev/vibium) or any browse
 Roadie uses one device to set up or control another. It grabs video from an HDMI-to-USB capture dongle and serves it over HTTP, turning a remote device's physical display into a web page. A pair of microcontroller boards act as a USB KVM, sending keyboard, mouse, and multi-touch input to the target device. An AI agent (or a human) can view the screen in a browser, grab frames for vision analysis, and send input back — all over HTTP.
 
 ```
-                    Host (Pi, Mac, Linux)
-               +--------------------------+
-               |   Go server (roadie)     |
-Browser  <---->|   HTTP / WebSocket       |
-               |   Serial JSON            |
-               +------+-------------------+
-                      | USB serial
-               +------v-------------------+
-               |   Relay board (QT Py)    |
-               |   JSON -> binary         |
-               +------+-------------------+
-                      | UART (921600 baud)
-               +------v-------------------+
-               |   HID board (QT Py)      |
-               |   binary -> USB HID      |
-               +------+-------------------+
-                      | USB HID
-               +------v-------------------+
-               |   Target device          |
-               |   (Mac, PC, Android, iOS)|
-               +--------------------------+
+                      Host (Pi, Mac, Linux)
+                 +--------------------------+
+                 |   Go server (roadie)     |
+  Browser  <---->|   HTTP / WebSocket       |
+                 |   Serial JSON            |
+                 +---+------------------+---+
+                     | USB serial       | USB (MJPEG)
+               +-----v-----------+   +--v-------------------+
+               | Relay board     |   | HDMI capture dongle   |
+               | (QT Py)         |   +--^-------------------+
+               | JSON -> binary  |    | HDMI in
+               +-----+-----------+    |
+                     | UART           |
+               +-----v-----------+    |
+               | HID board       |    |
+               | (QT Py)         |    |
+               | binary -> USB   |    |
+               +-----+-----------+    |
+                     | USB HID        | HDMI out
+               +-----v---------------v----+
+               |   Target device           |
+               |   (Mac, PC, Android, iOS) |
+               +---------------------------+
 ```
 
 ### Why not VNC/KVM/MDM?
