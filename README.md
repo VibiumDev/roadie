@@ -6,7 +6,7 @@ USB KVM (⌨️Keyboard, 🖥️Video, 🖱️Mouse / 👆🏽Multi-touch) contr
 
 Roadie turns a cheap HDMI capture dongle and a pair of microcontroller boards into a browser-based KVM that works with anything that has a screen and a USB port: laptops, desktops, phones, tablets, servers, embedded devices. View the target's display in a browser, and send keyboard, mouse, and multi-touch input back to it — no software required on the target.
 
-Automate Roadie with [Vibium](https://vibium.com) or any browser automation library — Selenium, Puppeteer, WebDriverIO, etc.
+Automate Roadie with [Vibium](https://github.com/VibiumDev/vibium) or any browser automation library — Selenium, Puppeteer, WebDriverIO, etc.
 
 ## Use Cases
 
