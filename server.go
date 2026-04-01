@@ -85,17 +85,48 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprint(w, `<!DOCTYPE html>
 <html>
-<head><title>Roadie</title><link rel="icon" href="data:,"></head>
-<body style="margin:0; background:#000; display:flex; height:100vh; overflow:hidden; overscroll-behavior:none;">
+<head><title>Roadie</title><link rel="icon" href="data:,">
+<style>
+  :root { --page-bg:#000; --kbd-bg:#111; --kbd-key:rgba(255,255,255,0.12); --kbd-key-active:rgba(255,255,255,0.25); --kbd-text:#fff; --kbd-border:transparent; }
+  :root[data-theme="light"] { --page-bg:#e5e5ea; --kbd-bg:#d1d1d6; --kbd-key:rgba(255,255,255,0.9); --kbd-key-active:rgba(255,255,255,0.6); --kbd-text:#000; --kbd-border:rgba(0,0,0,0.1); }
+  @media (prefers-color-scheme:light) { :root[data-theme="system"] { --page-bg:#e5e5ea; --kbd-bg:#d1d1d6; --kbd-key:rgba(255,255,255,0.9); --kbd-key-active:rgba(255,255,255,0.6); --kbd-text:#000; --kbd-border:rgba(0,0,0,0.1); } }
+  body { background:var(--page-bg); }
+  #onscreen-kbd .kr { display:flex; gap:3px; margin-bottom:3px; justify-content:center; }
+  #onscreen-kbd .kr:last-child { margin-bottom:0; }
+  #onscreen-kbd .kk { width:40px; height:40px; flex-shrink:0; background:var(--kbd-key); color:var(--kbd-text); border:1px solid var(--kbd-border); border-radius:5px; font-family:-apple-system,BlinkMacSystemFont,sans-serif; font-size:12px; font-weight:400; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
+  #onscreen-kbd .kk:active, #onscreen-kbd .kk.pressed { background:var(--kbd-key-active); }
+  #onscreen-kbd .kk.mod-active { background:var(--kbd-key-active); box-shadow:0 0 0 1.5px #f90; color:#f90; }
+  #onscreen-kbd .kk.blank { visibility:hidden; }
+  #onscreen-kbd .kk.space { width:255px; }
+  #onscreen-kbd .kgap { width:12px; flex-shrink:0; }
+  .numpad { display:none; }
+  @media (min-width:1200px) { .numpad { display:flex; } }
+</style>
+</head>
+<body style="margin:0; display:flex; height:100vh; overflow:hidden; overscroll-behavior:none;">
   <div id="overlay" style="display:flex; position:fixed; inset:0; background:rgba(0,0,0,0.85); color:#fff; font-family:monospace; font-size:1.2em; justify-content:center; align-items:center; text-align:center; z-index:100;">
     Connecting&hellip;
   </div>
-  <div id="viewer" style="position:relative; flex:1; min-width:0; overflow:hidden;">
-    <img id="feed" draggable="false" oncontextmenu="return false" style="max-width:100%; max-height:100vh; display:none; touch-action:none; cursor:crosshair;">
+  <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
+    <div id="viewer" style="position:relative; flex:1; min-width:0; min-height:0; overflow:hidden;">
+      <img id="feed" draggable="false" oncontextmenu="return false" style="max-width:100%; max-height:100%; display:none; touch-action:none; cursor:crosshair;">
+    </div>
+    <div id="onscreen-kbd" style="display:none; background:var(--kbd-bg); user-select:none; -webkit-user-select:none; overflow-x:auto;">
+      <div id="kbd-inner" style="padding:6px 8px;">
+      <div class="kr" id="kr-0"></div>
+      <div class="kr" id="kr-1"></div>
+      <div class="kr" id="kr-2"></div>
+      <div class="kr" id="kr-3"></div>
+      <div class="kr" id="kr-4"></div>
+      <div class="kr" id="kr-5"></div>
+      </div>
+    </div>
   </div>
   <div id="toolbar" style="position:relative; display:flex; flex-direction:column; gap:4px; padding:8px 6px;">
-    <button id="qbtn" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; font-size:1.1em; cursor:pointer; line-height:1; padding:0; display:flex; align-items:center; justify-content:center;" title="Settings">&#x2699;&#xFE0F;</button>
-    <button id="unmute" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; font-size:1.1em; cursor:pointer; line-height:1; padding:0; display:none; align-items:center; justify-content:center;" title="Toggle audio">&#x1F507;</button>
+    <style>#toolbar button { outline:none; color:#f90; } #toolbar button:focus { outline:none; }</style>
+    <button id="qbtn" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Settings"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/></svg></button>
+    <button id="unmute" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Toggle audio"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M6.717 3.55A.5.5 0 0 1 7 4v8a.5.5 0 0 1-.812.39L3.825 10.5H1.5A.5.5 0 0 1 1 10V6a.5.5 0 0 1 .5-.5h2.325l2.363-1.89a.5.5 0 0 1 .529-.06m7.137 2.096a.5.5 0 0 1 0 .708L12.207 8l1.647 1.646a.5.5 0 0 1-.708.708L11.5 8.707l-1.646 1.647a.5.5 0 0 1-.708-.708L10.793 8 9.146 6.354a.5.5 0 1 1 .708-.708L11.5 7.293l1.646-1.647a.5.5 0 0 1 .708 0"/></svg></button>
+    <button id="kbdBtn" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center; opacity:0.4;" title="On-screen keyboard"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M0 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm13 .25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M2.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 3 8.75v-.5A.25.25 0 0 0 2.75 8zM4 8.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 5 8.75v-.5A.25.25 0 0 0 4.75 8h-.5a.25.25 0 0 0-.25.25M6.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 7 8.75v-.5A.25.25 0 0 0 6.75 8zM8 8.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 9 8.75v-.5A.25.25 0 0 0 8.75 8h-.5a.25.25 0 0 0-.25.25M13.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm0 2a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm-3-2a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h1.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm.75 2.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M11.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zM9 6.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5A.25.25 0 0 0 9.75 6h-.5a.25.25 0 0 0-.25.25M7.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 8 6.75v-.5A.25.25 0 0 0 7.75 6zM5 6.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 6 6.75v-.5A.25.25 0 0 0 5.75 6h-.5a.25.25 0 0 0-.25.25M2.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h1.5A.25.25 0 0 0 4 6.75v-.5A.25.25 0 0 0 3.75 6zM2 10.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M4.25 10a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h5.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25z"/></svg></button>
     <div id="qslider" style="display:none; position:absolute; top:8px; z-index:21; background:rgba(50,50,50,0.95); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color:#fff; font-family:monospace; font-size:0.85em; white-space:nowrap;">
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
         <label style="min-width:55px;">Quality</label>
@@ -127,6 +158,15 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         </div>
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+        <label style="min-width:55px;">Keys</label>
+        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input id="kbdCaptureCheck" type="checkbox" checked> Capture</label>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+        <label style="min-width:55px;">Kbd Size</label>
+        <input id="kbdZoomRange" type="range" min="50" max="200" value="100" style="width:120px; vertical-align:middle;">
+        <span id="kbdZoomVal" style="min-width:3em; text-align:right;">100%</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">Crop</label>
         <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input id="autocropCheck" type="checkbox" checked> Auto</label>
       </div>
@@ -140,6 +180,14 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         <div style="display:flex; gap:0;">
           <button id="alignTLBtn" style="padding:2px 10px; background:#444; color:#fff; border:1px solid #6af; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Top-Left</button>
           <button id="alignCenterBtn" style="padding:2px 10px; background:#333; color:#888; border:1px solid #555; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Center</button>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+        <label style="min-width:55px;">Theme</label>
+        <div style="display:flex; gap:0;">
+          <button id="themeDarkBtn" style="padding:2px 10px; background:#333; color:#888; border:1px solid #555; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Dark</button>
+          <button id="themeLightBtn" style="padding:2px 10px; background:#333; color:#888; border:1px solid #555; border-radius:0; font-family:monospace; cursor:pointer;">Light</button>
+          <button id="themeSystemBtn" style="padding:2px 10px; background:#444; color:#fff; border:1px solid #6af; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">System</button>
         </div>
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.1);">
@@ -183,7 +231,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       }
     }
 
-    img.onload = function() { tryHideOverlay(); };
+    img.onload = function() { tryHideOverlay(); syncKbdWidth(); };
     img.onerror = function() { wasOk = false; showOverlay(); };
     var prevHealthOk = true;
 
@@ -355,13 +403,15 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       workletNode = null;
     }
 
+    var muteIconSVG = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M6.717 3.55A.5.5 0 0 1 7 4v8a.5.5 0 0 1-.812.39L3.825 10.5H1.5A.5.5 0 0 1 1 10V6a.5.5 0 0 1 .5-.5h2.325l2.363-1.89a.5.5 0 0 1 .529-.06m7.137 2.096a.5.5 0 0 1 0 .708L12.207 8l1.647 1.646a.5.5 0 0 1-.708.708L11.5 8.707l-1.646 1.647a.5.5 0 0 1-.708-.708L10.793 8 9.146 6.354a.5.5 0 1 1 .708-.708L11.5 7.293l1.646-1.647a.5.5 0 0 1 .708 0"/></svg>';
+    var volumeIconSVG = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M11.536 14.01A8.47 8.47 0 0 0 14.026 8a8.47 8.47 0 0 0-2.49-6.01l-.708.707A7.48 7.48 0 0 1 13.025 8c0 2.071-.84 3.946-2.197 5.303z"/><path d="M10.121 12.596A6.48 6.48 0 0 0 12.025 8a6.48 6.48 0 0 0-1.904-4.596l-.707.707A5.48 5.48 0 0 1 11.025 8a5.48 5.48 0 0 1-1.61 3.89z"/><path d="M8.707 11.182A4.5 4.5 0 0 0 10.025 8a4.5 4.5 0 0 0-1.318-3.182L8 5.525A3.5 3.5 0 0 1 9.025 8 3.5 3.5 0 0 1 8 10.475zM6.717 3.55A.5.5 0 0 1 7 4v8a.5.5 0 0 1-.812.39L3.825 10.5H1.5A.5.5 0 0 1 1 10V6a.5.5 0 0 1 .5-.5h2.325l2.363-1.89a.5.5 0 0 1 .529-.06"/></svg>';
     unmuteBtn.onclick = function() {
       muted = !muted;
       if (muted) {
-        unmuteBtn.innerHTML = '&#x1F507;';
+        unmuteBtn.innerHTML = muteIconSVG;
         stopAudio();
       } else {
-        unmuteBtn.innerHTML = '&#x1F50A;';
+        unmuteBtn.innerHTML = volumeIconSVG;
         startAudio();
       }
     };
@@ -521,6 +571,25 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
       if (saved.alignment) { applyAlignment(saved.alignment); }
       if (saved.zoom !== undefined) { applyZoom(saved.zoom); }
+    })();
+
+    // --- Theme ---
+    var themeBtns = {dark: document.getElementById('themeDarkBtn'), light: document.getElementById('themeLightBtn'), system: document.getElementById('themeSystemBtn')};
+    function applyTheme(t) {
+      document.documentElement.setAttribute('data-theme', t);
+      for (var k in themeBtns) {
+        if (k === t) { themeBtns[k].style.background = '#444'; themeBtns[k].style.color = '#fff'; themeBtns[k].style.borderColor = '#6af'; }
+        else { themeBtns[k].style.background = '#333'; themeBtns[k].style.color = '#888'; themeBtns[k].style.borderColor = '#555'; }
+      }
+      saveSettings({theme: t});
+    }
+    themeBtns.dark.onclick = function() { applyTheme('dark'); };
+    themeBtns.light.onclick = function() { applyTheme('light'); };
+    themeBtns.system.onclick = function() { applyTheme('system'); };
+    (function() {
+      var saved = {};
+      try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+      applyTheme(saved.theme || 'system');
     })();
 
     function setupResetBtn(id, url) {
@@ -768,25 +837,137 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       ControlRight:228,ShiftRight:229,AltRight:230,MetaRight:231
     };
 
-    var toolbar = document.getElementById('toolbar');
+    // --- Keyboard capture ---
+    var kbdCapture = true;
+    var kbdCaptureCheck = document.getElementById('kbdCaptureCheck');
+    kbdCaptureCheck.onchange = function() { kbdCapture = kbdCaptureCheck.checked; };
 
     document.addEventListener('keydown', function(e) {
-      if (toolbar.contains(e.target)) return;
+      if (!kbdCapture) return;
+      var tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'SELECT') return;
       var hid = KEY_MAP[e.code];
       if (hid !== undefined) {
         e.preventDefault();
         hidSend({cmd:'key_press', keycode:hid});
       }
     });
-
     document.addEventListener('keyup', function(e) {
-      if (toolbar.contains(e.target)) return;
+      if (!kbdCapture) return;
+      var tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'SELECT') return;
       var hid = KEY_MAP[e.code];
       if (hid !== undefined) {
         e.preventDefault();
         hidSend({cmd:'key_release', keycode:hid});
       }
     });
+
+    // --- On-screen keyboard ---
+    var oskPanel = document.getElementById('onscreen-kbd');
+    var kbdInner = document.getElementById('kbd-inner');
+    var kbdBtn = document.getElementById('kbdBtn');
+    var oskVisible = false;
+    var kbdZoomPct = 100;
+
+    function syncKbdWidth() {
+      if (!oskVisible) return;
+      var w = img.clientWidth;
+      if (w > 0) {
+        oskPanel.style.maxWidth = w + 'px';
+        oskPanel.style.margin = '0 auto';
+      }
+    }
+    kbdBtn.onclick = function() {
+      oskVisible = !oskVisible;
+      if (oskVisible) {
+        oskPanel.style.display = 'block';
+        syncKbdWidth();
+        applyKbdZoom(kbdZoomPct);
+      } else {
+        oskPanel.style.display = 'none';
+      }
+      kbdBtn.style.opacity = oskVisible ? '1' : '0.4';
+    };
+    window.addEventListener('resize', syncKbdWidth);
+
+    var kbdZoomRange = document.getElementById('kbdZoomRange');
+    var kbdZoomVal = document.getElementById('kbdZoomVal');
+    function applyKbdZoom(pct) {
+      kbdZoomPct = pct;
+      kbdInner.style.zoom = (pct / 100);
+      kbdZoomRange.value = pct;
+      kbdZoomVal.textContent = pct + '%';
+    }
+    kbdZoomRange.oninput = function() {
+      var pct = parseInt(kbdZoomRange.value);
+      applyKbdZoom(pct);
+      saveSettings({kbdZoom: pct});
+    };
+    (function() {
+      var saved = {};
+      try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+      if (saved.kbdZoom !== undefined) { kbdZoomPct = saved.kbdZoom; }
+    })();
+
+    var MOD_CODES = {224:1,225:1,226:1,227:1,228:1,229:1,230:1,231:1,57:1};
+    var activeModifiers = {};
+
+    function oskPress(code) {
+      if (MOD_CODES[code]) {
+        if (activeModifiers[code]) { hidSend({cmd:'key_release', keycode:code}); delete activeModifiers[code]; }
+        else { hidSend({cmd:'key_press', keycode:code}); activeModifiers[code] = true; }
+        updateModButtons();
+        return;
+      }
+      hidSend({cmd:'key_press', keycode:code});
+      hidSend({cmd:'key_release', keycode:code});
+      for (var m in activeModifiers) { hidSend({cmd:'key_release', keycode:parseInt(m)}); }
+      activeModifiers = {};
+      updateModButtons();
+    }
+    function updateModButtons() {
+      var btns = oskPanel.querySelectorAll('.kk[data-mod]');
+      for (var i = 0; i < btns.length; i++) {
+        var c = parseInt(btns[i].getAttribute('data-code'));
+        btns[i].classList.toggle('mod-active', !!activeModifiers[c]);
+      }
+    }
+    function mkKey(label, code, w) {
+      var btn = document.createElement('button');
+      btn.className = 'kk';
+      btn.textContent = label;
+      btn.setAttribute('data-code', code);
+      if (w) btn.style.width = w + 'px';
+      if (MOD_CODES[code]) btn.setAttribute('data-mod', '1');
+      if (code === 0 && !label) btn.classList.add('blank');
+      btn.addEventListener('pointerdown', function(e) { e.preventDefault(); if (code) oskPress(code); });
+      return btn;
+    }
+    function mkGap() { var d = document.createElement('div'); d.className = 'kgap numpad'; return d; }
+
+    // 15 cols x 6 rows ortholinear + gap + 4 numpad (on wide screens)
+    var rows = [
+      {m:[['Esc',41],['F1',58],['F2',59],['F3',60],['F4',61],['F5',62],['F6',63],['F7',64],['F8',65],['F9',66],['F10',67],['F11',68],['F12',69],['PrtSc',70],['Del',76]], p:[['Num',83],['/',84],['*',85],['-',86]]},
+      {m:[[String.fromCharCode(96),53],['1',30],['2',31],['3',32],['4',33],['5',34],['6',35],['7',36],['8',37],['9',38],['0',39],['-',45],['=',46],['Bksp',42],['Home',74]], p:[['7',95],['8',96],['9',97],['+',87]]},
+      {m:[['Tab',43],['Q',20],['W',26],['E',8],['R',21],['T',23],['Y',28],['U',24],['I',12],['O',18],['P',19],['[',47],[']',48],['\\\\',49],['End',77]], p:[['4',92],['5',93],['6',94],['',0]]},
+      {m:[['Caps',57],['A',4],['S',22],['D',7],['F',9],['G',10],['H',11],['J',13],['K',14],['L',15],[';',51],["'",52],['Enter',40],['PgUp',75],['PgDn',78]], p:[['1',89],['2',90],['3',91],['Ent',88]]},
+      {m:[['Shift',225],['Z',29],['X',27],['C',6],['V',25],['B',5],['N',17],['M',16],[',',54],['.',55],['/',56],['Shift',229],['Ins',73],['\u2191',82],['Del',76]], p:[['0',98],['0',98],['.',99],['',0]]},
+      {m:[['Ctrl',224],['Opt',226],['Cmd',227],['',44,255],['Cmd',231],['Opt',230],['Ctrl',228],['\u2190',80],['\u2193',81],['\u2192',79]], p:[['',0],['',0],['',0],['',0]]}
+    ];
+    for (var ri = 0; ri < rows.length; ri++) {
+      var el = document.getElementById('kr-' + ri);
+      var m = rows[ri].m, p = rows[ri].p;
+      for (var i = 0; i < m.length; i++) { el.appendChild(mkKey(m[i][0], m[i][1], m[i][2])); }
+      if (p) {
+        el.appendChild(mkGap());
+        for (var j = 0; j < p.length; j++) {
+          var k = mkKey(p[j][0], p[j][1]);
+          k.classList.add('numpad');
+          el.appendChild(k);
+        }
+      }
+    }
   })();
   </script>
 </body>
