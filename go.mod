@@ -1,4 +1,4 @@
-module github.com/vibium/roadie
+module github.com/VibiumDev/roadie
 
 go 1.25.6
 
