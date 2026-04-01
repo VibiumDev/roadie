@@ -113,14 +113,16 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       </div>
       <img id="feed" draggable="false" oncontextmenu="return false" style="max-width:100%; max-height:100%; display:none; touch-action:none; cursor:crosshair;">
     </div>
-    <div id="onscreen-kbd" style="display:none; background:var(--kbd-bg); user-select:none; -webkit-user-select:none; overflow-x:auto;">
+    <div id="onscreen-kbd" style="display:none; user-select:none; -webkit-user-select:none; overflow-x:auto;">
       <div id="kbd-inner" style="padding:6px 8px;">
+      <div id="kbd-body" style="background:var(--kbd-bg); border-radius:8px; padding:6px; display:inline-block;">
       <div class="kr" id="kr-0"></div>
       <div class="kr" id="kr-1"></div>
       <div class="kr" id="kr-2"></div>
       <div class="kr" id="kr-3"></div>
       <div class="kr" id="kr-4"></div>
       <div class="kr" id="kr-5"></div>
+      </div>
       </div>
     </div>
   </div>
@@ -520,18 +522,21 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     function applyAlignment(mode) {
       alignment = mode;
       var viewer = document.getElementById('viewer');
+      var kbdI = document.getElementById('kbd-inner');
       if (mode === 'center') {
         alignTLBtn.style.background = '#333'; alignTLBtn.style.color = '#888'; alignTLBtn.style.borderColor = '#555';
         alignCenterBtn.style.background = '#444'; alignCenterBtn.style.color = '#fff'; alignCenterBtn.style.borderColor = '#6af';
         viewer.style.display = 'flex';
         viewer.style.justifyContent = 'center';
         viewer.style.alignItems = 'center';
+        kbdI.style.textAlign = 'center';
       } else {
         alignCenterBtn.style.background = '#333'; alignCenterBtn.style.color = '#888'; alignCenterBtn.style.borderColor = '#555';
         alignTLBtn.style.background = '#444'; alignTLBtn.style.color = '#fff'; alignTLBtn.style.borderColor = '#6af';
         viewer.style.display = '';
         viewer.style.justifyContent = '';
         viewer.style.alignItems = '';
+        kbdI.style.textAlign = '';
       }
       applyZoom(parseInt(zoomRange.value));
     }
@@ -878,14 +883,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     var oskVisible = false;
     var kbdZoomPct = 100;
 
-    function syncKbdWidth() {
-      if (!oskVisible) return;
-      var w = img.clientWidth;
-      if (w > 0) {
-        oskPanel.style.maxWidth = w + 'px';
-        oskPanel.style.margin = '0 auto';
-      }
-    }
+    function syncKbdWidth() {}
     function showKbd(show) {
       oskVisible = show;
       if (oskVisible) {
