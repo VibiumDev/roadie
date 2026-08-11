@@ -14,6 +14,31 @@ Index page with links to all endpoints.
 ### `GET /view`
 Live video feed with full HID control. Click/touch the stream to send mouse or touch events to the target. Keyboard events are captured automatically (except when interacting with the toolbar). Includes audio toggle, quality/FPS/resolution settings, and mouse/touch input mode toggle. Input mode persists across page refreshes via `localStorage`.
 
+| Param | Description |
+|-------|-------------|
+| `chrome` | `0` hides the toolbar, for embedding in an iframe (see `/wall`). |
+
+### `GET /wall`
+Grid of several Roadie instances, one iframe per target. Carries no video itself —
+each panel loads its stream straight from its own Roadie, so frames travel
+point-to-point from each capture host to the browser.
+
+| Param | Description |
+|-------|-------------|
+| `targets` | **Required.** Comma-separated `host:port` (or full `http(s)://host:port`) list. |
+| `labels` | Optional captions, comma-separated, positional. Defaults to each hostname. |
+| `cols` | Optional grid column count. Defaults to one column per target (a single row). |
+| `chrome` | `0` drops captions and padding for a bare video wall. |
+
+```
+/wall?targets=roadie-a.local:8080,roadie-b.local:8081&labels=Pixel,iPhone
+```
+
+Targets must be reachable from the **browser**, not from the server — use LAN
+hostnames or IPs rather than `localhost` when viewing from another machine.
+Only the scheme and host of each target are used; the iframe path is always
+`/view?chrome=0`. Returns `400` with usage help if `targets` is missing or invalid.
+
 ### `GET /settings`
 Device info and JPEG quality adjustment UI.
 
