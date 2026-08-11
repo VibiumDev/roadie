@@ -41,13 +41,21 @@ straightforward to tell apart once there are several.
 `/wall` shows the instances side by side, one panel per target:
 
 ```
-http://android.local:8080/wall?targets=android.local:8080,iphone.local:8081&labels=Android,iPhone
+http://android.local:8080/wall?targets=android.local:8080,iphone.local:8081&labels=Android,iPhone&input=touch
 ```
 
 Any instance can serve the page — it just embeds each target's `/view`, so the
 panels stay fully interactive (touch, keyboard, audio, settings). Video is never
 relayed through the wall: each panel streams point-to-point from its own Roadie
 to the browser.
+
+`&input=touch` drives the targets by touch instead of mouse, which is what
+phones and tablets want. It matters here specifically: each panel embeds a
+view with its toolbar hidden, and the toolbar is where the mouse/touch toggle
+lives — so without `&input=` a panel falls back to whatever mode that
+instance's origin last stored, defaulting to mouse. Pass one mode for every
+panel, or a positional list (`&input=touch,mouse`) to mix a phone with a
+laptop.
 
 Panels are captioned with each target's hostname unless `&labels=` overrides
 them, as above. Add `&minimal=1` for a bare wall with no captions or padding, and

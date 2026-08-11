@@ -19,7 +19,7 @@ type wallTarget struct {
 // browser to open hundreds of MJPEG streams.
 const maxWallTargets = 12
 
-// parseWallTargets turns the targets and labels query values into panels.
+// parseWallTargets turns the targets, labels and input query values into panels.
 //
 // Each target is a host[:port] or an absolute http(s) URL. Only the scheme and
 // host are taken from the input — the path and query of the iframe src are
@@ -29,10 +29,22 @@ const maxWallTargets = 12
 // Targets must be reachable from the *browser*, not from the server: the wall
 // typically runs on the same host as the Roadie instances, but is viewed from
 // another machine, so "localhost" would resolve to the viewer's own machine.
-func parseWallTargets(targets, labels string) ([]wallTarget, error) {
+func parseWallTargets(targets, labels, inputs string) ([]wallTarget, error) {
 	var labelList []string
 	if labels != "" {
 		labelList = strings.Split(labels, ",")
+	}
+
+	// input is either one mode for every panel or a positional list, matching
+	// how labels works. Panels embed a minimal view whose own mode toggle is
+	// hidden, so this is the only way to choose one from the wall.
+	var inputList []string
+	for _, in := range strings.Split(inputs, ",") {
+		in = strings.TrimSpace(in)
+		if in != "" && in != "mouse" && in != "touch" {
+			return nil, fmt.Errorf("input %q must be mouse or touch", in)
+		}
+		inputList = append(inputList, in)
 	}
 
 	var out []wallTarget
@@ -70,12 +82,23 @@ func parseWallTargets(targets, labels string) ([]wallTarget, error) {
 			label = defaultWallLabel(u.Hostname())
 		}
 
+		input := ""
+		if len(inputList) == 1 {
+			input = inputList[0] // one mode covers every panel
+		} else if i < len(inputList) {
+			input = inputList[i]
+		}
+
 		// Rebuild from scratch: scheme + host only, plus our own path/query.
+		q := url.Values{"minimal": {"1"}}
+		if input != "" {
+			q.Set("input", input)
+		}
 		viewURL := url.URL{
 			Scheme:   u.Scheme,
 			Host:     u.Host,
 			Path:     "/view",
-			RawQuery: "minimal=1",
+			RawQuery: q.Encode(),
 		}
 		out = append(out, wallTarget{URL: viewURL.String(), Label: label})
 	}
@@ -103,7 +126,7 @@ func (s *Server) handleWall(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	targets, err := parseWallTargets(q.Get("targets"), q.Get("labels"))
+	targets, err := parseWallTargets(q.Get("targets"), q.Get("labels"), q.Get("input"))
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		writeWallUsage(w, err.Error())
@@ -190,7 +213,9 @@ func writeWallUsage(w http.ResponseWriter, reason string) {
 <p class="err">%s</p>
 <p>Show several Roadie instances side by side:</p>
 <p><code>/wall?targets=roadie-a.local:8080,roadie-b.local:8081</code></p>
-<p>Optional: <code>&amp;labels=Pixel,iPhone</code> to caption the panels,
+<p>Optional: <code>&amp;input=touch</code> to drive the targets by touch rather
+than mouse (one mode for all panels, or a positional list like
+<code>touch,mouse</code>), <code>&amp;labels=Pixel,iPhone</code> to caption them,
 <code>&amp;cols=2</code> to set the grid width, and <code>&amp;minimal=1</code>
 for a bare wall with no captions or padding.</p>
 <p>Targets must be reachable from this browser, so use LAN hostnames or IPs
