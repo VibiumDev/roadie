@@ -19,39 +19,39 @@ func TestParseWallTargets(t *testing.T) {
 		{
 			name:       "bare host:port pairs",
 			targets:    "roadie-a.local:8080,roadie-b.local:8081",
-			wantURLs:   []string{"http://roadie-a.local:8080/view?chrome=0", "http://roadie-b.local:8081/view?chrome=0"},
+			wantURLs:   []string{"http://roadie-a.local:8080/view?minimal=1", "http://roadie-b.local:8081/view?minimal=1"},
 			wantLabels: []string{"roadie-a", "roadie-b"},
 		},
 		{
 			name:       "explicit labels",
 			targets:    "192.0.2.10:8080,192.0.2.10:8081",
 			labels:     "Pixel, iPhone",
-			wantURLs:   []string{"http://192.0.2.10:8080/view?chrome=0", "http://192.0.2.10:8081/view?chrome=0"},
+			wantURLs:   []string{"http://192.0.2.10:8080/view?minimal=1", "http://192.0.2.10:8081/view?minimal=1"},
 			wantLabels: []string{"Pixel", "iPhone"},
 		},
 		{
 			name:       "absolute URLs keep their scheme",
 			targets:    "https://roadie-a.local:8443",
-			wantURLs:   []string{"https://roadie-a.local:8443/view?chrome=0"},
+			wantURLs:   []string{"https://roadie-a.local:8443/view?minimal=1"},
 			wantLabels: []string{"roadie-a"},
 		},
 		{
 			name:       "caller path and query are discarded",
 			targets:    "roadie-a.local:8080/evil?x=1#frag",
-			wantURLs:   []string{"http://roadie-a.local:8080/view?chrome=0"},
+			wantURLs:   []string{"http://roadie-a.local:8080/view?minimal=1"},
 			wantLabels: []string{"roadie-a"},
 		},
 		{
 			name:       "fewer labels than targets falls back to hostname",
 			targets:    "a.local:8080,b.local:8081",
 			labels:     "Pixel",
-			wantURLs:   []string{"http://a.local:8080/view?chrome=0", "http://b.local:8081/view?chrome=0"},
+			wantURLs:   []string{"http://a.local:8080/view?minimal=1", "http://b.local:8081/view?minimal=1"},
 			wantLabels: []string{"Pixel", "b"},
 		},
 		{
 			name:       "surrounding whitespace is trimmed",
 			targets:    " a.local:8080 , b.local:8081 ",
-			wantURLs:   []string{"http://a.local:8080/view?chrome=0", "http://b.local:8081/view?chrome=0"},
+			wantURLs:   []string{"http://a.local:8080/view?minimal=1", "http://b.local:8081/view?minimal=1"},
 			wantLabels: []string{"a", "b"},
 		},
 		{name: "empty", targets: "", wantErr: true},
@@ -99,8 +99,8 @@ func TestHandleWall(t *testing.T) {
 		}
 		body := rec.Body.String()
 		for _, want := range []string{
-			`src="http://a.local:8080/view?chrome=0"`,
-			`src="http://b.local:8081/view?chrome=0"`,
+			`src="http://a.local:8080/view?minimal=1"`,
+			`src="http://b.local:8081/view?minimal=1"`,
 			"<h2>Pixel</h2>",
 			"<h2>iPhone</h2>",
 			"repeat(2, minmax(0, 1fr))",
@@ -111,17 +111,17 @@ func TestHandleWall(t *testing.T) {
 		}
 	})
 
-	t.Run("chrome=0 drops captions and padding", func(t *testing.T) {
+	t.Run("minimal=1 drops captions and padding", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/wall?targets=a.local:8080&chrome=0", nil)
+		req := httptest.NewRequest(http.MethodGet, "/wall?targets=a.local:8080&minimal=1", nil)
 		srv.handleWall(rec, req)
 
 		body := rec.Body.String()
 		if strings.Contains(body, "<h2>") {
-			t.Error("chrome=0 should not render captions")
+			t.Error("minimal=1 should not render captions")
 		}
 		if !strings.Contains(body, "gap:0px; padding:0px;") {
-			t.Error("chrome=0 should remove gap and padding")
+			t.Error("minimal=1 should remove gap and padding")
 		}
 	})
 

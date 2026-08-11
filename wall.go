@@ -11,7 +11,7 @@ import (
 
 // wallTarget is one Roadie instance rendered as a panel on the /wall page.
 type wallTarget struct {
-	URL   string // absolute /view URL, chrome disabled
+	URL   string // absolute /view URL, rendered without page furniture
 	Label string
 }
 
@@ -75,7 +75,7 @@ func parseWallTargets(targets, labels string) ([]wallTarget, error) {
 			Scheme:   u.Scheme,
 			Host:     u.Host,
 			Path:     "/view",
-			RawQuery: "chrome=0",
+			RawQuery: "minimal=1",
 		}
 		out = append(out, wallTarget{URL: viewURL.String(), Label: label})
 	}
@@ -119,11 +119,11 @@ func (s *Server) handleWall(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// chrome=0 drops the captions and padding for a bare video wall.
-	showChrome := q.Get("chrome") != "0"
-	gap := 0
-	if showChrome {
-		gap = 10
+	// minimal=1 drops the captions and padding for a bare video wall.
+	minimal := q.Get("minimal") == "1"
+	gap := 10
+	if minimal {
+		gap = 0
 	}
 
 	fmt.Fprintf(w, `<!DOCTYPE html>
@@ -150,11 +150,11 @@ func (s *Server) handleWall(w http.ResponseWriter, r *http.Request) {
 	for _, t := range targets {
 		esc := html.EscapeString(t.URL)
 		fmt.Fprint(w, `  <div class="panel">`+"\n")
-		if showChrome {
+		if !minimal {
 			fmt.Fprintf(w, "    <h2>%s</h2>\n", html.EscapeString(t.Label))
 		}
 		class := "framed"
-		if !showChrome {
+		if minimal {
 			class = ""
 		}
 		fmt.Fprintf(w, `    <iframe class="%s" src="%s" title="%s" allow="autoplay" scrolling="no"></iframe>`+"\n",
@@ -191,7 +191,7 @@ func writeWallUsage(w http.ResponseWriter, reason string) {
 <p>Show several Roadie instances side by side:</p>
 <p><code>/wall?targets=roadie-a.local:8080,roadie-b.local:8081</code></p>
 <p>Optional: <code>&amp;labels=Pixel,iPhone</code> to caption the panels,
-<code>&amp;cols=2</code> to set the grid width, and <code>&amp;chrome=0</code>
+<code>&amp;cols=2</code> to set the grid width, and <code>&amp;minimal=1</code>
 for a bare wall with no captions or padding.</p>
 <p>Targets must be reachable from this browser, so use LAN hostnames or IPs
 rather than <code>localhost</code> when viewing from another machine.</p>

@@ -50,7 +50,7 @@ relayed through the wall: each panel streams point-to-point from its own Roadie
 to the browser.
 
 Panels are captioned with each target's hostname unless `&labels=` overrides
-them, as above. Add `&chrome=0` for a bare wall with no captions or padding, and
+them, as above. Add `&minimal=1` for a bare wall with no captions or padding, and
 `&cols=` to control the grid. See the [API reference](../../API.md#get-wall) for
 all parameters.
 
