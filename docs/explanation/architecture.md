@@ -101,9 +101,34 @@ The web UI coalesces input events before sending to avoid flooding the HID pipel
 
 ## Cross-Platform Relay Detection
 
-The Go server auto-detects the relay board's serial port:
-- **Linux**: globs `/dev/serial/by-id/usb-Adafruit_Roadie-Relay_*-if02` (the CDC data interface)
-- **macOS**: runs `ioreg -n Roadie-Relay` to find the device by USB product name, then extracts the data port (second IOCalloutDevice)
+The Go server enumerates connected relay boards and their USB serial numbers:
+- **Linux**: globs `/dev/serial/by-id/usb-Adafruit_Roadie-Relay_*-if02` (the CDC data interface). The serial number is embedded in the symlink name.
+- **macOS**: runs `ioreg -n Roadie-Relay` to find every device by USB product name, grouping each board's `USB Serial Number` with its data port (the last IOCalloutDevice under that device)
+
+With one board connected it binds automatically. With several, `--relay <substring>`
+selects one by serial number; an absent, ambiguous, or unmatched selector is an
+error rather than an arbitrary pick, because two instances silently sharing one
+board would interleave input. See [Multiple Targets](#multiple-targets).
+
+## Multiple Targets
+
+A `Server` owns exactly one capture source and one relay board, so driving several
+targets from one host means running one `roadie` process per target — each pinned
+with `--device`, `--relay`, `--port`, and `--name`. See
+[Running Multiple Targets](../how-to/multiple-targets.md) for the how-to.
+
+This keeps the blast radius small: a wedged capture dongle, a board reset, or a
+crash affects only its own target, and the OS schedules each capture and JPEG
+encode pipeline independently. The trade-off is that nothing is shared — each
+instance has its own frame buffer, its own BiDi session, and its own mDNS name.
+
+Aggregation belongs above the servers, not inside them. A page that embeds each
+instance's `/view` in an iframe gets a combined display with full interactivity:
+each iframe is same-origin with its own server, so streams, the HID WebSocket, and
+audio all work untouched. Because the viewer normalizes pointer coordinates
+against the displayed image (see [Coordinate Remapping](#coordinate-remapping))
+rather than assuming a 1:1 pixel mapping, the embedded views can be scaled to fit
+without breaking input.
 
 ## Mobile Targets
 
@@ -120,7 +145,10 @@ The HID board's multi-touch digitizer enables native touch interaction, so the p
 |------|-------------|
 | `main.go` | Startup, flag parsing, component wiring |
 | `server.go` | HTTP handlers, /view page, /test page, HID API |
-| `hid.go` | Serial connection to relay board, command methods |
+| `hid.go` | Relay board discovery and selection, serial connection, command methods |
 | `capture.go` | Frame capture, crop detection, frame buffer |
+| `bidi.go` | WebDriver BiDi endpoint (`/session`) |
+| `audio.go` | Audio capture and WebSocket broadcast |
+| `httpsource.go` | MJPEG ingest from another Roadie's `/raw-stream` |
 | `mdns.go` | Bonjour/mDNS service registration |
 | `board/` | CircuitPython code for both boards |

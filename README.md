@@ -92,6 +92,9 @@ make                # build
 
 Open `http://localhost:8080/view` to see and control the target's screen.
 
+To drive more than one device from the same host, see
+[Running Multiple Targets](docs/how-to/multiple-targets.md).
+
 ## Features
 
 - **HID control**: absolute mouse, multi-touch digitizer, and keyboard input via USB, controllable over HTTP/WebSocket
@@ -102,6 +105,7 @@ Open `http://localhost:8080/view` to see and control the target's screen.
 - **Runtime settings**: adjust quality, FPS, and resolution on the fly from the viewer
 - **Audio streaming**: optional PCM audio over WebSocket
 - **Bonjour/mDNS**: discoverable as `roadie.local` on your network
+- **Multiple targets**: run one instance per target on a single host, each pinned to its own capture dongle and relay board
 - **Cross-platform**: runs on macOS and Linux (Raspberry Pi, Ubuntu, etc.)
 - **Resilient**: automatic reconnection with exponential backoff, signal loss detection
 
@@ -114,6 +118,7 @@ Open `http://localhost:8080/view` to see and control the target's screen.
 | [Board Reference](docs/reference/boards.md) | Hardware specs, wiring, USB identifiers, LED behavior |
 | [Architecture](docs/explanation/architecture.md) | System design, pipeline, and design decisions |
 | [Flash Boards](docs/how-to/flash-boards.md) | Flashing, re-flashing, and syncing board code |
+| [Running Multiple Targets](docs/how-to/multiple-targets.md) | Driving several devices from one host, and viewing them together |
 | [Troubleshooting](docs/how-to/troubleshooting.md) | Common problems and fixes |
 | [Automate with Vibium](docs/tutorials/automate-with-vibium.md) | Drive Roadie with JavaScript using browser automation |
 | [REPL Tutorial](docs/tutorials/repl.md) | Interactive debugging via CircuitPython REPL |

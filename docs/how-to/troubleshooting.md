@@ -70,6 +70,24 @@ ioreg -n Roadie-Relay -r -l | grep IOCalloutDevice
 
 If no results, the relay board isn't plugged in or isn't running CircuitPython with the correct `boot.py`.
 
+**"N relay boards connected, use --relay to pick one"**
+More than one relay board is plugged in. Roadie won't guess, because two instances
+sharing one board would interleave their input. List the boards and pin each
+instance to one:
+```bash
+./roadie --list-devices
+./roadie --relay A1B2C3D4E5F60001 ...
+```
+
+**"relay selector ... is ambiguous"**
+The `--relay` substring matches more than one board. Serials from the same batch
+share a long prefix — use more characters, or a distinctive suffix such as
+`--relay 0002`.
+
+**"no relay board matching ..."**
+The `--relay` substring matches nothing. The error lists the connected boards; check
+for a typo. Video capture keeps running meanwhile — only HID is unavailable.
+
 ## Device Reset
 
 **Glitchy HDMI signal (wrong colors, static on first connection)**

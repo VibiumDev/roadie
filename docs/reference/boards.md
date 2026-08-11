@@ -40,6 +40,27 @@ On Linux: `/dev/serial/by-id/usb-Adafruit_Roadie-Relay_*-if00` (console) and `-i
 
 On macOS: `/dev/cu.usbmodemXXX1` (console) and `/dev/cu.usbmodemXXX3` (data), identified via `ioreg -n Roadie-Relay`.
 
+### Serial Numbers
+
+Every board reports a USB serial number derived from the RP2040's unique chip ID,
+so boards are distinguishable without reflashing or relabelling — the product name
+(`Roadie-Relay`) and volume name (`ROADIE_RLY`) are identical across boards, but
+the serial is not:
+
+```
+usb-Adafruit_Roadie-Relay_A1B2C3D4E5F60001-if02
+                          ^^^^^^^^^^^^^^^^ serial number
+```
+
+This is what `roadie --relay <substring>` matches on when more than one relay is
+connected. Serials from boards of the same batch often share a long prefix, so use
+enough characters to be unambiguous. `roadie --list-devices` prints the serials of
+all connected boards.
+
+Note that the drive label is *not* unique: two relay boards plugged in at once both
+mount as `ROADIE_RLY` (the second gets a suffix), which is why `board/install.py`
+expects one board at a time.
+
 ### HID Board
 
 The HID board exposes one USB CDC serial port (console only) plus three HID devices:
@@ -117,6 +138,12 @@ usb_hid.enable((usb_hid.Device.KEYBOARD, mouse_device, digitizer_device))
 
 ```bash
 ls -la /dev/serial/by-id/ | grep Roadie
+```
+
+Or, for boards the server can see (any platform):
+
+```bash
+./roadie --list-devices
 ```
 
 Or:

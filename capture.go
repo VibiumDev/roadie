@@ -298,6 +298,42 @@ func DetectDevice(filter string) (deviceInfo, error) {
 	return deviceInfo{}, fmt.Errorf("no external capture device found\nAvailable devices: %s", strings.Join(names, ", "))
 }
 
+// CaptureCandidates returns the distinct names of connected video devices
+// that DetectDevice's auto-detect would consider, i.e. everything that isn't
+// a built-in camera. Each dongle registers several V4L2 nodes, so names are
+// deduplicated — the result counts physical devices, not nodes.
+func CaptureCandidates() []string {
+	drivers := driver.GetManager().Query(func(d driver.Driver) bool {
+		return d.Info().DeviceType == driver.Camera
+	})
+
+	skipKeywords := []string{"facetime", "iphone", "macbook", "imac", "integrated", "built-in"}
+
+	seen := make(map[string]bool)
+	var names []string
+	for _, d := range drivers {
+		info := d.Info()
+		name := info.Name
+		if name == "" {
+			name = info.Label
+		}
+		lower := strings.ToLower(name)
+		skip := false
+		for _, kw := range skipKeywords {
+			if strings.Contains(lower, kw) {
+				skip = true
+				break
+			}
+		}
+		if skip || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return names
+}
+
 // ListDevices returns a list of all video device names for diagnostic output.
 func ListDevices() []string {
 	devices := mediadevices.EnumerateDevices()
