@@ -2,12 +2,25 @@ package main
 
 import (
 	"net"
+	"strings"
 
 	"github.com/hashicorp/mdns"
 )
 
+// MDNSHostname returns the hostname advertised for a service name.
+//
+// The responder matches queried names exactly, while browsers lowercase
+// hostnames before resolving them — so a mixed-case name would advertise a
+// host that the browser then fails to look up. Lowercasing here means any
+// capitalization works: --name Android is reachable at android.local.
+func MDNSHostname(name string) string {
+	return strings.ToLower(name)
+}
+
 // RegisterMDNS advertises the Roadie service via Bonjour/mDNS and responds
 // to A record queries for <name>.local so browsers can reach us by name.
+// The service instance keeps the name as given, since that is a display name
+// browsers never resolve; only the hostname is normalized.
 // Returns a shutdown function to call on exit.
 func RegisterMDNS(name string, port int, resolution string) (shutdown func(), err error) {
 	ips := localIPs()
@@ -16,7 +29,7 @@ func RegisterMDNS(name string, port int, resolution string) (shutdown func(), er
 		name,
 		"_roadie._tcp",
 		"",
-		name+".local.",
+		MDNSHostname(name)+".local.",
 		port,
 		ips,
 		[]string{"version=0.1", "resolution=" + resolution},
