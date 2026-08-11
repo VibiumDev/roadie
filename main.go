@@ -24,6 +24,7 @@ func main() {
 	fps := flag.Int("fps", 30, "capture framerate")
 	quality := flag.Int("quality", 80, "JPEG compression quality (1-100)")
 	name := flag.String("name", "roadie", "Bonjour service name")
+	inputMode := flag.String("input", "", "default pointer mode for viewers: mouse or touch (empty: viewer decides)")
 	flag.Parse()
 
 	if *listDevices {
@@ -59,6 +60,10 @@ func main() {
 
 	if *source != "" && *device != "" {
 		log.Fatal("--source and --device are mutually exclusive")
+	}
+
+	if *inputMode != "" && *inputMode != "mouse" && *inputMode != "touch" {
+		log.Fatalf("--input must be mouse or touch, got %q", *inputMode)
 	}
 
 	buf := &FrameBuffer{}
@@ -158,6 +163,7 @@ func main() {
 		SourceType:     sourceType,
 		HID:            hid,
 		Capture:        cm,
+		InputMode:      *inputMode,
 	}
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", listenPort),
