@@ -27,19 +27,21 @@ of the video device name; `--relay` matches a substring of the relay board's USB
 serial number (or of its port path):
 
 ```bash
-./roadie --name roadie-a --port 8080 --device "Capture A" --relay A1B2C3D4E5F60001 &
-./roadie --name roadie-b --port 8081 --device "Capture B" --relay A1B2C3D4E5F60002 &
+./roadie --name android --port 8080 --device "Capture A" --relay A1B2C3D4E5F60001 &
+./roadie --name iphone  --port 8081 --device "Capture B" --relay A1B2C3D4E5F60002 &
 ```
 
-Each instance is then reachable independently — `http://roadie-a.local:8080` and
-`http://roadie-b.local:8081` — and controls only its own target.
+`--name` sets the Bonjour name, so each instance is reachable independently at
+`http://android.local:8080` and `http://iphone.local:8081`, and controls only its
+own target. Naming instances after the device they drive keeps them
+straightforward to tell apart once there are several.
 
 ## Viewing several at once
 
 `/wall` shows the instances side by side, one panel per target:
 
 ```
-http://roadie-a.local:8080/wall?targets=roadie-a.local:8080,roadie-b.local:8081&labels=Pixel,iPhone
+http://android.local:8080/wall?targets=android.local:8080,iphone.local:8081&labels=Android,iPhone
 ```
 
 Any instance can serve the page — it just embeds each target's `/view`, so the
@@ -47,9 +49,10 @@ panels stay fully interactive (touch, keyboard, audio, settings). Video is never
 relayed through the wall: each panel streams point-to-point from its own Roadie
 to the browser.
 
-Add `&chrome=0` for a bare wall with no captions or padding, and `&cols=` to
-control the grid. See the [API reference](../../API.md#get-wall) for all
-parameters.
+Panels are captioned with each target's hostname unless `&labels=` overrides
+them, as above. Add `&chrome=0` for a bare wall with no captions or padding, and
+`&cols=` to control the grid. See the [API reference](../../API.md#get-wall) for
+all parameters.
 
 The targets must be reachable from the **browser**, not from the server, so use
 LAN hostnames or IPs rather than `localhost` when viewing from another machine.
