@@ -34,6 +34,33 @@ serial number (or of its port path):
 Each instance is then reachable independently — `http://roadie-a.local:8080` and
 `http://roadie-b.local:8081` — and controls only its own target.
 
+## Viewing several at once
+
+`/wall` shows the instances side by side, one panel per target:
+
+```
+http://roadie-a.local:8080/wall?targets=roadie-a.local:8080,roadie-b.local:8081&labels=Pixel,iPhone
+```
+
+Any instance can serve the page — it just embeds each target's `/view`, so the
+panels stay fully interactive (touch, keyboard, audio, settings). Video is never
+relayed through the wall: each panel streams point-to-point from its own Roadie
+to the browser.
+
+Add `&chrome=0` for a bare wall with no captions or padding, and `&cols=` to
+control the grid. See the [API reference](../../API.md#get-wall) for all
+parameters.
+
+The targets must be reachable from the **browser**, not from the server, so use
+LAN hostnames or IPs rather than `localhost` when viewing from another machine.
+
+## Automating several targets
+
+Because a single browser page now contains every target, one automation session
+driving that page drives all of them — no aggregating server needed. Point
+[Vibium](../tutorials/automate-with-vibium.md) at the wall URL instead of
+`/view` and the same script reaches any of the devices.
+
 ## Notes and caveats
 
 - **Relay boards need no reflashing.** Every board reports a unique USB serial

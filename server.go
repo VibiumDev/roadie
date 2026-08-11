@@ -27,6 +27,7 @@ func NewMux(s *Server) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/view", s.handleView)
+	mux.HandleFunc("/wall", s.handleWall)
 	mux.HandleFunc("/stream", s.handleStream)
 	mux.HandleFunc("/snapshot", s.handleSnapshot)
 	mux.HandleFunc("/raw-stream", s.handleRawStream)
@@ -103,7 +104,17 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
   #onscreen-kbd .kgap { width:12px; flex-shrink:0; }
   .numpad { display:none; }
   @media (min-width:1200px) { .numpad { display:flex; } }
-</style>
+</style>`)
+
+	// chrome=0 hides the toolbar so the page embeds cleanly in an iframe (see
+	// /wall). The controls stay in the DOM rather than being omitted, so the
+	// page's scripts — which look them up by id — keep working untouched.
+	if r.URL.Query().Get("chrome") == "0" {
+		fmt.Fprint(w, `
+<style>#toolbar { display:none !important; }</style>`)
+	}
+
+	fmt.Fprint(w, `
 </head>
 <body style="margin:0; display:flex; height:100vh; overflow:hidden; overscroll-behavior:none;">
   <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
