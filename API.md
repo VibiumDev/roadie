@@ -19,6 +19,11 @@ Live video feed with full HID control. Click/touch the stream to send mouse or t
 | `minimal` | `1` hides the toolbar, for embedding in an iframe (see `/wall`). |
 | `input` | `mouse` or `touch` preselects the pointer mode for this page load. Not persisted, so it leaves any preference set by browsing this instance directly intact. Needed with `minimal=1`, which hides the toggle. |
 
+Pointer mode resolves in this order: `?input=` for this page load, then a mode
+this viewer chose from the toolbar for this instance, then the server's
+`--input`, then mouse. `--input` is the usual place to set it, since the mode
+is a property of the target device rather than of the browser viewing it.
+
 ### `GET /wall`
 Grid of several Roadie instances, one iframe per target. Carries no video itself —
 each panel loads its stream straight from its own Roadie, so frames travel
@@ -30,7 +35,7 @@ point-to-point from each capture host to the browser.
 | `labels` | Optional captions, comma-separated, positional. Defaults to each hostname. |
 | `cols` | Optional grid column count. Defaults to one column per target (a single row). |
 | `minimal` | `1` drops captions and padding for a bare video wall. |
-| `input` | `mouse` or `touch` for every panel, or a positional list (`touch,mouse`). Panels embed a minimal view whose own toggle is hidden, so phones generally need `input=touch`. |
+| `input` | `mouse` or `touch` for every panel, or a positional list (`touch,mouse`). Only needed for targets not already launched with `--input`. |
 
 ```
 /wall?targets=roadie-a.local:8080,roadie-b.local:8081&labels=Pixel,iPhone

@@ -20,6 +20,12 @@ type Server struct {
 	SourceType     string // "hardware" or "http"
 	HID            *HIDController
 	Capture        *CaptureManager
+
+	// InputMode is the pointer mode this target wants — "mouse", "touch", or
+	// empty to leave the choice to the viewer. It belongs to the server
+	// because it is a property of the device on the other end of the cable,
+	// which the browser has no way to know.
+	InputMode string
 }
 
 // NewMux wires up all HTTP routes and returns a handler.
@@ -124,6 +130,16 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "\n<script>window.__roadieInputMode='touch';</script>")
 	case "mouse":
 		fmt.Fprint(w, "\n<script>window.__roadieInputMode='mouse';</script>")
+	}
+
+	// --input supplies this target's own mode. It is a default rather than an
+	// override: a viewer who worked the toggle for this instance has made a
+	// deliberate, target-specific choice, so it stands.
+	switch s.InputMode {
+	case "touch":
+		fmt.Fprint(w, "\n<script>window.__roadieInputDefault='touch';</script>")
+	case "mouse":
+		fmt.Fprint(w, "\n<script>window.__roadieInputDefault='mouse';</script>")
 	}
 
 	fmt.Fprint(w, `
@@ -686,9 +702,13 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     // origin and so does not carry between instances. It is not persisted:
     // it applies to this page load only, leaving a preference set by
     // browsing this instance directly intact.
-    var inputMode = (window.__roadieInputMode === 'touch' || window.__roadieInputMode === 'mouse')
-      ? window.__roadieInputMode
-      : (localStorage.getItem('roadie-input-mode') === 'touch' ? 'touch' : 'mouse');
+    // Precedence: ?input= for this load, then a mode this viewer chose for
+    // this instance, then the server's --input, then mouse.
+    var storedMode = localStorage.getItem('roadie-input-mode');
+    var inputMode =
+      (window.__roadieInputMode === 'touch' || window.__roadieInputMode === 'mouse') ? window.__roadieInputMode :
+      (storedMode === 'touch' || storedMode === 'mouse') ? storedMode :
+      (window.__roadieInputDefault === 'touch') ? 'touch' : 'mouse';
     var modeMouseBtn = document.getElementById('modeMouseBtn');
     var modeTouchBtn = document.getElementById('modeTouchBtn');
     function applyInputMode(mode) {
@@ -1159,6 +1179,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.Buf != nil {
 		resp["quality"] = s.Buf.Quality()
+	}
+	if s.InputMode != "" {
+		resp["input_mode"] = s.InputMode
 	}
 	if status == "ok" || status == "no_signal" {
 		resp["device"] = s.Device

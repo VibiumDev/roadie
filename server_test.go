@@ -333,3 +333,52 @@ func TestNotFound(t *testing.T) {
 		t.Errorf("expected 404, got %d", code)
 	}
 }
+
+func TestViewInputMode(t *testing.T) {
+	// The page picks its pointer mode from, in order: ?input= for this load,
+	// a mode this viewer stored for this instance, then --input, then mouse.
+	// The server contributes the first and third of those as distinct globals
+	// so the stored preference can sit between them.
+	const forced = "window.__roadieInputMode="
+	const dflt = "window.__roadieInputDefault="
+
+	tests := []struct {
+		name       string
+		serverMode string
+		query      string
+		wantForced string // "" means the global must be absent
+		wantDflt   string
+	}{
+		{name: "neither set"},
+		{name: "flag only", serverMode: "touch", wantDflt: "'touch'"},
+		{name: "query only", query: "?input=touch", wantForced: "'touch'"},
+		{
+			name:       "query overrides the flag",
+			serverMode: "touch",
+			query:      "?input=mouse",
+			wantForced: "'mouse'",
+			wantDflt:   "'touch'",
+		},
+		{name: "unknown query value is ignored", query: "?input=tap"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, mux := newTestServer()
+			s.InputMode = tt.serverMode
+			_, _, body := get(t, mux, "/view"+tt.query)
+
+			for _, c := range []struct{ prefix, want string }{{forced, tt.wantForced}, {dflt, tt.wantDflt}} {
+				if c.want == "" {
+					if strings.Contains(body, c.prefix) {
+						t.Errorf("expected no %s in page", c.prefix)
+					}
+					continue
+				}
+				if !strings.Contains(body, c.prefix+c.want) {
+					t.Errorf("page missing %s%s", c.prefix, c.want)
+				}
+			}
+		})
+	}
+}
