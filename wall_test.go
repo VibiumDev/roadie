@@ -12,6 +12,7 @@ func TestParseWallTargets(t *testing.T) {
 		name       string
 		targets    string
 		labels     string
+		inputs     string
 		wantURLs   []string
 		wantLabels []string
 		wantErr    bool
@@ -64,7 +65,7 @@ func TestParseWallTargets(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseWallTargets(tt.targets, tt.labels)
+			got, err := parseWallTargets(tt.targets, tt.labels, tt.inputs)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("parseWallTargets(%q) error = %v, wantErr %v", tt.targets, err, tt.wantErr)
 			}
@@ -160,4 +161,59 @@ func TestHandleWall(t *testing.T) {
 			t.Error("usage page should show an example")
 		}
 	})
+}
+
+func TestParseWallTargetsInput(t *testing.T) {
+	const two = "a.local:8080,b.local:8081"
+
+	tests := []struct {
+		name     string
+		targets  string
+		inputs   string
+		wantURLs []string
+		wantErr  bool
+	}{
+		{
+			name:     "unset leaves the panel on its stored preference",
+			targets:  two,
+			wantURLs: []string{"http://a.local:8080/view?minimal=1", "http://b.local:8081/view?minimal=1"},
+		},
+		{
+			name:     "one mode covers every panel",
+			targets:  two,
+			inputs:   "touch",
+			wantURLs: []string{"http://a.local:8080/view?input=touch&minimal=1", "http://b.local:8081/view?input=touch&minimal=1"},
+		},
+		{
+			name:     "positional list assigns per panel",
+			targets:  two,
+			inputs:   "touch,mouse",
+			wantURLs: []string{"http://a.local:8080/view?input=touch&minimal=1", "http://b.local:8081/view?input=mouse&minimal=1"},
+		},
+		{
+			name:     "short list leaves the remainder unset",
+			targets:  two,
+			inputs:   "touch,",
+			wantURLs: []string{"http://a.local:8080/view?input=touch&minimal=1", "http://b.local:8081/view?minimal=1"},
+		},
+		{name: "unknown mode is rejected", targets: two, inputs: "tap", wantErr: true},
+		{name: "typo in a positional list is rejected", targets: two, inputs: "touch,moose", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseWallTargets(tt.targets, "", tt.inputs)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("parseWallTargets(inputs=%q) error = %v, wantErr %v", tt.inputs, err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			for i, want := range tt.wantURLs {
+				if got[i].URL != want {
+					t.Errorf("target %d URL = %q, want %q", i, got[i].URL, want)
+				}
+			}
+		})
+	}
 }

@@ -17,6 +17,7 @@ Live video feed with full HID control. Click/touch the stream to send mouse or t
 | Param | Description |
 |-------|-------------|
 | `minimal` | `1` hides the toolbar, for embedding in an iframe (see `/wall`). |
+| `input` | `mouse` or `touch` preselects the pointer mode for this page load. Not persisted, so it leaves any preference set by browsing this instance directly intact. Needed with `minimal=1`, which hides the toggle. |
 
 ### `GET /wall`
 Grid of several Roadie instances, one iframe per target. Carries no video itself —
@@ -29,6 +30,7 @@ point-to-point from each capture host to the browser.
 | `labels` | Optional captions, comma-separated, positional. Defaults to each hostname. |
 | `cols` | Optional grid column count. Defaults to one column per target (a single row). |
 | `minimal` | `1` drops captions and padding for a bare video wall. |
+| `input` | `mouse` or `touch` for every panel, or a positional list (`touch,mouse`). Panels embed a minimal view whose own toggle is hidden, so phones generally need `input=touch`. |
 
 ```
 /wall?targets=roadie-a.local:8080,roadie-b.local:8081&labels=Pixel,iPhone
@@ -37,7 +39,7 @@ point-to-point from each capture host to the browser.
 Targets must be reachable from the **browser**, not from the server — use LAN
 hostnames or IPs rather than `localhost` when viewing from another machine.
 Only the scheme and host of each target are used; the iframe path is always
-`/view?minimal=1`. Returns `400` with usage help if `targets` is missing or invalid.
+`/view?minimal=1` plus any `input` mode. Returns `400` with usage help if `targets` is missing or invalid.
 
 ### `GET /settings`
 Device info and JPEG quality adjustment UI.

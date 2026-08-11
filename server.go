@@ -114,6 +114,18 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 <style>#toolbar { display:none !important; }</style>`)
 	}
 
+	// input=mouse|touch preselects the pointer mode for this page load. The
+	// toggle lives in the toolbar, so a minimal view has no other way to
+	// reach it — and the stored preference is per origin, so it does not
+	// carry from one instance to another. Emitted as fixed literals, never
+	// interpolated, so nothing from the query string reaches the script.
+	switch r.URL.Query().Get("input") {
+	case "touch":
+		fmt.Fprint(w, "\n<script>window.__roadieInputMode='touch';</script>")
+	case "mouse":
+		fmt.Fprint(w, "\n<script>window.__roadieInputMode='mouse';</script>")
+	}
+
 	fmt.Fprint(w, `
 </head>
 <body style="margin:0; display:flex; height:100vh; overflow:hidden; overscroll-behavior:none;">
@@ -670,12 +682,17 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     hidConnect();
 
     // --- Input mode toggle ---
-    var inputMode = localStorage.getItem('roadie-input-mode') === 'touch' ? 'touch' : 'mouse';
+    // An ?input= override wins over the stored preference, which is per
+    // origin and so does not carry between instances. It is not persisted:
+    // it applies to this page load only, leaving a preference set by
+    // browsing this instance directly intact.
+    var inputMode = (window.__roadieInputMode === 'touch' || window.__roadieInputMode === 'mouse')
+      ? window.__roadieInputMode
+      : (localStorage.getItem('roadie-input-mode') === 'touch' ? 'touch' : 'mouse');
     var modeMouseBtn = document.getElementById('modeMouseBtn');
     var modeTouchBtn = document.getElementById('modeTouchBtn');
-    function setInputMode(mode) {
+    function applyInputMode(mode) {
       inputMode = mode;
-      localStorage.setItem('roadie-input-mode', mode);
       modeMouseBtn.style.background = mode === 'mouse' ? '#444' : '#333';
       modeMouseBtn.style.color = mode === 'mouse' ? '#fff' : '#888';
       modeMouseBtn.style.borderColor = mode === 'mouse' ? '#6af' : '#555';
@@ -683,7 +700,11 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       modeTouchBtn.style.color = mode === 'touch' ? '#fff' : '#888';
       modeTouchBtn.style.borderColor = mode === 'touch' ? '#6af' : '#555';
     }
-    setInputMode(inputMode);
+    function setInputMode(mode) {
+      applyInputMode(mode);
+      localStorage.setItem('roadie-input-mode', mode);
+    }
+    applyInputMode(inputMode);
     modeMouseBtn.onclick = function() { setInputMode('mouse'); scheduleHide(); };
     modeTouchBtn.onclick = function() { setInputMode('touch'); scheduleHide(); };
 
