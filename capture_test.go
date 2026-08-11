@@ -274,3 +274,26 @@ func TestIsBlackFrame(t *testing.T) {
 		t.Error("expected bright image not to be detected as black")
 	}
 }
+
+func TestDeviceInfoVideoNode(t *testing.T) {
+	// Labels as the mediadevices camera driver actually builds them: the
+	// leading segment is the path it enumerated through, which for USB
+	// capture dongles is a /dev/v4l/by-id name, not the node.
+	tests := []struct {
+		label string
+		want  string
+	}{
+		{"usb-Example_HDMI_Capture_B-video-index0;video2", "video2"},
+		{"usb-Example_HDMI_Capture_A-video-index0;video0", "video0"},
+		{"platform-fe00b840.mailbox-video-index0;video18", "video18"},
+		{"video10;video10", "video10"},
+		{"", ""},
+		{"AVFoundation-style-label", ""},
+		{"usb-something-with-no-node;notanode", ""},
+	}
+	for _, tt := range tests {
+		if got := (deviceInfo{Label: tt.label}).VideoNode(); got != tt.want {
+			t.Errorf("deviceInfo{Label: %q}.VideoNode() = %q, want %q", tt.label, got, tt.want)
+		}
+	}
+}

@@ -127,6 +127,8 @@ Service status and device info.
 ### `POST /api/capture/reset`
 Reset the USB capture device (unbind/rebind). Forces HDMI re-negotiation — useful when the signal is glitchy after initial connection. The stream will briefly disconnect and auto-recover.
 
+Only the dongle this instance is capturing from is reset, so it is safe to call when another Roadie instance is using a second dongle on the same host.
+
 **Response:**
 ```json
 {"status": "ok"}
