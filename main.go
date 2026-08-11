@@ -147,7 +147,7 @@ func main() {
 	if ip := getLANIP(); ip != "" {
 		fmt.Printf("🌐 http://%s:%d\n", ip, listenPort)
 	}
-	fmt.Printf("🌐 http://%s.local:%d\n", *name, listenPort)
+	fmt.Printf("🌐 http://%s.local:%d\n", MDNSHostname(*name), listenPort)
 
 	// Start HTTP server.
 	srv := &Server{

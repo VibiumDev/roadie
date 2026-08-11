@@ -79,7 +79,8 @@ driving that page drives all of them — no aggregating server needed. Point
 - **`POST /api/capture/reset` is scoped** to the dongle that instance is
   capturing from, so it won't disturb the other instance.
 - **Give each instance its own `--name`.** Both would otherwise advertise
-  `roadie.local` over mDNS and collide.
+  `roadie.local` over mDNS and collide. The name is lowercased to form the
+  hostname, so `--name Android` is reachable at `android.local`.
 - **Flashing boards is still one at a time.** Both relay boards mount their
   CircuitPython drive as `ROADIE_RLY`, so `make sync-relay` can't tell them
   apart. Flash and sync with one relay board plugged in at a time. (They run
