@@ -212,6 +212,28 @@ type deviceInfo struct {
 	Label string // internal UID used for driver matching
 }
 
+// VideoNode returns the V4L2 node backing this device (e.g. "video0").
+//
+// The mediadevices camera driver builds Linux labels as "<discovered>;<node>",
+// where the first segment is whichever path it enumerated the device through.
+// USB dongles are found via /dev/v4l/by-id, so for them that segment is a
+// by-id name and only the trailing one is the node:
+//
+//	usb-Example_HDMI_Capture_B-video-index0;video2
+//	video10;video10
+//
+// Returns empty on other platforms or for labels that don't end in a node.
+func (d deviceInfo) VideoNode() string {
+	node := d.Label
+	if i := strings.LastIndex(node, ";"); i >= 0 {
+		node = node[i+1:]
+	}
+	if !strings.HasPrefix(node, "video") {
+		return ""
+	}
+	return node
+}
+
 // DetectDevice enumerates video devices and returns the best capture device
 // candidate. It skips built-in cameras (FaceTime, iPhone, MacBook, iMac,
 // integrated, built-in) and prefers external/USB/HDMI devices. If no device
@@ -878,8 +900,11 @@ func (cm *CaptureManager) monitorCapture(done <-chan struct{}) string {
 	case <-cm.settingsChanged:
 		return "settings"
 	case result := <-cm.usbReset:
-		log.Println("resetting USB capture device")
-		err := resetCaptureUSB()
+		cm.mu.RLock()
+		node := cm.device.VideoNode()
+		cm.mu.RUnlock()
+		log.Printf("resetting USB capture device (%s)", node)
+		err := resetCaptureUSB(node)
 		if err != nil {
 			log.Printf("USB reset failed: %v", err)
 		} else {

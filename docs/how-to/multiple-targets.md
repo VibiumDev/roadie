@@ -46,6 +46,8 @@ Each instance is then reachable independently — `http://roadie-a.local:8080` a
 - **`--device` is strongly recommended.** Auto-detect picks the first external
   capture device it finds, which is not stable across reboots. Roadie warns at
   startup when several dongles are attached and no `--device` was given.
+- **`POST /api/capture/reset` is scoped** to the dongle that instance is
+  capturing from, so it won't disturb the other instance.
 - **Give each instance its own `--name`.** Both would otherwise advertise
   `roadie.local` over mDNS and collide.
 - **Flashing boards is still one at a time.** Both relay boards mount their

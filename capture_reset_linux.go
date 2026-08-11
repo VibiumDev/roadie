@@ -12,8 +12,11 @@ import (
 
 // resetCaptureUSB performs a USB unbind/rebind for the capture device,
 // simulating a physical unplug/replug. This forces HDMI re-negotiation.
-func resetCaptureUSB() error {
-	usbPath, err := findCaptureUSBDevice()
+// videoNode names the V4L2 node to reset (e.g. "video0"); it must be set
+// whenever more than one capture dongle is attached, or the reset would
+// yank a dongle belonging to another roadie instance.
+func resetCaptureUSB(videoNode string) error {
+	usbPath, err := findCaptureUSBDevice(videoNode)
 	if err != nil {
 		return fmt.Errorf("find USB device: %w", err)
 	}
@@ -34,9 +37,24 @@ func resetCaptureUSB() error {
 	return nil
 }
 
-// findCaptureUSBDevice locates the USB device sysfs path for the first
-// video4linux device that looks like an external capture dongle.
-func findCaptureUSBDevice() (string, error) {
+// findCaptureUSBDevice locates the USB device sysfs path for videoNode.
+// With videoNode empty it falls back to the first video4linux device that
+// looks like an external capture dongle — correct only when a single dongle
+// is attached.
+func findCaptureUSBDevice(videoNode string) (string, error) {
+	if videoNode != "" {
+		entry := filepath.Join("/sys/class/video4linux", videoNode)
+		devPath, err := filepath.EvalSymlinks(filepath.Join(entry, "device"))
+		if err != nil {
+			return "", fmt.Errorf("resolve %s: %w", entry, err)
+		}
+		usbDev := parentUSBDevice(devPath)
+		if usbDev == "" {
+			return "", fmt.Errorf("%s is not a USB device", videoNode)
+		}
+		return usbDev, nil
+	}
+
 	entries, err := filepath.Glob("/sys/class/video4linux/video*")
 	if err != nil {
 		return "", err
