@@ -106,10 +106,10 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
   @media (min-width:1200px) { .numpad { display:flex; } }
 </style>`)
 
-	// chrome=0 hides the toolbar so the page embeds cleanly in an iframe (see
+	// minimal=1 hides the toolbar so the page embeds cleanly in an iframe (see
 	// /wall). The controls stay in the DOM rather than being omitted, so the
 	// page's scripts — which look them up by id — keep working untouched.
-	if r.URL.Query().Get("chrome") == "0" {
+	if r.URL.Query().Get("minimal") == "1" {
 		fmt.Fprint(w, `
 <style>#toolbar { display:none !important; }</style>`)
 	}
