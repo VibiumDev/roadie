@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,19 +32,28 @@ const (
 // HIDController manages the serial connection to the relay board
 // and provides methods to send HID commands.
 type HIDController struct {
+	// Filter selects which relay board to bind to when more than one is
+	// connected. It matches as a case-insensitive substring against the
+	// board's USB serial number or its serial port path. Empty means
+	// "the only connected board".
+	Filter string
+
 	mu     sync.Mutex
 	port   io.WriteCloser
 	status atomic.Value // stores HIDStatus
+	path   atomic.Value // stores string: the bound serial port path
 
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-// NewHIDController creates a new HID controller.
-func NewHIDController() *HIDController {
+// NewHIDController creates a new HID controller bound to the relay board
+// matching filter. See HIDController.Filter for the matching rules.
+func NewHIDController(filter string) *HIDController {
 	ctx, cancel := context.WithCancel(context.Background())
-	hc := &HIDController{ctx: ctx, cancel: cancel}
+	hc := &HIDController{Filter: filter, ctx: ctx, cancel: cancel}
 	hc.status.Store(HIDDisconnected)
+	hc.path.Store("")
 	return hc
 }
 
@@ -62,7 +72,7 @@ func (hc *HIDController) Run() {
 
 		hc.status.Store(HIDConnecting)
 
-		path, err := findRelayPort()
+		path, err := findRelayPort(hc.Filter)
 		if err != nil {
 			log.Printf("HID relay not found: %v", err)
 			select {
@@ -89,6 +99,7 @@ func (hc *HIDController) Run() {
 		hc.mu.Lock()
 		hc.port = port
 		hc.mu.Unlock()
+		hc.path.Store(path)
 		hc.status.Store(HIDConnected)
 		retryDelay = 2 * time.Second
 		log.Printf("HID relay connected: %s", path)
@@ -134,11 +145,25 @@ func (hc *HIDController) Shutdown() {
 		hc.port = nil
 	}
 	hc.mu.Unlock()
+	hc.path.Store("")
 }
 
 // Status returns the current connection status.
 func (hc *HIDController) Status() HIDStatus {
 	return hc.status.Load().(HIDStatus)
+}
+
+// Port returns the serial port path of the bound relay board, or empty
+// if not connected.
+func (hc *HIDController) Port() string {
+	p, _ := hc.path.Load().(string)
+	return p
+}
+
+// Serial returns the USB serial number of the bound relay board, or empty
+// if not connected.
+func (hc *HIDController) Serial() string {
+	return relaySerialFromPath(hc.Port())
 }
 
 // sendJSON marshals the command and writes it to the serial port as a newline-terminated JSON string.
@@ -159,6 +184,7 @@ func (hc *HIDController) sendJSON(cmd map[string]any) error {
 		hc.port.Close()
 		hc.port = nil
 		hc.status.Store(HIDDisconnected)
+		hc.path.Store("")
 		return fmt.Errorf("write failed: %w", err)
 	}
 	return nil
@@ -251,52 +277,173 @@ func (hc *HIDController) ResetRelay() error {
 	return hc.sendJSON(map[string]any{"cmd": "reset_self"})
 }
 
-func findRelayPort() (string, error) {
-	// Linux: /dev/serial/by-id/ symlinks include product name and interface.
-	matches, err := filepath.Glob(relayDataGlob)
-	if err == nil && len(matches) > 0 {
-		return matches[0], nil
-	}
-
-	// macOS: use ioreg to find Roadie-Relay by USB product name.
-	if runtime.GOOS == "darwin" {
-		return findRelayPortMacOS()
-	}
-
-	return "", fmt.Errorf("no relay data port found")
+// RelayInfo describes a connected relay board.
+type RelayInfo struct {
+	Serial string // USB serial number — unique per board
+	Path   string // data serial port path (the second CDC interface)
 }
 
-// findRelayPortMacOS uses ioreg to find the Roadie-Relay USB device
-// and returns its data serial port (the second CDC interface).
-func findRelayPortMacOS() (string, error) {
-	out, err := exec.Command("ioreg", "-n", "Roadie-Relay", "-r", "-l").Output()
-	if err != nil {
-		return "", fmt.Errorf("ioreg failed: %w", err)
+// String renders a relay as "SERIAL (path)" for diagnostic output.
+func (r RelayInfo) String() string {
+	if r.Serial == "" {
+		return r.Path
 	}
-	if len(out) == 0 {
-		return "", fmt.Errorf("Roadie-Relay not found in ioreg")
+	return fmt.Sprintf("%s (%s)", r.Serial, r.Path)
+}
+
+// ListRelays returns every connected relay board, sorted by serial number
+// so the ordering is stable across runs.
+func ListRelays() []RelayInfo {
+	var relays []RelayInfo
+	if runtime.GOOS == "darwin" {
+		relays = listRelaysMacOS()
+	} else {
+		relays = listRelaysLinux()
+	}
+	sort.Slice(relays, func(i, j int) bool {
+		if relays[i].Serial != relays[j].Serial {
+			return relays[i].Serial < relays[j].Serial
+		}
+		return relays[i].Path < relays[j].Path
+	})
+	return relays
+}
+
+// findRelayPort returns the data serial port of the relay board selected by
+// filter, a case-insensitive substring matched against each board's serial
+// number and port path. An empty filter is only valid when exactly one board
+// is connected — with several attached, picking one arbitrarily would let two
+// roadie instances fight over the same board, so it is an error instead.
+func findRelayPort(filter string) (string, error) {
+	r, err := selectRelay(ListRelays(), filter)
+	if err != nil {
+		return "", err
+	}
+	return r.Path, nil
+}
+
+// selectRelay resolves filter against the connected boards. It is the pure
+// half of findRelayPort, split out so the matching rules can be tested
+// without hardware attached.
+func selectRelay(relays []RelayInfo, filter string) (RelayInfo, error) {
+	if len(relays) == 0 {
+		return RelayInfo{}, fmt.Errorf("no relay data port found")
 	}
 
-	// Extract all IOCalloutDevice paths — interface order means
-	// the first is console (CDC 0), the second is data (CDC 2).
-	var ports []string
+	if filter == "" {
+		if len(relays) > 1 {
+			return RelayInfo{}, fmt.Errorf("%d relay boards connected, use --relay to pick one: %s",
+				len(relays), formatRelays(relays))
+		}
+		return relays[0], nil
+	}
+
+	f := strings.ToLower(filter)
+	var matched []RelayInfo
+	for _, r := range relays {
+		if strings.Contains(strings.ToLower(r.Serial), f) || strings.Contains(strings.ToLower(r.Path), f) {
+			matched = append(matched, r)
+		}
+	}
+	switch len(matched) {
+	case 0:
+		return RelayInfo{}, fmt.Errorf("no relay board matching %q, connected: %s", filter, formatRelays(relays))
+	case 1:
+		return matched[0], nil
+	default:
+		return RelayInfo{}, fmt.Errorf("relay selector %q is ambiguous, matches: %s", filter, formatRelays(matched))
+	}
+}
+
+// formatRelays joins relays into a comma-separated list for error messages.
+func formatRelays(relays []RelayInfo) string {
+	parts := make([]string, len(relays))
+	for i, r := range relays {
+		parts[i] = r.String()
+	}
+	return strings.Join(parts, ", ")
+}
+
+// listRelaysLinux enumerates relay boards from /dev/serial/by-id/ symlinks,
+// which embed the USB product name, serial number, and interface number.
+func listRelaysLinux() []RelayInfo {
+	matches, err := filepath.Glob(relayDataGlob)
+	if err != nil {
+		return nil
+	}
+	relays := make([]RelayInfo, 0, len(matches))
+	for _, m := range matches {
+		relays = append(relays, RelayInfo{Serial: relaySerialFromPath(m), Path: m})
+	}
+	return relays
+}
+
+// relaySerialFromPath extracts the USB serial number from a by-id symlink
+// such as "usb-Adafruit_Roadie-Relay_A1B2C3D4E5F60001-if02". It returns
+// empty for paths that aren't by-id symlinks (e.g. macOS /dev/cu.* ports).
+func relaySerialFromPath(path string) string {
+	base := filepath.Base(path)
+	if !strings.HasPrefix(base, "usb-") {
+		return ""
+	}
+	base = strings.TrimSuffix(base, "-if02")
+	if i := strings.LastIndex(base, "_"); i >= 0 {
+		return base[i+1:]
+	}
+	return ""
+}
+
+// listRelaysMacOS uses ioreg to find every Roadie-Relay USB device and pairs
+// each one with its data serial port. ioreg prints a device node followed by
+// its interface children, so the serial number of a board always precedes
+// that board's IOCalloutDevice entries.
+func listRelaysMacOS() []RelayInfo {
+	out, err := exec.Command("ioreg", "-n", "Roadie-Relay", "-r", "-l").Output()
+	if err != nil || len(out) == 0 {
+		return nil
+	}
+
+	var relays []RelayInfo
+	cur := -1
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.Contains(line, "IOCalloutDevice") {
-			// Line looks like: "IOCalloutDevice" = "/dev/cu.usbmodem2103"
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) == 2 {
-				p := strings.Trim(strings.TrimSpace(parts[1]), `"`)
-				if strings.HasPrefix(p, "/dev/") {
-					ports = append(ports, p)
-				}
+		switch {
+		case strings.Contains(line, `"USB Serial Number"`):
+			relays = append(relays, RelayInfo{Serial: ioregValue(line)})
+			cur = len(relays) - 1
+		case strings.Contains(line, "IOCalloutDevice"):
+			p := ioregValue(line)
+			if !strings.HasPrefix(p, "/dev/") {
+				continue
 			}
+			if cur < 0 {
+				// A port with no preceding serial number — keep it as an
+				// unlabelled board rather than dropping it.
+				relays = append(relays, RelayInfo{})
+				cur = len(relays) - 1
+			}
+			// The data port is the last CDC interface listed; the first is
+			// the console. Overwriting leaves us with the data port.
+			relays[cur].Path = p
 		}
 	}
 
-	if len(ports) == 0 {
-		return "", fmt.Errorf("Roadie-Relay found but no serial ports")
+	// Drop devices that reported a serial but exposed no serial ports.
+	kept := relays[:0]
+	for _, r := range relays {
+		if r.Path != "" {
+			kept = append(kept, r)
+		}
 	}
-	// Data port is the last one (second CDC interface).
-	return ports[len(ports)-1], nil
+	return kept
+}
+
+// ioregValue extracts the quoted value from an ioreg line such as
+// `"IOCalloutDevice" = "/dev/cu.usbmodem2103"`.
+func ioregValue(line string) string {
+	parts := strings.SplitN(line, "=", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	return strings.Trim(strings.TrimSpace(parts[1]), `"`)
 }

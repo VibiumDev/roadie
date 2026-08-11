@@ -1959,10 +1959,20 @@ a { color: #6af; }
 func (s *Server) handleHIDStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	status := "unavailable"
+	resp := map[string]string{}
 	if s.HID != nil {
 		status = string(s.HID.Status())
+		// Report the bound board so two roadie instances on one host can be
+		// told apart.
+		if p := s.HID.Port(); p != "" {
+			resp["port"] = p
+			if serial := s.HID.Serial(); serial != "" {
+				resp["serial"] = serial
+			}
+		}
 	}
-	json.NewEncoder(w).Encode(map[string]string{"status": status})
+	resp["status"] = status
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) handleHIDType(w http.ResponseWriter, r *http.Request) {

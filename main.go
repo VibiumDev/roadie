@@ -14,7 +14,8 @@ import (
 )
 
 func main() {
-	device := flag.String("device", "", "device name substring (auto-detect if empty)")
+	device := flag.String("device", "", "video capture device name substring (auto-detect if empty)")
+	relay := flag.String("relay", "", "relay board serial number substring (auto-detect if empty)")
 	source := flag.String("source", "", "HTTP MJPEG source URL (e.g. http://host:8080/raw-stream)")
 	listDevices := flag.Bool("list-devices", false, "list all video and audio devices, then exit")
 	port := flag.Int("port", 0, "HTTP server port (default: auto, starting at 8080)")
@@ -40,7 +41,19 @@ func main() {
 			fmt.Printf("  - %s\n", d)
 		}
 		fmt.Println()
-		fmt.Println("Tip: use --device <substring> to select a specific device.")
+		fmt.Println("Relay boards:")
+		relays := ListRelays()
+		if len(relays) == 0 {
+			fmt.Println("  (none found)")
+		}
+		for _, r := range relays {
+			fmt.Printf("  - %s\n", r)
+		}
+		fmt.Println()
+		fmt.Println("Tip: use --device <substring> to select a capture device,")
+		fmt.Println("     and --relay <serial substring> to select a relay board.")
+		fmt.Println("     Run one roadie per target device, each with its own")
+		fmt.Println("     --device, --relay, --port, and --name.")
 		return
 	}
 
@@ -92,6 +105,13 @@ func main() {
 			deviceName = dev.Name
 			fmt.Printf("📺 Found %q capture device\n", dev.Name)
 			fmt.Printf("🎬 Capturing at %dx%d @ %dfps\n", *width, *height, *fps)
+			if cands := CaptureCandidates(); len(cands) > 1 && *device == "" {
+				fmt.Fprintf(os.Stderr, "\n⚠️  %d capture devices connected — use --device to pick one:\n", len(cands))
+				for _, c := range cands {
+					fmt.Fprintf(os.Stderr, "   %s\n", c)
+				}
+				fmt.Fprintln(os.Stderr, "")
+			}
 		}
 
 		go cm.Run()
@@ -111,7 +131,14 @@ func main() {
 	}
 
 	// Start HID controller (relay board serial connection).
-	hid := NewHIDController()
+	hid := NewHIDController(*relay)
+	if relays := ListRelays(); len(relays) > 1 && *relay == "" {
+		fmt.Fprintf(os.Stderr, "\n⚠️  %d relay boards connected — use --relay to pick one:\n", len(relays))
+		for _, r := range relays {
+			fmt.Fprintf(os.Stderr, "   %s\n", r)
+		}
+		fmt.Fprintln(os.Stderr, "")
+	}
 	go hid.Run()
 
 	// Print startup banner.

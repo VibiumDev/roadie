@@ -161,10 +161,20 @@ Connection status of the relay board.
 
 **Response:**
 ```json
-{"status": "connected"}
+{
+  "status": "connected",
+  "serial": "A1B2C3D4E5F60001",
+  "port": "/dev/serial/by-id/usb-Adafruit_Roadie-Relay_A1B2C3D4E5F60001-if02"
+}
 ```
 
 Status values: `connected`, `disconnected`, `connecting`, `unavailable`.
+
+`serial` and `port` identify the relay board this instance is bound to, and
+are present only while connected. They are the way to tell two Roadie
+instances on the same host apart — see [Running Two Targets at
+Once](README.md#running-two-targets-at-once). `serial` is omitted on macOS,
+where the port path does not embed the board's serial number.
 
 ### `POST /api/hid/type`
 Type text on the target device. Text longer than 29 characters is automatically chunked.

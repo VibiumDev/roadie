@@ -24,7 +24,7 @@ func (m *mockPort) lines() []string {
 }
 
 func newTestHID(mp *mockPort) *HIDController {
-	hc := NewHIDController()
+	hc := NewHIDController("")
 	hc.port = mp
 	hc.status.Store(HIDConnected)
 	return hc
@@ -140,7 +140,7 @@ func TestKeyPressRelease(t *testing.T) {
 }
 
 func TestStatusDisconnected(t *testing.T) {
-	hc := NewHIDController()
+	hc := NewHIDController("")
 	defer hc.Shutdown()
 
 	if hc.Status() != HIDDisconnected {
@@ -172,5 +172,60 @@ func TestMouseClick(t *testing.T) {
 	}
 	if int(cmd["buttons"].(float64)) != 1 {
 		t.Errorf("expected buttons=1, got %v", cmd["buttons"])
+	}
+}
+
+func TestRelaySerialFromPath(t *testing.T) {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{"/dev/serial/by-id/usb-Adafruit_Roadie-Relay_A1B2C3D4E5F60001-if02", "A1B2C3D4E5F60001"},
+		{"/dev/serial/by-id/usb-Adafruit_Roadie-Relay_A1B2C3D4E5F60002-if02", "A1B2C3D4E5F60002"},
+		{"/dev/cu.usbmodem2103", ""}, // macOS ports carry no serial in the path
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := relaySerialFromPath(tt.path); got != tt.want {
+			t.Errorf("relaySerialFromPath(%q) = %q, want %q", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestSelectRelay(t *testing.T) {
+	a := RelayInfo{Serial: "A1B2C3D4E5F60001", Path: "/dev/serial/by-id/usb-Adafruit_Roadie-Relay_A1B2C3D4E5F60001-if02"}
+	b := RelayInfo{Serial: "A1B2C3D4E5F60002", Path: "/dev/serial/by-id/usb-Adafruit_Roadie-Relay_A1B2C3D4E5F60002-if02"}
+	both := []RelayInfo{a, b}
+
+	tests := []struct {
+		name    string
+		relays  []RelayInfo
+		filter  string
+		want    RelayInfo
+		wantErr bool
+	}{
+		{"no boards", nil, "", RelayInfo{}, true},
+		{"single board, no filter", []RelayInfo{a}, "", a, false},
+		{"two boards, no filter is ambiguous", both, "", RelayInfo{}, true},
+		{"full serial", both, "A1B2C3D4E5F60001", a, false},
+		{"unique suffix", both, "0002", b, false},
+		{"lowercase filter", both, "a1b2c3d4e5f60001", a, false},
+		{"port path substring", both, "F60002-if02", b, false},
+		{"shared prefix is ambiguous", both, "A1B2C3D4E5F600", RelayInfo{}, true},
+		{"no match", both, "NOSUCHBOARD", RelayInfo{}, true},
+		{"filter matches single board", []RelayInfo{a}, "0001", a, false},
+		{"filter misses single board", []RelayInfo{a}, "0002", RelayInfo{}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := selectRelay(tt.relays, tt.filter)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("selectRelay(%q) error = %v, wantErr %v", tt.filter, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("selectRelay(%q) = %v, want %v", tt.filter, got, tt.want)
+			}
+		})
 	}
 }
