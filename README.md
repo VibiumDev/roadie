@@ -105,8 +105,8 @@ To drive more than one device from the same host, see
 - **Runtime settings**: adjust quality, FPS, and resolution on the fly from the viewer
 - **Audio streaming**: optional PCM audio over WebSocket
 - **Bonjour/mDNS**: discoverable as `roadie.local` on your network
-- **Multiple targets**: run one instance per target on a single host, each pinned to its own capture dongle and relay board
-- **Platform-aware input**: `--platform` adapts pointer mapping and input mode to Android, iOS, macOS, Windows, or Linux targets, with a `/wall` page to view and drive them together
+- **Multiple targets**: run one instance per target on a single host, each pinned to its own capture dongle and relay board, with a `/grid` page to view and drive them together
+- **Platform-aware input**: `--platform` adapts pointer mapping and input mode to Android, iOS, macOS, Windows, or Linux targets
 - **Cross-platform**: runs on macOS and Linux (Raspberry Pi, Ubuntu, etc.)
 - **Resilient**: automatic reconnection with exponential backoff, signal loss detection
 

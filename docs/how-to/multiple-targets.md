@@ -47,27 +47,28 @@ Both are reported by `/health`, so the effective settings are visible rather
 than inferred.
 
 `--name` sets the Bonjour name, so each instance is reachable independently at
-`http://android.local:8080` and `http://iphone.local:8081`, and controls only its
-own target. Naming instances after the device they drive keeps them
-straightforward to tell apart once there are several.
+`http://android.local:8080` and `http://iphone.local:8081`, and controls only
+its own target. It also titles the browser tab `Roadie — android`, so tabs for
+different targets stay tellable apart. Naming instances after the device they
+drive keeps them straightforward to tell apart once there are several.
 
 ## Viewing several at once
 
-`/wall` shows the instances side by side, one panel per target:
+`/grid` shows the instances side by side, one panel per target:
 
 ```
-http://android.local:8080/wall?targets=android.local:8080,iphone.local:8081&labels=Android,iPhone
+http://android.local:8080/grid?targets=android.local:8080,iphone.local:8081&labels=Android,iPhone
 ```
 
 Any instance can serve the page — it just embeds each target's `/view`, so the
 panels stay fully interactive (touch, keyboard, audio, settings). Video is never
-relayed through the wall: each panel streams point-to-point from its own Roadie
+relayed through the grid: each panel streams point-to-point from its own Roadie
 to the browser.
 
 Targets launched with `--input` need nothing further here. For one that wasn't,
-`&input=touch` sets the mode from the wall — one mode for every panel, or a
+`&input=touch` sets the mode from the grid — one mode for every panel, or a
 positional list (`&input=touch,mouse`) to mix a phone with a laptop. It matters
-on the wall specifically: each panel embeds a view with its toolbar hidden, and
+on the grid specifically: each panel embeds a view with its toolbar hidden, and
 the toolbar is where the mouse/touch toggle lives, so a panel with neither
 `--input` nor `&input=` falls back to whatever that instance's origin last
 stored — defaulting to mouse.
@@ -80,8 +81,8 @@ type. Sending keys to one target without involving the pointer at all is what
 that instance's own [HID API](../../API.md#hid-control) is for.
 
 Panels are captioned with each target's hostname unless `&labels=` overrides
-them, as above. Add `&minimal=1` for a bare wall with no captions or padding, and
-`&cols=` to control the grid. See the [API reference](../../API.md#get-wall) for
+them, as above. Add `&minimal=1` for a bare grid with no captions or padding, and
+`&cols=` to control the grid. See the [API reference](../../API.md#get-grid) for
 all parameters.
 
 The targets must be reachable from the **browser**, not from the server, so use
@@ -91,7 +92,7 @@ LAN hostnames or IPs rather than `localhost` when viewing from another machine.
 
 Because a single browser page now contains every target, one automation session
 driving that page drives all of them — no aggregating server needed. Point
-[Vibium](../tutorials/automate-with-vibium.md) at the wall URL instead of
+[Vibium](../tutorials/automate-with-vibium.md) at the grid URL instead of
 `/view` and the same script reaches any of the devices.
 
 ## Notes and caveats

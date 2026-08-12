@@ -9,28 +9,28 @@ import (
 	"strings"
 )
 
-// wallTarget is one Roadie instance rendered as a panel on the /wall page.
-type wallTarget struct {
+// gridTarget is one Roadie instance rendered as a panel on the /grid page.
+type gridTarget struct {
 	URL      string // absolute /view URL, rendered without page furniture
 	Snapshot string // absolute /snapshot URL, used to measure the target's shape
 	Label    string
 }
 
-// maxWallTargets bounds the panel count so a stray query string can't ask the
+// maxGridTargets bounds the panel count so a stray query string can't ask the
 // browser to open hundreds of MJPEG streams.
-const maxWallTargets = 12
+const maxGridTargets = 12
 
-// parseWallTargets turns the targets, labels and input query values into panels.
+// parseGridTargets turns the targets, labels and input query values into panels.
 //
 // Each target is a host[:port] or an absolute http(s) URL. Only the scheme and
 // host are taken from the input — the path and query of the iframe src are
 // always rebuilt here, so no caller-supplied path, query, or javascript: URL
 // can reach the rendered page.
 //
-// Targets must be reachable from the *browser*, not from the server: the wall
+// Targets must be reachable from the *browser*, not from the server: the grid
 // typically runs on the same host as the Roadie instances, but is viewed from
 // another machine, so "localhost" would resolve to the viewer's own machine.
-func parseWallTargets(targets, labels, inputs string) ([]wallTarget, error) {
+func parseGridTargets(targets, labels, inputs string) ([]gridTarget, error) {
 	var labelList []string
 	if labels != "" {
 		labelList = strings.Split(labels, ",")
@@ -38,7 +38,7 @@ func parseWallTargets(targets, labels, inputs string) ([]wallTarget, error) {
 
 	// input is either one mode for every panel or a positional list, matching
 	// how labels works. Panels embed a minimal view whose own mode toggle is
-	// hidden, so this is the only way to choose one from the wall.
+	// hidden, so this is the only way to choose one from the grid.
 	var inputList []string
 	for _, in := range strings.Split(inputs, ",") {
 		in = strings.TrimSpace(in)
@@ -48,14 +48,14 @@ func parseWallTargets(targets, labels, inputs string) ([]wallTarget, error) {
 		inputList = append(inputList, in)
 	}
 
-	var out []wallTarget
+	var out []gridTarget
 	for i, raw := range strings.Split(targets, ",") {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
 			continue
 		}
-		if len(out) >= maxWallTargets {
-			return nil, fmt.Errorf("too many targets (max %d)", maxWallTargets)
+		if len(out) >= maxGridTargets {
+			return nil, fmt.Errorf("too many targets (max %d)", maxGridTargets)
 		}
 
 		// Bare host:port is the common form; give it a scheme so url.Parse
@@ -80,7 +80,7 @@ func parseWallTargets(targets, labels, inputs string) ([]wallTarget, error) {
 			label = strings.TrimSpace(labelList[i])
 		}
 		if label == "" {
-			label = defaultWallLabel(u.Hostname())
+			label = defaultGridLabel(u.Hostname())
 		}
 
 		input := ""
@@ -102,7 +102,7 @@ func parseWallTargets(targets, labels, inputs string) ([]wallTarget, error) {
 			RawQuery: q.Encode(),
 		}
 		snapURL := url.URL{Scheme: u.Scheme, Host: u.Host, Path: "/snapshot"}
-		out = append(out, wallTarget{
+		out = append(out, gridTarget{
 			URL:      viewURL.String(),
 			Snapshot: snapURL.String(),
 			Label:    label,
@@ -115,27 +115,27 @@ func parseWallTargets(targets, labels, inputs string) ([]wallTarget, error) {
 	return out, nil
 }
 
-// defaultWallLabel derives a panel caption from a hostname, trimming the
+// defaultGridLabel derives a panel caption from a hostname, trimming the
 // mDNS suffix so "roadie-a.local" reads as "roadie-a".
-func defaultWallLabel(hostname string) string {
+func defaultGridLabel(hostname string) string {
 	return strings.TrimSuffix(hostname, ".local")
 }
 
-// handleWall renders a grid of Roadie viewers, one iframe per target.
+// handleGrid renders a grid of Roadie viewers, one iframe per target.
 //
-// The wall carries no video itself: each panel loads its stream straight from
+// The grid carries no video itself: each panel loads its stream straight from
 // its own Roadie, so frames travel point-to-point from each capture host to
 // the browser instead of being relayed through here. Each iframe is also
 // same-origin with the instance it embeds, so the stream, HID WebSocket, and
 // audio all work without any cross-origin handling.
-func (s *Server) handleWall(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGrid(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	targets, err := parseWallTargets(q.Get("targets"), q.Get("labels"), q.Get("input"))
+	targets, err := parseGridTargets(q.Get("targets"), q.Get("labels"), q.Get("input"))
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		writeWallUsage(w, err.Error())
+		writeGridUsage(w, err.Error())
 		return
 	}
 
@@ -148,7 +148,7 @@ func (s *Server) handleWall(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// minimal=1 drops the captions and padding for a bare video wall.
+	// minimal=1 drops the captions and padding for a bare video grid.
 	minimal := q.Get("minimal") == "1"
 	gap := 10
 	if minimal {
@@ -157,7 +157,7 @@ func (s *Server) handleWall(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
-<head><title>Roadie Wall</title><link rel="icon" href="data:,">
+<head><title>Roadie Grid</title><link rel="icon" href="data:,">
 <style>
   :root { --page-bg:#1a1a1a; --label:#6f6f6f; --label-on:#c8c8c8; --focus:rgba(255,255,255,0.30); }
   :root[data-theme="light"] { --page-bg:#e8e8ed; --label:#8a8a8a; --label-on:#1a1a1a; --focus:rgba(0,0,0,0.28); }
@@ -168,7 +168,7 @@ func (s *Server) handleWall(w http.ResponseWriter, r *http.Request) {
          grid-auto-rows:minmax(0, 1fr); gap:%dpx; padding:%dpx; }
   .panel { display:flex; align-items:center; justify-content:center; min-width:0; min-height:0; }
   /* The stack is only as wide as the screen inside it, so the caption sits
-     over the phone rather than over the whole share of the wall it occupies. */
+     over the phone rather than over the whole share of the grid it occupies. */
   .stack { display:flex; flex-direction:column; align-items:center; justify-content:flex-end;
            height:100%%; max-width:100%%; min-width:0; min-height:0; }
   .stack h2 { flex:none; margin:0 0 6px; font:600 11px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;
@@ -231,7 +231,7 @@ func (s *Server) handleWall(w http.ResponseWriter, r *http.Request) {
       frame.style.aspectRatio = probe.naturalWidth + ' / ' + probe.naturalHeight;
       frame.style.width = 'auto';
     };
-    probe.src = src + (src.indexOf('?') < 0 ? '?' : '&') + 'wall=' + Date.now();
+    probe.src = src + (src.indexOf('?') < 0 ? '?' : '&') + 'grid=' + Date.now();
   }
   function measureAll() { panels.forEach(measure); }
   measureAll();
@@ -268,13 +268,13 @@ func (s *Server) handleWall(w http.ResponseWriter, r *http.Request) {
 `)
 }
 
-// writeWallUsage renders a short help page when the targets list is missing or
-// malformed — the wall is usually opened by hand-typing a URL, so an example is
+// writeGridUsage renders a short help page when the targets list is missing or
+// malformed — the grid is usually opened by hand-typing a URL, so an example is
 // more useful than a bare 400.
-func writeWallUsage(w http.ResponseWriter, reason string) {
+func writeGridUsage(w http.ResponseWriter, reason string) {
 	fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
-<head><title>Roadie Wall</title><link rel="icon" href="data:,">
+<head><title>Roadie Grid</title><link rel="icon" href="data:,">
 <style>
   body { margin:0; min-height:100vh; background:#1a1a1a; color:#ddd;
          font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -287,15 +287,15 @@ func writeWallUsage(w http.ResponseWriter, reason string) {
 </style>
 </head>
 <body><div class="box">
-<h1>&#128506; Roadie Wall</h1>
+<h1>&#128506; Roadie Grid</h1>
 <p class="err">%s</p>
 <p>Show several Roadie instances side by side:</p>
-<p><code>/wall?targets=roadie-a.local:8080,roadie-b.local:8081</code></p>
+<p><code>/grid?targets=roadie-a.local:8080,roadie-b.local:8081</code></p>
 <p>Optional: <code>&amp;input=touch</code> to drive the targets by touch rather
 than mouse (one mode for all panels, or a positional list like
 <code>touch,mouse</code>), <code>&amp;labels=Pixel,iPhone</code> to caption them,
 <code>&amp;cols=2</code> to set the grid width, and <code>&amp;minimal=1</code>
-for a bare wall with no captions or padding.</p>
+for a bare grid with no captions or padding.</p>
 <p>Targets must be reachable from this browser, so use LAN hostnames or IPs
 rather than <code>localhost</code> when viewing from another machine.</p>
 </div></body>

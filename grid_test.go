@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestParseWallTargets(t *testing.T) {
+func TestParseGridTargets(t *testing.T) {
 	tests := []struct {
 		name       string
 		targets    string
@@ -60,14 +60,14 @@ func TestParseWallTargets(t *testing.T) {
 		{name: "javascript scheme rejected", targets: "javascript:alert(1)", wantErr: true},
 		{name: "file scheme rejected", targets: "file:///etc/passwd", wantErr: true},
 		{name: "data scheme rejected", targets: "data:text/html,<script>", wantErr: true},
-		{name: "over the target cap", targets: strings.Repeat("a.local:8080,", maxWallTargets+1), wantErr: true},
+		{name: "over the target cap", targets: strings.Repeat("a.local:8080,", maxGridTargets+1), wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseWallTargets(tt.targets, tt.labels, tt.inputs)
+			got, err := parseGridTargets(tt.targets, tt.labels, tt.inputs)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("parseWallTargets(%q) error = %v, wantErr %v", tt.targets, err, tt.wantErr)
+				t.Fatalf("parseGridTargets(%q) error = %v, wantErr %v", tt.targets, err, tt.wantErr)
 			}
 			if tt.wantErr {
 				return
@@ -87,13 +87,13 @@ func TestParseWallTargets(t *testing.T) {
 	}
 }
 
-func TestHandleWall(t *testing.T) {
+func TestHandleGrid(t *testing.T) {
 	srv := &Server{}
 
 	t.Run("renders one iframe per target", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/wall?targets=a.local:8080,b.local:8081&labels=Pixel,iPhone", nil)
-		srv.handleWall(rec, req)
+		req := httptest.NewRequest(http.MethodGet, "/grid?targets=a.local:8080,b.local:8081&labels=Pixel,iPhone", nil)
+		srv.handleGrid(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", rec.Code)
@@ -114,8 +114,8 @@ func TestHandleWall(t *testing.T) {
 
 	t.Run("minimal=1 drops captions and padding", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/wall?targets=a.local:8080&minimal=1", nil)
-		srv.handleWall(rec, req)
+		req := httptest.NewRequest(http.MethodGet, "/grid?targets=a.local:8080&minimal=1", nil)
+		srv.handleGrid(rec, req)
 
 		body := rec.Body.String()
 		if strings.Contains(body, "<h2>") {
@@ -128,8 +128,8 @@ func TestHandleWall(t *testing.T) {
 
 	t.Run("cols overrides the grid width", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/wall?targets=a.local:8080,b.local:8081,c.local:8082&cols=2", nil)
-		srv.handleWall(rec, req)
+		req := httptest.NewRequest(http.MethodGet, "/grid?targets=a.local:8080,b.local:8081,c.local:8082&cols=2", nil)
+		srv.handleGrid(rec, req)
 
 		if !strings.Contains(rec.Body.String(), "repeat(2, minmax(0, 1fr))") {
 			t.Error("cols=2 not applied")
@@ -138,8 +138,8 @@ func TestHandleWall(t *testing.T) {
 
 	t.Run("label markup is escaped", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/wall?targets=a.local:8080&labels=%3Cscript%3Ealert(1)%3C/script%3E", nil)
-		srv.handleWall(rec, req)
+		req := httptest.NewRequest(http.MethodGet, "/grid?targets=a.local:8080&labels=%3Cscript%3Ealert(1)%3C/script%3E", nil)
+		srv.handleGrid(rec, req)
 
 		body := rec.Body.String()
 		if strings.Contains(body, "<script>alert(1)</script>") {
@@ -152,7 +152,7 @@ func TestHandleWall(t *testing.T) {
 
 	t.Run("missing targets returns usage", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		srv.handleWall(rec, httptest.NewRequest(http.MethodGet, "/wall", nil))
+		srv.handleGrid(rec, httptest.NewRequest(http.MethodGet, "/grid", nil))
 
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400", rec.Code)
@@ -163,7 +163,7 @@ func TestHandleWall(t *testing.T) {
 	})
 }
 
-func TestParseWallTargetsInput(t *testing.T) {
+func TestParseGridTargetsInput(t *testing.T) {
 	const two = "a.local:8080,b.local:8081"
 
 	tests := []struct {
@@ -202,9 +202,9 @@ func TestParseWallTargetsInput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseWallTargets(tt.targets, "", tt.inputs)
+			got, err := parseGridTargets(tt.targets, "", tt.inputs)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("parseWallTargets(inputs=%q) error = %v, wantErr %v", tt.inputs, err, tt.wantErr)
+				t.Fatalf("parseGridTargets(inputs=%q) error = %v, wantErr %v", tt.inputs, err, tt.wantErr)
 			}
 			if tt.wantErr {
 				return

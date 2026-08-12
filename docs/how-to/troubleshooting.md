@@ -88,9 +88,9 @@ share a long prefix — use more characters, or a distinctive suffix such as
 The `--relay` substring matches nothing. The error lists the connected boards; check
 for a typo. Video capture keeps running meanwhile — only HID is unavailable.
 
-## Wall Page
+## Grid Page
 
-**Typing does nothing on `/wall`**
+**Typing does nothing on `/grid`**
 Keyboard input reaches the panel that holds focus, and the outlined panel shows
 which one that is. Move the pointer over a panel to give it focus, then type.
 If no panel is outlined, the browser window itself may not be focused — click
