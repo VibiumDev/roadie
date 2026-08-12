@@ -12,11 +12,13 @@ Service discovery: `dns-sd -B _roadie._tcp` (mDNS/Bonjour)
 Index page with links to all endpoints.
 
 ### `GET /view`
-Live video feed with full HID control. Click/touch the stream to send mouse or touch events to the target. Keyboard events are captured automatically (except when interacting with the toolbar). Includes audio toggle, quality/FPS/resolution settings, and mouse/touch input mode toggle. Input mode persists across page refreshes via `localStorage`.
+Live video feed with full HID control. The browser tab is titled
+`Roadie — <name>` when `--name` is set, so several targets open at once stay
+tellable apart. Click/touch the stream to send mouse or touch events to the target. Keyboard events are captured automatically (except when interacting with the toolbar). Includes audio toggle, quality/FPS/resolution settings, and mouse/touch input mode toggle. Input mode persists across page refreshes via `localStorage`.
 
 | Param | Description |
 |-------|-------------|
-| `minimal` | `1` hides the toolbar, for embedding in an iframe (see `/wall`). |
+| `minimal` | `1` hides the toolbar, for embedding in an iframe (see `/grid`). |
 | `input` | `mouse` or `touch` sets the pointer mode for this page load, overriding the server's `--input`. |
 
 Pointer mode resolves in this order: `?input=` for this page load, then the
@@ -29,7 +31,7 @@ Neither `?input=` nor `--input` is written to the browser's stored preference,
 so the toolbar toggle still works and still holds for the rest of the session —
 a reload returns to the configured mode.
 
-### `GET /wall`
+### `GET /grid`
 Grid of several Roadie instances, one iframe per target. Carries no video itself —
 each panel loads its stream straight from its own Roadie, so frames travel
 point-to-point from each capture host to the browser.
@@ -39,11 +41,11 @@ point-to-point from each capture host to the browser.
 | `targets` | **Required.** Comma-separated `host:port` (or full `http(s)://host:port`) list. |
 | `labels` | Optional captions, comma-separated, positional. Defaults to each hostname. |
 | `cols` | Optional grid column count. Defaults to one column per target (a single row). |
-| `minimal` | `1` drops captions and padding for a bare video wall. |
+| `minimal` | `1` drops captions and padding for a bare grid. |
 | `input` | `mouse` or `touch` for every panel, or a positional list (`touch,mouse`). Only needed for targets not already launched with `--input`. |
 
 ```
-/wall?targets=roadie-a.local:8080,roadie-b.local:8081&labels=Pixel,iPhone
+/grid?targets=roadie-a.local:8080,roadie-b.local:8081&labels=Pixel,iPhone
 ```
 
 Targets must be reachable from the **browser**, not from the server — use LAN

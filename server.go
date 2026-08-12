@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"image"
 	"log"
 	"net/http"
@@ -31,6 +32,19 @@ type Server struct {
 	// pointer coordinates and what input mode suits it. Empty means
 	// unspecified.
 	Platform Platform
+
+	// Name is this instance's --name. It labels the browser tab so that
+	// several targets open at once stay tellable apart.
+	Name string
+}
+
+// pageTitle names the browser tab after the target this instance drives. The
+// default name says nothing the product name does not, so it is left off.
+func (s *Server) pageTitle() string {
+	if s.Name == "" || s.Name == "roadie" {
+		return "Roadie"
+	}
+	return "Roadie — " + s.Name
 }
 
 // effectiveInputMode is the mode viewers actually start in: --input when
@@ -48,7 +62,7 @@ func NewMux(s *Server) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/view", s.handleView)
-	mux.HandleFunc("/wall", s.handleWall)
+	mux.HandleFunc("/grid", s.handleGrid)
 	mux.HandleFunc("/stream", s.handleStream)
 	mux.HandleFunc("/snapshot", s.handleSnapshot)
 	mux.HandleFunc("/raw-stream", s.handleRawStream)
@@ -79,9 +93,8 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, `<!DOCTYPE html>
-<html>
-<head><title>Roadie</title>
+	fmt.Fprint(w, "<!DOCTYPE html>\n<html>\n<head><title>"+html.EscapeString(s.pageTitle())+"</title>")
+	fmt.Fprint(w, `
 <style>
 body { font-family: monospace; max-width: 600px; margin: 40px auto; padding: 0 20px; }
 a { color: #0066cc; }
@@ -106,9 +119,8 @@ li { padding: 8px 0; font-size: 1.1em; }
 
 func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, `<!DOCTYPE html>
-<html>
-<head><title>Roadie</title><link rel="icon" href="data:,">
+	fmt.Fprint(w, "<!DOCTYPE html>\n<html>\n<head><title>"+html.EscapeString(s.pageTitle())+"</title>")
+	fmt.Fprint(w, `<link rel="icon" href="data:,">
 <style>
   :root { --page-bg:#1a1a1a; --kbd-bg:#222; --kbd-key:rgba(255,255,255,0.12); --kbd-key-active:rgba(255,255,255,0.25); --kbd-text:#fff; --kbd-border:transparent; }
   :root[data-theme="light"] { --page-bg:#e8e8ed; --kbd-bg:#d4d4d9; --kbd-key:rgba(255,255,255,0.85); --kbd-key-active:rgba(255,255,255,0.55); --kbd-text:#1a1a1a; --kbd-border:rgba(0,0,0,0.08); }
@@ -128,7 +140,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 </style>`)
 
 	// minimal=1 hides the toolbar so the page embeds cleanly in an iframe (see
-	// /wall). The controls stay in the DOM rather than being omitted, so the
+	// /grid). The controls stay in the DOM rather than being omitted, so the
 	// page's scripts — which look them up by id — keep working untouched.
 	if r.URL.Query().Get("minimal") == "1" {
 		fmt.Fprint(w, `
@@ -807,7 +819,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     // The feed prevents default on mousedown to stop drag-selection, which
     // also suppresses the focus a click would normally give this document.
     // Standalone that goes unnoticed, because the page already holds focus.
-    // Embedded in /wall each panel is an iframe that therefore never gains
+    // Embedded in /grid each panel is an iframe that therefore never gains
     // focus, keydown never fires, and no panel accepts keyboard input at all.
     // Claim it explicitly — on entry as well as on click, so the keyboard
     // follows the same panel the pointer is already driving.

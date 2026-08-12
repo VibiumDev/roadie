@@ -171,6 +171,7 @@ func main() {
 		Capture:        cm,
 		InputMode:      *inputMode,
 		Platform:       platform,
+		Name:           *name,
 	}
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", listenPort),
