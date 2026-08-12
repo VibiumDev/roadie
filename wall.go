@@ -11,8 +11,9 @@ import (
 
 // wallTarget is one Roadie instance rendered as a panel on the /wall page.
 type wallTarget struct {
-	URL   string // absolute /view URL, rendered without page furniture
-	Label string
+	URL      string // absolute /view URL, rendered without page furniture
+	Snapshot string // absolute /snapshot URL, used to measure the target's shape
+	Label    string
 }
 
 // maxWallTargets bounds the panel count so a stray query string can't ask the
@@ -100,7 +101,12 @@ func parseWallTargets(targets, labels, inputs string) ([]wallTarget, error) {
 			Path:     "/view",
 			RawQuery: q.Encode(),
 		}
-		out = append(out, wallTarget{URL: viewURL.String(), Label: label})
+		snapURL := url.URL{Scheme: u.Scheme, Host: u.Host, Path: "/snapshot"}
+		out = append(out, wallTarget{
+			URL:      viewURL.String(),
+			Snapshot: snapURL.String(),
+			Label:    label,
+		})
 	}
 
 	if len(out) == 0 {
@@ -153,38 +159,47 @@ func (s *Server) handleWall(w http.ResponseWriter, r *http.Request) {
 <html>
 <head><title>Roadie Wall</title><link rel="icon" href="data:,">
 <style>
-  :root { --page-bg:#1a1a1a; --label:#8a8a8a; --focus:#6af; }
-  :root[data-theme="light"] { --page-bg:#e8e8ed; --label:#555; --focus:#06c; }
-  @media (prefers-color-scheme:light) { :root:not([data-theme="dark"]) { --page-bg:#e8e8ed; --label:#555; --focus:#06c; } }
+  :root { --page-bg:#1a1a1a; --label:#6f6f6f; --label-on:#c8c8c8; --focus:rgba(255,255,255,0.30); }
+  :root[data-theme="light"] { --page-bg:#e8e8ed; --label:#8a8a8a; --label-on:#1a1a1a; --focus:rgba(0,0,0,0.28); }
+  @media (prefers-color-scheme:light) { :root:not([data-theme="dark"]) { --page-bg:#e8e8ed; --label:#8a8a8a; --label-on:#1a1a1a; --focus:rgba(0,0,0,0.28); } }
   * { box-sizing:border-box; }
   body { margin:0; height:100vh; overflow:hidden; background:var(--page-bg);
          display:grid; grid-template-columns:repeat(%d, minmax(0, 1fr));
          grid-auto-rows:minmax(0, 1fr); gap:%dpx; padding:%dpx; }
-  .panel { display:flex; flex-direction:column; min-width:0; min-height:0; }
-  .panel h2 { margin:0 0 6px; font:600 11px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;
-              color:var(--label); text-align:center; text-transform:uppercase; letter-spacing:0.06em; }
-  .panel iframe { flex:1; width:100%%; min-height:0; border:0; background:#000; }
-  .panel iframe.framed { border-radius:8px; }
-  .panel.focused iframe { outline:2px solid var(--focus); outline-offset:-2px; }
-  .panel.focused h2 { color:var(--focus); }
+  .panel { display:flex; align-items:center; justify-content:center; min-width:0; min-height:0; }
+  /* The stack is only as wide as the screen inside it, so the caption sits
+     over the phone rather than over the whole share of the wall it occupies. */
+  .stack { display:flex; flex-direction:column; align-items:center; justify-content:flex-end;
+           height:100%%; max-width:100%%; min-width:0; min-height:0; }
+  .stack h2 { flex:none; margin:0 0 6px; font:600 11px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;
+              color:var(--label); text-align:center; text-transform:uppercase; letter-spacing:0.06em;
+              transition:color 120ms ease; }
+  /* Width starts at 100%% and becomes aspect-driven once the target has been
+     measured, so an unmeasured panel still fills its cell rather than
+     collapsing to an iframe's default width. */
+  .stack iframe { flex:1 1 auto; width:100%%; min-height:0; border:0; background:#000;
+                  box-shadow:0 0 0 1px transparent; transition:box-shadow 120ms ease; }
+  .stack iframe.framed { border-radius:8px; }
+  .panel.focused .stack iframe { box-shadow:0 0 0 1px var(--focus); }
+  .panel.focused .stack h2 { color:var(--label-on); }
 </style>
 </head>
 <body>
 `, cols, gap, gap)
 
 	for _, t := range targets {
-		esc := html.EscapeString(t.URL)
-		fmt.Fprint(w, `  <div class="panel">`+"\n")
-		if !minimal {
-			fmt.Fprintf(w, "    <h2>%s</h2>\n", html.EscapeString(t.Label))
-		}
 		class := "framed"
 		if minimal {
 			class = ""
 		}
-		fmt.Fprintf(w, `    <iframe class="%s" src="%s" title="%s" allow="autoplay" scrolling="no"></iframe>`+"\n",
-			class, esc, html.EscapeString(t.Label))
-		fmt.Fprint(w, "  </div>\n")
+		fmt.Fprintf(w, "  <div class=\"panel\" data-snapshot=\"%s\">\n    <div class=\"stack\">\n",
+			html.EscapeString(t.Snapshot))
+		if !minimal {
+			fmt.Fprintf(w, "      <h2>%s</h2>\n", html.EscapeString(t.Label))
+		}
+		fmt.Fprintf(w, `      <iframe class="%s" src="%s" title="%s" allow="autoplay" scrolling="no"></iframe>`+"\n",
+			class, html.EscapeString(t.URL), html.EscapeString(t.Label))
+		fmt.Fprint(w, "    </div>\n  </div>\n")
 	}
 
 	// Keyboard input goes to whichever iframe holds focus, so move focus with
@@ -201,6 +216,28 @@ func (s *Server) handleWall(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<script>
 (function () {
   var panels = [].slice.call(document.querySelectorAll('.panel'));
+
+  // Size each panel to its target's actual shape. A cross-origin image will
+  // not give up its pixels, but naturalWidth/naturalHeight are readable, so a
+  // snapshot is enough to learn the aspect without needing CORS on the API.
+  // Until then the panel keeps filling its cell.
+  function measure(panel) {
+    var src = panel.getAttribute('data-snapshot');
+    if (!src) return;
+    var frame = panel.querySelector('iframe');
+    var probe = new Image();
+    probe.onload = function () {
+      if (!probe.naturalWidth || !probe.naturalHeight) return;
+      frame.style.aspectRatio = probe.naturalWidth + ' / ' + probe.naturalHeight;
+      frame.style.width = 'auto';
+    };
+    probe.src = src + (src.indexOf('?') < 0 ? '?' : '&') + 'wall=' + Date.now();
+  }
+  function measureAll() { panels.forEach(measure); }
+  measureAll();
+  // Re-measure occasionally: a target that rotates or changes what it is
+  // letterboxing changes shape, and the panel should follow it.
+  setInterval(measureAll, 30000);
 
   panels.forEach(function (panel) {
     var frame = panel.querySelector('iframe');
