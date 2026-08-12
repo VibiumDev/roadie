@@ -383,3 +383,52 @@ func TestViewInputMode(t *testing.T) {
 		})
 	}
 }
+
+func TestViewPlatform(t *testing.T) {
+	// --platform contributes two things to the page: the pointer coordinate
+	// space, and a default input mode when --input is absent.
+	tests := []struct {
+		name          string
+		platform      Platform
+		inputMode     string
+		wantSpace     bool   // expect the screen-space global
+		wantInputMode string // "" means no input global
+	}{
+		{name: "unspecified", wantSpace: false, wantInputMode: ""},
+		{name: "ios", platform: PlatformIOS, wantSpace: true, wantInputMode: "'touch'"},
+		{name: "android", platform: PlatformAndroid, wantSpace: false, wantInputMode: "'touch'"},
+		{name: "mac", platform: PlatformMac, wantSpace: false, wantInputMode: "'mouse'"},
+		{
+			name:          "explicit --input beats the platform default",
+			platform:      PlatformIOS,
+			inputMode:     "mouse",
+			wantSpace:     true, // pointer space still follows the platform
+			wantInputMode: "'mouse'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, mux := newTestServer()
+			s.Platform = tt.platform
+			s.InputMode = tt.inputMode
+			_, _, body := get(t, mux, "/view")
+
+			gotSpace := strings.Contains(body, "window.__roadiePointerSpace='screen'")
+			if gotSpace != tt.wantSpace {
+				t.Errorf("pointer-space global present = %v, want %v", gotSpace, tt.wantSpace)
+			}
+
+			const im = "window.__roadieInputMode="
+			if tt.wantInputMode == "" {
+				if strings.Contains(body, im) {
+					t.Errorf("expected no %s", im)
+				}
+				return
+			}
+			if !strings.Contains(body, im+tt.wantInputMode) {
+				t.Errorf("page missing %s%s", im, tt.wantInputMode)
+			}
+		})
+	}
+}
