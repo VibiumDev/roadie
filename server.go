@@ -930,6 +930,28 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     var kbdCaptureCheck = document.getElementById('kbdCaptureCheck');
     kbdCaptureCheck.onchange = function() { kbdCapture = kbdCaptureCheck.checked; };
 
+    // Keys the target currently believes are down. A keyup that never
+    // arrives — the window losing focus mid-chord is the usual way — leaves
+    // one held indefinitely, and nothing downstream can tell: the relay sends
+    // key events fire-and-forget, so no error surfaces and the next thing
+    // typed just comes out wrong.
+    var heldKeys = {};
+    function releaseHeldKeys() {
+      for (var k in heldKeys) hidSend({cmd:'key_release', keycode:parseInt(k, 10)});
+      heldKeys = {};
+      // The on-screen keyboard latches its own modifiers; clear those too.
+      if (typeof activeModifiers === 'object' && activeModifiers) {
+        for (var m in activeModifiers) hidSend({cmd:'key_release', keycode:parseInt(m, 10)});
+        activeModifiers = {};
+        if (typeof refreshModifierButtons === 'function') refreshModifierButtons();
+      }
+    }
+    window.addEventListener('blur', releaseHeldKeys);
+    window.addEventListener('pagehide', releaseHeldKeys);
+    document.addEventListener('visibilitychange', function() {
+      if (document.hidden) releaseHeldKeys();
+    });
+
     document.addEventListener('keydown', function(e) {
       if (!kbdCapture) return;
       var tag = e.target.tagName;
@@ -937,16 +959,22 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       var hid = KEY_MAP[e.code];
       if (hid !== undefined) {
         e.preventDefault();
+        heldKeys[hid] = true;
         hidSend({cmd:'key_press', keycode:hid});
       }
     });
     document.addEventListener('keyup', function(e) {
-      if (!kbdCapture) return;
-      var tag = e.target.tagName;
-      if (tag === 'INPUT' || tag === 'SELECT') return;
       var hid = KEY_MAP[e.code];
-      if (hid !== undefined) {
+      if (hid === undefined) return;
+      // Release on the strength of what we actually pressed, not on the
+      // conditions that applied at keydown. Capture can be switched off,
+      // focus can move into a form control, and either between a keydown and
+      // its keyup would otherwise skip the release and leave the key down on
+      // the target — where a stuck modifier silently rewrites every character
+      // that follows.
+      if (heldKeys[hid]) {
         e.preventDefault();
+        delete heldKeys[hid];
         hidSend({cmd:'key_release', keycode:hid});
       }
     });

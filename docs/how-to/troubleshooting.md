@@ -88,6 +88,25 @@ share a long prefix — use more characters, or a distinctive suffix such as
 The `--relay` substring matches nothing. The error lists the connected boards; check
 for a typo. Video capture keeps running meanwhile — only HID is unavailable.
 
+## Stuck Keys
+
+**Everything types as the wrong character (`1234` comes out as `¡™£¢`)**
+A modifier key is held down on the target. Those characters are Option+1234, so
+something is holding Option; Shift stuck instead would give `!@#$`.
+
+The viewer releases held keys when it loses focus, so this should not accumulate,
+but a target can also latch a modifier on its own side. To clear it, tap that
+modifier once on your keyboard with the viewer focused — a press *and* release,
+which a bare release cannot substitute for, since a release that does not change
+the report is dropped before it reaches the target.
+
+Resetting the HID board also clears it, by re-enumerating the keyboard:
+```bash
+curl -X POST http://localhost:8080/api/hid/reset
+```
+That is the heavier option; the modifier tap is instant and does not interrupt
+the session.
+
 ## Device Reset
 
 **Glitchy HDMI signal (wrong colors, static on first connection)**
