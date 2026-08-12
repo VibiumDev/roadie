@@ -26,6 +26,21 @@ type Server struct {
 	// because it is a property of the device on the other end of the cable,
 	// which the browser has no way to know.
 	InputMode string
+
+	// Platform is the target's OS, which decides how it reads absolute
+	// pointer coordinates and what input mode suits it. Empty means
+	// unspecified.
+	Platform Platform
+}
+
+// effectiveInputMode is the mode viewers actually start in: --input when
+// given, otherwise whatever the platform implies. Reported by /health so the
+// answer is visible rather than inferred from two flags.
+func (s *Server) effectiveInputMode() string {
+	if s.InputMode != "" {
+		return s.InputMode
+	}
+	return s.Platform.DefaultInputMode()
 }
 
 // NewMux wires up all HTTP routes and returns a handler.
@@ -131,13 +146,20 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	// on every load, so most browsers hold a value nobody picked.
 	mode := r.URL.Query().Get("input")
 	if mode != "touch" && mode != "mouse" {
-		mode = s.InputMode
+		mode = s.effectiveInputMode()
 	}
 	switch mode {
 	case "touch":
 		fmt.Fprint(w, "\n<script>window.__roadieInputMode='touch';</script>")
 	case "mouse":
 		fmt.Fprint(w, "\n<script>window.__roadieInputMode='mouse';</script>")
+	}
+
+	// A target that addresses its own display needs the crop left out of the
+	// pointer mapping; see Platform.PointerSpace. Only the non-default value
+	// is emitted, so pages for every other target are unchanged.
+	if s.Platform.PointerSpace() == "screen" {
+		fmt.Fprint(w, "\n<script>window.__roadiePointerSpace='screen';</script>")
 	}
 
 	fmt.Fprint(w, `
@@ -725,6 +747,12 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 
     // --- Coordinate helpers ---
     function remapToAbsolute(px, py) {
+      // A target addressing its own display wants the position as-is. One
+      // addressing the whole captured frame needs the crop folded back in, so
+      // the letterbox bars count toward the coordinate. See --platform.
+      if (window.__roadiePointerSpace === 'screen') {
+        return { x: Math.round(px * 32767), y: Math.round(py * 32767) };
+      }
       var ax = (cropW > 0 && fullW > 0) ? (cropX + px * cropW) / fullW : px;
       var ay = (cropH > 0 && fullH > 0) ? (cropY + py * cropH) / fullH : py;
       return { x: Math.round(ax * 32767), y: Math.round(ay * 32767) };
@@ -1175,8 +1203,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if s.Buf != nil {
 		resp["quality"] = s.Buf.Quality()
 	}
-	if s.InputMode != "" {
-		resp["input_mode"] = s.InputMode
+	if mode := s.effectiveInputMode(); mode != "" {
+		resp["input_mode"] = mode
+	}
+	if s.Platform != "" {
+		resp["platform"] = string(s.Platform)
+		resp["pointer_space"] = s.Platform.PointerSpace()
 	}
 	if status == "ok" || status == "no_signal" {
 		resp["device"] = s.Device
@@ -1501,6 +1533,13 @@ func (s *Server) handleAudio(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	// The test page maps pointer coordinates the same way /view does, so it
+	// needs the same hint about which space the target addresses.
+	if s.Platform.PointerSpace() == "screen" {
+		fmt.Fprint(w, "<script>window.__roadiePointerSpace='screen';</script>\n")
+	}
+
 	fmt.Fprint(w, `<!DOCTYPE html>
 <html>
 <head><title>Roadie — HID Test</title>
@@ -1743,6 +1782,12 @@ a { color: #6af; }
   }, 50);
 
   function remapToAbsolute(px, py) {
+    // A target addressing its own display wants the position as-is. One
+    // addressing the whole captured frame needs the crop folded back in, so
+    // the letterbox bars count toward the coordinate. See --platform.
+    if (window.__roadiePointerSpace === 'screen') {
+      return { x: Math.round(px * 32767), y: Math.round(py * 32767) };
+    }
     var ax = (cropW > 0 && fullW > 0) ? (cropX + px * cropW) / fullW : px;
     var ay = (cropH > 0 && fullH > 0) ? (cropY + py * cropH) / fullH : py;
     return { x: Math.round(ax * 32767), y: Math.round(ay * 32767) };

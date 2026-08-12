@@ -25,6 +25,7 @@ func main() {
 	quality := flag.Int("quality", 80, "JPEG compression quality (1-100)")
 	name := flag.String("name", "roadie", "Bonjour service name")
 	inputMode := flag.String("input", "", "default pointer mode for viewers: mouse or touch (empty: viewer decides)")
+	platformName := flag.String("platform", "", "target OS: android, ios, mac, windows, linux (tunes pointer mapping and input mode)")
 	flag.Parse()
 
 	if *listDevices {
@@ -64,6 +65,11 @@ func main() {
 
 	if *inputMode != "" && *inputMode != "mouse" && *inputMode != "touch" {
 		log.Fatalf("--input must be mouse or touch, got %q", *inputMode)
+	}
+
+	platform, err := ParsePlatform(*platformName)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	buf := &FrameBuffer{}
@@ -164,6 +170,7 @@ func main() {
 		HID:            hid,
 		Capture:        cm,
 		InputMode:      *inputMode,
+		Platform:       platform,
 	}
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", listenPort),

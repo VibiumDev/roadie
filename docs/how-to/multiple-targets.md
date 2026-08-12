@@ -27,18 +27,24 @@ of the video device name; `--relay` matches a substring of the relay board's USB
 serial number (or of its port path):
 
 ```bash
-./roadie --name android --port 8080 --device "Capture A" --relay A1B2C3D4E5F60001 --input touch &
-./roadie --name iphone  --port 8081 --device "Capture B" --relay A1B2C3D4E5F60002 --input touch &
+./roadie --name android --port 8080 --device "Capture A" --relay A1B2C3D4E5F60001 --platform android &
+./roadie --name iphone  --port 8081 --device "Capture B" --relay A1B2C3D4E5F60002 --platform ios &
 ```
 
-`--input touch` tells viewers to drive the target by touch rather than mouse,
-which is what phones and tablets want. It belongs on the command line because
-the right mode depends on the device on the other end of the cable, which the
-browser has no way to know — without it, every browser has to pick the mode
-itself, and each one starts on mouse.
+`--platform` tells Roadie what it is driving: `android`, `ios` (also `iphone`
+or `ipad`), `mac`, `windows`, or `linux`. Nothing in a capture stream or a USB
+HID link identifies the far end, so this is worth stating once rather than
+working around per symptom. It sets two things:
 
-It takes precedence over the mode a browser has stored for that instance. Only
-`?input=` on the URL overrides it.
+- **How absolute pointer coordinates are read.** A mirrored iPhone reads
+  0-32767 as spanning its own display; a mirrored Android reads it as spanning
+  the whole captured frame, letterbox bars included. Get this wrong on a phone
+  and the pointer only reaches the middle quarter of the screen.
+- **The default input mode** — touch for phones and tablets, mouse for
+  computers. `--input` still overrides it when you want the other one.
+
+Both are reported by `/health`, so the effective settings are visible rather
+than inferred.
 
 `--name` sets the Bonjour name, so each instance is reachable independently at
 `http://android.local:8080` and `http://iphone.local:8081`, and controls only its

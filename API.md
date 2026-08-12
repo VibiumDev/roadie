@@ -20,7 +20,8 @@ Live video feed with full HID control. Click/touch the stream to send mouse or t
 | `input` | `mouse` or `touch` sets the pointer mode for this page load, overriding the server's `--input`. |
 
 Pointer mode resolves in this order: `?input=` for this page load, then the
-server's `--input`, then a mode this viewer chose from the toolbar, then mouse.
+server's `--input`, then the default implied by `--platform`, then a mode this
+viewer chose from the toolbar, then mouse.
 `--input` is the usual place to set it, since the mode is a property of the
 target device rather than of the browser viewing it.
 
@@ -145,7 +146,10 @@ Service status and device info.
   "fps": 30,
   "quality": 80,
   "crop": {"x": 0, "y": 140, "width": 1920, "height": 800},
-  "audio": {"sampleRate": 48000, "channels": 2}
+  "audio": {"sampleRate": 48000, "channels": 2},
+  "platform": "ios",
+  "pointer_space": "screen",
+  "input_mode": "touch"
 }
 ```
 
@@ -155,6 +159,9 @@ Service status and device info.
 | `source_type` | `hardware` or `http` |
 | `crop` | Present only when active crop differs from full frame |
 | `audio` | Present only when audio capture is active |
+| `platform` | Present only when `--platform` is set |
+| `pointer_space` | `screen` or `frame` — which space the target reads absolute coordinates in (see `--platform`) |
+| `input_mode` | The mode viewers start in: `--input`, else the platform default |
 
 ---
 
