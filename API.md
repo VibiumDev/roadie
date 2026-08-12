@@ -17,12 +17,16 @@ Live video feed with full HID control. Click/touch the stream to send mouse or t
 | Param | Description |
 |-------|-------------|
 | `minimal` | `1` hides the toolbar, for embedding in an iframe (see `/wall`). |
-| `input` | `mouse` or `touch` preselects the pointer mode for this page load. Not persisted, so it leaves any preference set by browsing this instance directly intact. Needed with `minimal=1`, which hides the toggle. |
+| `input` | `mouse` or `touch` sets the pointer mode for this page load, overriding the server's `--input`. |
 
-Pointer mode resolves in this order: `?input=` for this page load, then a mode
-this viewer chose from the toolbar for this instance, then the server's
-`--input`, then mouse. `--input` is the usual place to set it, since the mode
-is a property of the target device rather than of the browser viewing it.
+Pointer mode resolves in this order: `?input=` for this page load, then the
+server's `--input`, then a mode this viewer chose from the toolbar, then mouse.
+`--input` is the usual place to set it, since the mode is a property of the
+target device rather than of the browser viewing it.
+
+Neither `?input=` nor `--input` is written to the browser's stored preference,
+so the toolbar toggle still works and still holds for the rest of the session —
+a reload returns to the configured mode.
 
 ### `GET /wall`
 Grid of several Roadie instances, one iframe per target. Carries no video itself —

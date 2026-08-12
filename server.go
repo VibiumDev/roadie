@@ -125,21 +125,19 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	// reach it — and the stored preference is per origin, so it does not
 	// carry from one instance to another. Emitted as fixed literals, never
 	// interpolated, so nothing from the query string reaches the script.
-	switch r.URL.Query().Get("input") {
+	// Pointer mode: ?input= for this page load, otherwise the target's own
+	// --input. Either beats the viewer's stored preference, which cannot be
+	// read as a deliberate choice — until recently the page rewrote that key
+	// on every load, so most browsers hold a value nobody picked.
+	mode := r.URL.Query().Get("input")
+	if mode != "touch" && mode != "mouse" {
+		mode = s.InputMode
+	}
+	switch mode {
 	case "touch":
 		fmt.Fprint(w, "\n<script>window.__roadieInputMode='touch';</script>")
 	case "mouse":
 		fmt.Fprint(w, "\n<script>window.__roadieInputMode='mouse';</script>")
-	}
-
-	// --input supplies this target's own mode. It is a default rather than an
-	// override: a viewer who worked the toggle for this instance has made a
-	// deliberate, target-specific choice, so it stands.
-	switch s.InputMode {
-	case "touch":
-		fmt.Fprint(w, "\n<script>window.__roadieInputDefault='touch';</script>")
-	case "mouse":
-		fmt.Fprint(w, "\n<script>window.__roadieInputDefault='mouse';</script>")
 	}
 
 	fmt.Fprint(w, `
@@ -698,17 +696,14 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     hidConnect();
 
     // --- Input mode toggle ---
-    // An ?input= override wins over the stored preference, which is per
-    // origin and so does not carry between instances. It is not persisted:
-    // it applies to this page load only, leaving a preference set by
-    // browsing this instance directly intact.
-    // Precedence: ?input= for this load, then a mode this viewer chose for
-    // this instance, then the server's --input, then mouse.
-    var storedMode = localStorage.getItem('roadie-input-mode');
+    // Precedence: the mode the server resolved for this load (?input=, else
+    // --input), then a mode this viewer picked from the toolbar, then mouse.
+    // The server's value is not persisted, so toggling still works and still
+    // survives within the session; a reload returns to the configured mode.
     var inputMode =
-      (window.__roadieInputMode === 'touch' || window.__roadieInputMode === 'mouse') ? window.__roadieInputMode :
-      (storedMode === 'touch' || storedMode === 'mouse') ? storedMode :
-      (window.__roadieInputDefault === 'touch') ? 'touch' : 'mouse';
+      (window.__roadieInputMode === 'touch' || window.__roadieInputMode === 'mouse')
+        ? window.__roadieInputMode
+        : (localStorage.getItem('roadie-input-mode') === 'touch' ? 'touch' : 'mouse');
     var modeMouseBtn = document.getElementById('modeMouseBtn');
     var modeTouchBtn = document.getElementById('modeTouchBtn');
     function applyInputMode(mode) {

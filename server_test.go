@@ -335,31 +335,34 @@ func TestNotFound(t *testing.T) {
 }
 
 func TestViewInputMode(t *testing.T) {
-	// The page picks its pointer mode from, in order: ?input= for this load,
-	// a mode this viewer stored for this instance, then --input, then mouse.
-	// The server contributes the first and third of those as distinct globals
-	// so the stored preference can sit between them.
-	const forced = "window.__roadieInputMode="
-	const dflt = "window.__roadieInputDefault="
+	// The server resolves the mode and emits one global: ?input= for this
+	// load, else --input. Both outrank the viewer's stored preference, which
+	// older builds wrote automatically on every page load and so cannot be
+	// treated as a deliberate choice.
+	const global = "window.__roadieInputMode="
 
 	tests := []struct {
 		name       string
 		serverMode string
 		query      string
-		wantForced string // "" means the global must be absent
-		wantDflt   string
+		want       string // "" means the global must be absent
 	}{
 		{name: "neither set"},
-		{name: "flag only", serverMode: "touch", wantDflt: "'touch'"},
-		{name: "query only", query: "?input=touch", wantForced: "'touch'"},
+		{name: "flag only", serverMode: "touch", want: "'touch'"},
+		{name: "query only", query: "?input=touch", want: "'touch'"},
 		{
 			name:       "query overrides the flag",
 			serverMode: "touch",
 			query:      "?input=mouse",
-			wantForced: "'mouse'",
-			wantDflt:   "'touch'",
+			want:       "'mouse'",
 		},
-		{name: "unknown query value is ignored", query: "?input=tap"},
+		{
+			name:       "unknown query value falls back to the flag",
+			serverMode: "touch",
+			query:      "?input=tap",
+			want:       "'touch'",
+		},
+		{name: "unknown query value with no flag", query: "?input=tap"},
 	}
 
 	for _, tt := range tests {
@@ -368,16 +371,14 @@ func TestViewInputMode(t *testing.T) {
 			s.InputMode = tt.serverMode
 			_, _, body := get(t, mux, "/view"+tt.query)
 
-			for _, c := range []struct{ prefix, want string }{{forced, tt.wantForced}, {dflt, tt.wantDflt}} {
-				if c.want == "" {
-					if strings.Contains(body, c.prefix) {
-						t.Errorf("expected no %s in page", c.prefix)
-					}
-					continue
+			if tt.want == "" {
+				if strings.Contains(body, global) {
+					t.Errorf("expected no %s in page", global)
 				}
-				if !strings.Contains(body, c.prefix+c.want) {
-					t.Errorf("page missing %s%s", c.prefix, c.want)
-				}
+				return
+			}
+			if !strings.Contains(body, global+tt.want) {
+				t.Errorf("page missing %s%s", global, tt.want)
 			}
 		})
 	}

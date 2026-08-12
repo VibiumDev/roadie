@@ -37,6 +37,9 @@ the right mode depends on the device on the other end of the cable, which the
 browser has no way to know — without it, every browser has to pick the mode
 itself, and each one starts on mouse.
 
+It takes precedence over the mode a browser has stored for that instance. Only
+`?input=` on the URL overrides it.
+
 `--name` sets the Bonjour name, so each instance is reachable independently at
 `http://android.local:8080` and `http://iphone.local:8081`, and controls only its
 own target. Naming instances after the device they drive keeps them
