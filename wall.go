@@ -153,9 +153,9 @@ func (s *Server) handleWall(w http.ResponseWriter, r *http.Request) {
 <html>
 <head><title>Roadie Wall</title><link rel="icon" href="data:,">
 <style>
-  :root { --page-bg:#1a1a1a; --label:#8a8a8a; }
-  :root[data-theme="light"] { --page-bg:#e8e8ed; --label:#555; }
-  @media (prefers-color-scheme:light) { :root:not([data-theme="dark"]) { --page-bg:#e8e8ed; --label:#555; } }
+  :root { --page-bg:#1a1a1a; --label:#8a8a8a; --focus:#6af; }
+  :root[data-theme="light"] { --page-bg:#e8e8ed; --label:#555; --focus:#06c; }
+  @media (prefers-color-scheme:light) { :root:not([data-theme="dark"]) { --page-bg:#e8e8ed; --label:#555; --focus:#06c; } }
   * { box-sizing:border-box; }
   body { margin:0; height:100vh; overflow:hidden; background:var(--page-bg);
          display:grid; grid-template-columns:repeat(%d, minmax(0, 1fr));
@@ -165,6 +165,8 @@ func (s *Server) handleWall(w http.ResponseWriter, r *http.Request) {
               color:var(--label); text-align:center; text-transform:uppercase; letter-spacing:0.06em; }
   .panel iframe { flex:1; width:100%%; min-height:0; border:0; background:#000; }
   .panel iframe.framed { border-radius:8px; }
+  .panel.focused iframe { outline:2px solid var(--focus); outline-offset:-2px; }
+  .panel.focused h2 { color:var(--focus); }
 </style>
 </head>
 <body>
@@ -185,7 +187,46 @@ func (s *Server) handleWall(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "  </div>\n")
 	}
 
-	fmt.Fprint(w, `</body>
+	// Keyboard input goes to whichever iframe holds focus, so move focus with
+	// the pointer — the same thing already decides which target receives mouse
+	// and touch. The embedded viewer claims focus itself when the pointer
+	// reaches the feed; doing it here as well covers the padding and caption
+	// around it, and gives automation a single predictable rule: point at a
+	// panel, then type.
+	//
+	// Which panel is live has to be visible, otherwise keystrokes land
+	// somewhere the operator did not choose and nothing says so. A
+	// cross-origin iframe will not report its own focus, but the parent can
+	// see which iframe element is active, which is enough to mark it.
+	fmt.Fprint(w, `<script>
+(function () {
+  var panels = [].slice.call(document.querySelectorAll('.panel'));
+
+  panels.forEach(function (panel) {
+    var frame = panel.querySelector('iframe');
+    panel.addEventListener('mouseenter', function () {
+      try { frame.contentWindow.focus(); } catch (e) {}
+      mark();
+    });
+  });
+
+  function mark() {
+    var active = document.activeElement;
+    panels.forEach(function (panel) {
+      var focused = panel.querySelector('iframe') === active;
+      panel.classList.toggle('focused', focused);
+    });
+  }
+
+  // activeElement changes when focus moves into an iframe without firing an
+  // event the parent can hear, so sample it as well as reacting to events.
+  window.addEventListener('focus', mark, true);
+  window.addEventListener('blur', mark, true);
+  setInterval(mark, 250);
+  mark();
+})();
+</script>
+</body>
 </html>
 `)
 }

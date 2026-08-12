@@ -72,6 +72,13 @@ the toolbar is where the mouse/touch toggle lives, so a panel with neither
 `--input` nor `&input=` falls back to whatever that instance's origin last
 stored — defaulting to mouse.
 
+Keyboard input goes to the panel the pointer is over, and that panel is
+outlined so it is clear where typing will land. The pointer already decides
+which target receives mouse and touch, so the keyboard follows the same rule —
+including for automation, where the sequence is simply: point at a panel, then
+type. Sending keys to one target without involving the pointer at all is what
+that instance's own [HID API](../../API.md#hid-control) is for.
+
 Panels are captioned with each target's hostname unless `&labels=` overrides
 them, as above. Add `&minimal=1` for a bare wall with no captions or padding, and
 `&cols=` to control the grid. See the [API reference](../../API.md#get-wall) for

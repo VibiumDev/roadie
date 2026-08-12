@@ -804,6 +804,19 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     });
 
     var feedPressed = false;
+    // The feed prevents default on mousedown to stop drag-selection, which
+    // also suppresses the focus a click would normally give this document.
+    // Standalone that goes unnoticed, because the page already holds focus.
+    // Embedded in /wall each panel is an iframe that therefore never gains
+    // focus, keydown never fires, and no panel accepts keyboard input at all.
+    // Claim it explicitly — on entry as well as on click, so the keyboard
+    // follows the same panel the pointer is already driving.
+    function claimKeyboardFocus() {
+      try { window.focus(); } catch (err) {}
+    }
+    img.addEventListener('mouseenter', claimKeyboardFocus);
+    img.addEventListener('mousedown', claimKeyboardFocus);
+
     img.addEventListener('mousedown', function(e) {
       e.preventDefault();
       feedPressed = true;
