@@ -12,6 +12,7 @@ from protocol import (
     MSG_SIZE, RESP_SIZE, BAUD, STATUS_OK,
     CMD_PING, CMD_KEY_TYPE, CMD_RESET,
     pack_msg, pack_key_press, pack_key_release, pack_key_type,
+    pack_consumer_press, pack_consumer_release,
     pack_mouse_move, pack_mouse_click, pack_mouse_press, pack_mouse_release,
     pack_mouse_scroll, pack_touch,
 )
@@ -81,6 +82,10 @@ def translate(d):
         return [("nowait", pack_key_press(next_seq(), d["keycode"]))]
     elif cmd == "key_release":
         return [("nowait", pack_key_release(next_seq(), d["keycode"]))]
+    elif cmd == "consumer_press":
+        return [("nowait", pack_consumer_press(next_seq(), d["usage"]))]
+    elif cmd == "consumer_release":
+        return [("nowait", pack_consumer_release(next_seq()))]
     elif cmd == "mouse_move":
         return [("nowait", pack_mouse_move(next_seq(), d["x"], d["y"]))]
     elif cmd == "mouse_click":

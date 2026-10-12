@@ -11,6 +11,8 @@ CMD_PONG          = 0x02
 CMD_KEY_PRESS     = 0x10
 CMD_KEY_RELEASE   = 0x11
 CMD_KEY_TYPE      = 0x12
+CMD_CONSUMER_PRESS   = 0x13
+CMD_CONSUMER_RELEASE = 0x14
 CMD_MOUSE_MOVE    = 0x20
 CMD_MOUSE_CLICK   = 0x21
 CMD_MOUSE_PRESS   = 0x22
@@ -63,6 +65,13 @@ def pack_key_release(seq, keycode):
 
 def pack_key_type(seq, text):
     return pack_msg(CMD_KEY_TYPE, seq, text.encode("ascii")[:29])
+
+def pack_consumer_press(seq, usage):
+    """usage is a 16-bit consumer-control usage ID, e.g. 0x0223 (AC Home)."""
+    return pack_msg(CMD_CONSUMER_PRESS, seq, bytes([usage >> 8, usage & 0xFF]))
+
+def pack_consumer_release(seq):
+    return pack_msg(CMD_CONSUMER_RELEASE, seq)
 
 def pack_mouse_move(seq, x, y):
     return pack_msg(CMD_MOUSE_MOVE, seq, bytes([x >> 8, x & 0xFF, y >> 8, y & 0xFF]))

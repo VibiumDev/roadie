@@ -77,6 +77,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/api/relay/reset", s.handleRelayReset)
 	mux.HandleFunc("/api/hid/type", s.handleHIDType)
 	mux.HandleFunc("/api/hid/key", s.handleHIDKey)
+	mux.HandleFunc("/api/hid/consumer", s.handleHIDConsumer)
 	mux.HandleFunc("/api/hid/mouse/move", s.handleHIDMouseMove)
 	mux.HandleFunc("/api/hid/mouse/click", s.handleHIDMouseClick)
 	mux.HandleFunc("/api/hid/mouse/scroll", s.handleHIDMouseScroll)
@@ -202,6 +203,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     <button id="qbtn" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Settings"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/></svg></button>
     <button id="unmute" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Toggle audio"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M6.717 3.55A.5.5 0 0 1 7 4v8a.5.5 0 0 1-.812.39L3.825 10.5H1.5A.5.5 0 0 1 1 10V6a.5.5 0 0 1 .5-.5h2.325l2.363-1.89a.5.5 0 0 1 .529-.06m7.137 2.096a.5.5 0 0 1 0 .708L12.207 8l1.647 1.646a.5.5 0 0 1-.708.708L11.5 8.707l-1.646 1.647a.5.5 0 0 1-.708-.708L10.793 8 9.146 6.354a.5.5 0 1 1 .708-.708L11.5 7.293l1.646-1.647a.5.5 0 0 1 .708 0"/></svg></button>
     <button id="kbdBtn" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center; opacity:0.4;" title="On-screen keyboard"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M0 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm13 .25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M2.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 3 8.75v-.5A.25.25 0 0 0 2.75 8zM4 8.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 5 8.75v-.5A.25.25 0 0 0 4.75 8h-.5a.25.25 0 0 0-.25.25M6.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 7 8.75v-.5A.25.25 0 0 0 6.75 8zM8 8.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 9 8.75v-.5A.25.25 0 0 0 8.75 8h-.5a.25.25 0 0 0-.25.25M13.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm0 2a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm-3-2a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h1.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm.75 2.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M11.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zM9 6.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5A.25.25 0 0 0 9.75 6h-.5a.25.25 0 0 0-.25.25M7.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 8 6.75v-.5A.25.25 0 0 0 7.75 6zM5 6.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 6 6.75v-.5A.25.25 0 0 0 5.75 6h-.5a.25.25 0 0 0-.25.25M2.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h1.5A.25.25 0 0 0 4 6.75v-.5A.25.25 0 0 0 3.75 6zM2 10.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M4.25 10a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h5.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25z"/></svg></button>
+    <button id="homeBtn" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Home"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M8.707 1.5a1 1 0 0 0-1.414 0L.646 8.146a.5.5 0 0 0 .708.708L8 2.207l6.646 6.647a.5.5 0 0 0 .708-.708L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293zM13 7.207V13.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5V7.207l5-5z"/></svg></button>
     <div id="qslider" style="display:none; position:absolute; top:8px; z-index:21; background:rgba(50,50,50,0.95); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color:#fff; font-family:monospace; font-size:0.85em; white-space:nowrap;">
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
         <label style="min-width:55px;">Quality</label>
@@ -1026,6 +1028,13 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     kbdBtn.onclick = function() {
       showKbd(!oskVisible);
       saveSettings({kbdVisible: oskVisible});
+    };
+
+    // Home button — consumer-control AC Home (0x0223), the home screen on
+    // Android; the keyboard Home keycode (74) only moves the text cursor.
+    document.getElementById('homeBtn').onclick = function() {
+      hidSend({cmd:'consumer_press', usage:0x0223});
+      setTimeout(function(){ hidSend({cmd:'consumer_release'}); }, 30);
     };
 
     var kbdZoomRange = document.getElementById('kbdZoomRange');
@@ -2187,6 +2196,65 @@ func (s *Server) handleHIDKey(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+// consumerUsages maps friendly names accepted by /api/hid/consumer to HID
+// consumer-control usage IDs.
+var consumerUsages = map[string]int{
+	"home": 0x0223, // AC Home — home screen on Android
+}
+
+func (s *Server) handleHIDConsumer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.HID == nil {
+		http.Error(w, "HID not available", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Usage  int    `json:"usage"`
+		Key    string `json:"key"`
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if body.Key != "" {
+		usage, ok := consumerUsages[body.Key]
+		if !ok {
+			http.Error(w, "unknown key", http.StatusBadRequest)
+			return
+		}
+		body.Usage = usage
+	}
+	if body.Usage <= 0 || body.Usage > 0xFFFF {
+		http.Error(w, "usage (1-65535) or key required", http.StatusBadRequest)
+		return
+	}
+	var err error
+	switch body.Action {
+	case "press":
+		err = s.HID.ConsumerPress(body.Usage)
+	case "release":
+		err = s.HID.ConsumerRelease()
+	case "click", "":
+		err = s.HID.ConsumerPress(body.Usage)
+		if err == nil {
+			err = s.HID.ConsumerRelease()
+		}
+	default:
+		http.Error(w, "action must be press, release, or click", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
 func (s *Server) handleHIDMouseMove(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -2322,6 +2390,7 @@ func (s *Server) handleHIDWebSocket(w http.ResponseWriter, r *http.Request) {
 			X        int            `json:"x"`
 			Y        int            `json:"y"`
 			Keycode  int            `json:"keycode"`
+			Usage    int            `json:"usage"`
 			Buttons  int            `json:"buttons"`
 			Text     string         `json:"text"`
 			Amount   int            `json:"amount"`
@@ -2354,6 +2423,10 @@ func (s *Server) handleHIDWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.HID.KeyPress(msg.Keycode)
 		case "key_release":
 			s.HID.KeyRelease(msg.Keycode)
+		case "consumer_press":
+			s.HID.ConsumerPress(msg.Usage)
+		case "consumer_release":
+			s.HID.ConsumerRelease()
 		case "mouse_scroll":
 			s.HID.MouseScroll(msg.Amount)
 		case "touch":

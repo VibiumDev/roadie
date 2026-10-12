@@ -7,11 +7,13 @@ import neopixel_write
 import usb_hid
 from adafruit_hid.keyboard import Keyboard
 from adafruit_hid.keyboard_layout_us import KeyboardLayoutUS
+from adafruit_hid.consumer_control import ConsumerControl
 from absolute_mouse import Mouse as AbsoluteMouse
 import microcontroller
 from protocol import (
     MSG_SIZE, BAUD, STATUS_OK, STATUS_ERR,
     CMD_PING, CMD_KEY_PRESS, CMD_KEY_RELEASE, CMD_KEY_TYPE,
+    CMD_CONSUMER_PRESS, CMD_CONSUMER_RELEASE,
     CMD_MOUSE_MOVE, CMD_MOUSE_CLICK, CMD_MOUSE_PRESS, CMD_MOUSE_RELEASE,
     CMD_MOUSE_SCROLL, CMD_TOUCH, CMD_RESET,
     unpack_msg, pack_resp,
@@ -36,6 +38,10 @@ uart = busio.UART(board.TX, board.RX, baudrate=BAUD, timeout=0.1)
 kbd = Keyboard(usb_hid.devices)
 layout = KeyboardLayoutUS(kbd)
 mouse = AbsoluteMouse(usb_hid.devices)
+try:
+    consumer = ConsumerControl(usb_hid.devices)
+except ValueError:
+    consumer = None  # boot.py predates the consumer-control device
 try:
     digitizer = Digitizer(usb_hid.devices)
 except ValueError:
@@ -67,6 +73,18 @@ def handle_command(cmd, seq, payload):
 
         elif cmd == CMD_KEY_RELEASE:
             kbd.release(payload[0])
+            return STATUS_OK
+
+        elif cmd == CMD_CONSUMER_PRESS:
+            if not consumer:
+                return STATUS_ERR
+            consumer.press((payload[0] << 8) | payload[1])
+            return STATUS_OK
+
+        elif cmd == CMD_CONSUMER_RELEASE:
+            if not consumer:
+                return STATUS_ERR
+            consumer.release()
             return STATUS_OK
 
         elif cmd == CMD_MOUSE_MOVE:
@@ -146,7 +164,7 @@ while True:
             microcontroller.reset()
 
         # skip LED blink for high-frequency commands to avoid back-pressure
-        if cmd not in (CMD_KEY_PRESS, CMD_KEY_RELEASE, CMD_MOUSE_MOVE, CMD_MOUSE_SCROLL, CMD_TOUCH):
+        if cmd not in (CMD_KEY_PRESS, CMD_KEY_RELEASE, CMD_CONSUMER_PRESS, CMD_CONSUMER_RELEASE, CMD_MOUSE_MOVE, CMD_MOUSE_SCROLL, CMD_TOUCH):
             neopixel_write.neopixel_write(pixel_pin, OFF)
             time.sleep(0.1)
             neopixel_write.neopixel_write(pixel_pin, GREEN)

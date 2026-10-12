@@ -254,6 +254,27 @@ Send a keyboard key event.
 {"status": "ok"}
 ```
 
+### `POST /api/hid/consumer`
+Send a consumer-control (media/system key) event. Unlike keyboard keycodes,
+these drive system actions — `home` (AC Home, usage `0x0223`) is the home
+button on Android.
+
+**Request:**
+```json
+{"key": "home", "action": "click"}
+```
+
+| Field | Description |
+|-------|-------------|
+| `key` | Named key: `home`. Alternative to `usage`. |
+| `usage` | Raw 16-bit consumer-control usage ID (e.g. `547` = `0x0223`) |
+| `action` | `press`, `release`, or `click` (default) |
+
+**Response:**
+```json
+{"status": "ok"}
+```
+
 ### `POST /api/hid/mouse/move`
 Move mouse to absolute position.
 
@@ -354,6 +375,8 @@ WebSocket for real-time HID control. Accepts the same JSON command format used b
 {"cmd": "mouse_scroll", "amount": 5}
 {"cmd": "key_press", "keycode": 4}
 {"cmd": "key_release", "keycode": 4}
+{"cmd": "consumer_press", "usage": 547}
+{"cmd": "consumer_release"}
 {"cmd": "type", "text": "hello"}
 {"cmd": "touch", "contacts": [{"id": 0, "tip": true, "x": 16383, "y": 16383}]}
 ```

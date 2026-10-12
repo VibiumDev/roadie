@@ -139,6 +139,34 @@ func TestKeyPressRelease(t *testing.T) {
 	}
 }
 
+func TestConsumerPressRelease(t *testing.T) {
+	mp := &mockPort{}
+	hc := newTestHID(mp)
+	defer hc.Shutdown()
+
+	hc.ConsumerPress(0x0223)
+	hc.ConsumerRelease()
+
+	lines := mp.lines()
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+
+	var press, release map[string]any
+	json.Unmarshal([]byte(lines[0]), &press)
+	json.Unmarshal([]byte(lines[1]), &release)
+
+	if press["cmd"] != "consumer_press" {
+		t.Errorf("expected consumer_press, got %v", press["cmd"])
+	}
+	if press["usage"] != float64(0x0223) {
+		t.Errorf("expected usage 0x0223, got %v", press["usage"])
+	}
+	if release["cmd"] != "consumer_release" {
+		t.Errorf("expected consumer_release, got %v", release["cmd"])
+	}
+}
+
 func TestStatusDisconnected(t *testing.T) {
 	hc := NewHIDController("")
 	defer hc.Shutdown()

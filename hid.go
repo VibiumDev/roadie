@@ -227,6 +227,17 @@ func (hc *HIDController) KeyRelease(keycode int) error {
 	return hc.sendJSON(map[string]any{"cmd": "key_release", "keycode": keycode})
 }
 
+// ConsumerPress sends a consumer-control press for the given 16-bit HID
+// usage ID, e.g. 0x0223 (AC Home) for the Android home button.
+func (hc *HIDController) ConsumerPress(usage int) error {
+	return hc.sendJSON(map[string]any{"cmd": "consumer_press", "usage": usage})
+}
+
+// ConsumerRelease releases the currently pressed consumer-control usage.
+func (hc *HIDController) ConsumerRelease() error {
+	return hc.sendJSON(map[string]any{"cmd": "consumer_release"})
+}
+
 // MouseMove sends an absolute mouse move (0-32767 range) immediately.
 func (hc *HIDController) MouseMove(x, y int) error {
 	return hc.sendJSON(map[string]any{"cmd": "mouse_move", "x": x, "y": y})
