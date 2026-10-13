@@ -10,6 +10,7 @@ import microcontroller
 import neopixel_write
 from protocol import (
     MSG_SIZE, RESP_SIZE, BAUD, STATUS_OK,
+    CMD_AUDIO, AUDIO_MAGIC, AUDIO_LEAD, AUDIO_MAX, AUDIO_HDR,
     CMD_PING, CMD_KEY_TYPE, CMD_RESET,
     pack_msg, pack_key_press, pack_key_release, pack_key_type,
     pack_mouse_move, pack_mouse_click, pack_mouse_press, pack_mouse_release,
@@ -147,11 +148,46 @@ def process_command(line):
             pass  # host not reading; drop the reply rather than stall
 
 
+def read_exact(n, deadline=0.5):
+    """Read exactly n bytes from the data port, or None on timeout."""
+    buf = bytearray()
+    t0 = time.monotonic()
+    while len(buf) < n:
+        chunk = data.read(min(n - len(buf), data.in_waiting or 1))
+        if chunk:
+            buf += chunk
+        elif time.monotonic() - t0 > deadline:
+            return None
+    return buf
+
+
+def forward_audio():
+    """Read one audio frame from the data port and forward it over UART.
+
+    Called after the 0x00 lead-in byte. No ACK — audio is fire-and-forget.
+    """
+    hdr = read_exact(AUDIO_HDR)
+    if hdr is None or hdr[0] != CMD_AUDIO or hdr[1] != AUDIO_MAGIC:
+        return  # garbage; drop and resync on the next lead-in
+    n = (hdr[2] << 8) | hdr[3]
+    if n == 0 or n > AUDIO_MAX:
+        return
+    payload = read_exact(n)
+    if payload is None:
+        return
+    uart.write(hdr)
+    uart.write(payload)
+
+
 while True:
-    # check for incoming JSON commands on USB data port
+    # check for incoming JSON commands or audio frames on USB data port
     if data.in_waiting:
         byte = data.read(1)
-        if byte == b"\n" or byte == b"\r":
+        if byte == bytes([AUDIO_LEAD]):
+            forward_audio()
+            last_ping = time.monotonic()
+            line_buf = ""
+        elif byte == b"\n" or byte == b"\r":
             if line_buf.strip():
                 process_command(line_buf.strip())
                 last_ping = time.monotonic()
