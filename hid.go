@@ -195,6 +195,50 @@ func (hc *HIDController) Ping() error {
 	return hc.sendJSON(map[string]any{"cmd": "ping"})
 }
 
+// Audio frame constants — must match board/shared/protocol.py.
+const (
+	audioLead  = 0x00 // CDC lead-in byte; never occurs in the JSON line traffic
+	audioCmd   = 0x50
+	audioMagic = 0xA5
+	audioMax   = 512 // max PCM payload bytes per frame
+)
+
+// SendAudio forwards raw PCM (16 kHz S16LE mono) to the HID board's USB
+// microphone, chunked into unacknowledged audio frames. The caller is
+// expected to deliver audio at real-time pace; the board buffers only
+// ~100 ms ahead.
+func (hc *HIDController) SendAudio(pcm []byte) error {
+	if len(pcm)%2 == 1 {
+		pcm = pcm[:len(pcm)-1] // whole S16 samples only
+	}
+	for off := 0; off < len(pcm); off += audioMax {
+		end := min(off+audioMax, len(pcm))
+		chunk := pcm[off:end]
+		frame := make([]byte, 0, 5+len(chunk))
+		frame = append(frame, audioLead, audioCmd, audioMagic,
+			byte(len(chunk)>>8), byte(len(chunk)))
+		frame = append(frame, chunk...)
+
+		hc.mu.Lock()
+		if hc.port == nil {
+			hc.mu.Unlock()
+			return fmt.Errorf("not connected")
+		}
+		_, err := hc.port.Write(frame)
+		if err != nil {
+			// Write failed — port likely disconnected.
+			hc.port.Close()
+			hc.port = nil
+			hc.status.Store(HIDDisconnected)
+			hc.path.Store("")
+			hc.mu.Unlock()
+			return fmt.Errorf("write failed: %w", err)
+		}
+		hc.mu.Unlock()
+	}
+	return nil
+}
+
 // Type sends text to be typed on the target. Text longer than 29
 // characters is chunked with 50ms delays between chunks.
 func (hc *HIDController) Type(text string) error {

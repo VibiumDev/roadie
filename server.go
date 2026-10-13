@@ -71,6 +71,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/settings", s.handleSettings)
 	mux.HandleFunc("/api/settings", s.handleAPISettings)
 	mux.HandleFunc("/audio", s.handleAudio)
+	mux.HandleFunc("/audio-in", s.handleAudioIn)
 	mux.HandleFunc("/test", s.handleTest)
 	mux.HandleFunc("/api/capture/reset", s.handleCaptureReset)
 	mux.HandleFunc("/api/hid/reset", s.handleHIDReset)
@@ -201,6 +202,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     <style>#toolbar button { outline:none; color:#ccc; } #toolbar button:focus { outline:none; }</style>
     <button id="qbtn" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Settings"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/></svg></button>
     <button id="unmute" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Toggle audio"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M6.717 3.55A.5.5 0 0 1 7 4v8a.5.5 0 0 1-.812.39L3.825 10.5H1.5A.5.5 0 0 1 1 10V6a.5.5 0 0 1 .5-.5h2.325l2.363-1.89a.5.5 0 0 1 .529-.06m7.137 2.096a.5.5 0 0 1 0 .708L12.207 8l1.647 1.646a.5.5 0 0 1-.708.708L11.5 8.707l-1.646 1.647a.5.5 0 0 1-.708-.708L10.793 8 9.146 6.354a.5.5 0 1 1 .708-.708L11.5 7.293l1.646-1.647a.5.5 0 0 1 .708 0"/></svg></button>
+    <button id="ptt" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Hold to talk"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0z"/><path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5"/></svg></button>
     <button id="kbdBtn" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center; opacity:0.4;" title="On-screen keyboard"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M0 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm13 .25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M2.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 3 8.75v-.5A.25.25 0 0 0 2.75 8zM4 8.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 5 8.75v-.5A.25.25 0 0 0 4.75 8h-.5a.25.25 0 0 0-.25.25M6.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 7 8.75v-.5A.25.25 0 0 0 6.75 8zM8 8.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 9 8.75v-.5A.25.25 0 0 0 8.75 8h-.5a.25.25 0 0 0-.25.25M13.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm0 2a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm-3-2a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h1.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm.75 2.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M11.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zM9 6.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5A.25.25 0 0 0 9.75 6h-.5a.25.25 0 0 0-.25.25M7.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 8 6.75v-.5A.25.25 0 0 0 7.75 6zM5 6.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 6 6.75v-.5A.25.25 0 0 0 5.75 6h-.5a.25.25 0 0 0-.25.25M2.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h1.5A.25.25 0 0 0 4 6.75v-.5A.25.25 0 0 0 3.75 6zM2 10.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M4.25 10a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h5.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25z"/></svg></button>
     <div id="qslider" style="display:none; position:absolute; top:8px; z-index:21; background:rgba(50,50,50,0.95); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color:#fff; font-family:monospace; font-size:0.85em; white-space:nowrap;">
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
@@ -490,6 +492,83 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         startAudio();
       }
     };
+
+    // --- Voice input: hold-to-talk, browser mic -> /audio-in -> target's USB mic ---
+    var pttBtn = document.getElementById('ptt');
+    var pttWs = null, pttCtx = null, pttStream = null, pttNode = null;
+    var talking = false;
+
+    if (!(window.isSecureContext && navigator.mediaDevices)) {
+      // getUserMedia needs a secure context (https or localhost)
+      pttBtn.style.opacity = '0.4';
+      pttBtn.title = 'Voice input needs https or localhost';
+    }
+
+    var pttWorkletCode = [
+      'class PCMSender extends AudioWorkletProcessor {',
+      '  process(inputs) {',
+      '    var ch = inputs[0][0];',
+      '    if (ch) this.port.postMessage(ch.slice(0));',
+      '    return true;',
+      '  }',
+      '}',
+      "registerProcessor('pcm-sender', PCMSender);"
+    ].join('\n');
+
+    function startTalk() {
+      if (talking || !navigator.mediaDevices) return;
+      talking = true;
+      pttBtn.style.background = 'rgba(180,40,40,0.95)';
+      navigator.mediaDevices.getUserMedia({ audio: {
+        channelCount: 1, echoCancellation: true, noiseSuppression: true
+      } }).then(function(stream) {
+        if (!talking) { stream.getTracks().forEach(function(t){ t.stop(); }); return; }
+        pttStream = stream;
+        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        pttWs = new WebSocket(proto + '//' + location.host + '/audio-in');
+        pttWs.binaryType = 'arraybuffer';
+        pttCtx = new AudioContext({ sampleRate: 16000 });
+        var url = URL.createObjectURL(new Blob([pttWorkletCode], { type: 'application/javascript' }));
+        pttCtx.audioWorklet.addModule(url).then(function() {
+          if (!talking || !pttCtx) return;
+          var src = pttCtx.createMediaStreamSource(pttStream);
+          pttNode = new AudioWorkletNode(pttCtx, 'pcm-sender', { numberOfInputs: 1, numberOfOutputs: 0 });
+          var acc = [], accLen = 0;
+          pttNode.port.onmessage = function(ev) {
+            if (!pttWs || pttWs.readyState !== 1) return;
+            acc.push(ev.data); accLen += ev.data.length;
+            if (accLen >= 320) {  // send ~20ms batches; board buffers only ~100ms
+              var f32 = new Float32Array(accLen), o = 0;
+              for (var i = 0; i < acc.length; i++) { f32.set(acc[i], o); o += acc[i].length; }
+              acc = []; accLen = 0;
+              var i16 = new Int16Array(f32.length);
+              for (var j = 0; j < f32.length; j++) {
+                var s2 = Math.max(-1, Math.min(1, f32[j]));
+                i16[j] = s2 < 0 ? s2 * 32768 : s2 * 32767;
+              }
+              pttWs.send(i16.buffer);
+            }
+          };
+          src.connect(pttNode);
+        });
+      }).catch(function() { stopTalk(); });
+    }
+
+    function stopTalk() {
+      talking = false;
+      pttBtn.style.background = 'rgba(50,50,50,0.9)';
+      if (pttNode) { pttNode.disconnect(); pttNode = null; }
+      if (pttCtx) { pttCtx.close(); pttCtx = null; }
+      if (pttStream) { pttStream.getTracks().forEach(function(t){ t.stop(); }); pttStream = null; }
+      if (pttWs) { pttWs.close(); pttWs = null; }
+    }
+
+    pttBtn.onpointerdown = function(e) {
+      e.preventDefault();
+      try { pttBtn.setPointerCapture(e.pointerId); } catch (err) {}
+      startTalk();
+    };
+    pttBtn.onpointerup = pttBtn.onpointercancel = function() { stopTalk(); };
 
     // --- Settings panel ---
     var qbtn = document.getElementById('qbtn');
@@ -1580,6 +1659,40 @@ func (s *Server) handleAudio(w http.ResponseWriter, r *http.Request) {
 			if err := conn.Write(ctx, websocket.MessageBinary, chunk); err != nil {
 				return
 			}
+		}
+	}
+}
+
+// handleAudioIn receives PCM audio from the browser and forwards it to the
+// HID board's USB microphone (voice input). Binary messages carry 16 kHz
+// S16LE mono PCM; the browser paces them in real time, and the board only
+// buffers ~100 ms ahead, so no server-side pacing is applied.
+func (s *Server) handleAudioIn(w http.ResponseWriter, r *http.Request) {
+	if s.HID == nil {
+		http.Error(w, "HID not available", http.StatusServiceUnavailable)
+		return
+	}
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		InsecureSkipVerify: true, // allow any origin for local network use
+	})
+	if err != nil {
+		log.Printf("audio-in websocket accept: %v", err)
+		return
+	}
+	defer conn.CloseNow()
+
+	ctx := r.Context()
+	for {
+		typ, data, err := conn.Read(ctx)
+		if err != nil {
+			return
+		}
+		if typ != websocket.MessageBinary || len(data) == 0 {
+			continue
+		}
+		if err := s.HID.SendAudio(data); err != nil {
+			log.Printf("audio-in: %v", err)
+			return
 		}
 	}
 }
