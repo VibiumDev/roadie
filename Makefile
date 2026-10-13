@@ -1,6 +1,6 @@
 BINARY = roadie
 
-.PHONY: build test setup uninstall flash-relay flash-hid flash-relay-quick flash-hid-quick sync sync-hid sync-relay test-circular clean
+.PHONY: build test setup uninstall flash-relay flash-hid flash-relay-quick flash-hid-quick sync sync-hid sync-relay test-circular test-audio clean
 
 build:
 	go build -o $(BINARY) .
@@ -35,6 +35,9 @@ sync-relay:
 
 sync-hid:
 	python3 board/install.py hid --sync
+
+test-audio:
+	python3 board/test_audio.py
 
 test-circular:
 	python3 board/test_circular.py
