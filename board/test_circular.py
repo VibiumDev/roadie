@@ -60,23 +60,22 @@ def main():
     if hrepl:
         hrepl.read(hrepl.in_waiting)
 
-    # send ping first to verify the link
+    # send ping first to verify the link — the relay replies on the
+    # data port with {"ok":true} once the HID board ACKs over UART
     print("  🏓 Sending ping...")
+    data.reset_input_buffer()
     data.write(b'{"cmd":"ping"}\n')
-    time.sleep(1)
-
-    if rrepl:
-        resp = rrepl.read(rrepl.in_waiting or 256).decode(errors="replace").strip()
-        if "ok" in resp:
-            print(f"  ✅ Ping OK ({resp})")
-        else:
-            print(f"  ❌ Ping failed: {resp}")
-            data.close()
-            if rrepl:
-                rrepl.close()
-            if hrepl:
-                hrepl.close()
-            sys.exit(1)
+    resp = data.readline().decode(errors="replace").strip()
+    if '"ok":true' in resp.replace(" ", ""):
+        print(f"  ✅ Ping OK ({resp})")
+    else:
+        print(f"  ❌ Ping failed: {resp or '(no reply)'}")
+        data.close()
+        if rrepl:
+            rrepl.close()
+        if hrepl:
+            hrepl.close()
+        sys.exit(1)
 
     # flush again
     if rrepl:

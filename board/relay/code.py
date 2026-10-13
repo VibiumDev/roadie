@@ -32,6 +32,7 @@ uart = busio.UART(board.TX, board.RX, baudrate=BAUD, timeout=1)
 
 # USB serial data port (separate from REPL)
 data = usb_cdc.data
+data.write_timeout = 0.2  # never block if the host isn't reading
 
 seq = 0
 line_buf = ""
@@ -116,6 +117,7 @@ def process_command(line):
         return  # unreachable, but clear
 
     msgs = translate(d)
+    status = None
     for i, item in enumerate(msgs):
         if i > 0:
             time.sleep(0.05)  # inter-chunk delay for multi-message command
@@ -134,6 +136,15 @@ def process_command(line):
             neopixel_write.neopixel_write(pixel_pin, RED)
         elif status is None:
             neopixel_write.neopixel_write(pixel_pin, OFF)
+
+    # Ping gets a reply on the data port so the host can verify the
+    # UART round-trip without a console reader (prints were removed —
+    # they block when nothing drains the console).
+    if d.get("cmd") == "ping":
+        try:
+            data.write(b'{"ok":true}\n' if status == STATUS_OK else b'{"ok":false}\n')
+        except OSError:
+            pass  # host not reading; drop the reply rather than stall
 
 
 while True:
