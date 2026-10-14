@@ -14,7 +14,7 @@ Index page with links to all endpoints.
 ### `GET /view`
 Live video feed with full HID control. The browser tab is titled
 `Roadie — <name>` when `--name` is set, so several targets open at once stay
-tellable apart. Click/touch the stream to send mouse or touch events to the target. Keyboard events are captured automatically (except when interacting with the toolbar). Includes audio toggle, quality/FPS/resolution settings, and mouse/touch input mode toggle. Input mode persists across page refreshes via `localStorage`.
+tellable apart. Click/touch the stream to send mouse or touch events to the target. Keyboard events are captured automatically (except when interacting with the toolbar). Includes audio toggle, microphone toggle (voice input to the target; needs https or localhost), quality/FPS/resolution settings, and mouse/touch input mode toggle. Input mode persists across page refreshes via `localStorage`.
 
 | Param | Description |
 |-------|-------------|
@@ -98,6 +98,15 @@ WebSocket endpoint for live PCM audio.
 2. Server streams PCM audio as binary messages (little-endian float32).
 
 Returns `503` if no audio device is active.
+
+### `GET /audio-in`
+WebSocket endpoint for voice input: audio sent here plays out of the HID board's USB microphone, so the target hears it as mic input.
+
+**Protocol:**
+1. Client streams PCM audio as binary messages: 16 kHz, mono, signed 16-bit little-endian.
+2. Messages should be small (~20 ms / 640 bytes) and sent at real-time pace — the HID board buffers only ~100 ms ahead; bursts beyond that overwrite unplayed audio.
+
+The stream on the target stops ~250 ms after the last message arrives. Returns `503` if the HID relay is not connected.
 
 ---
 
