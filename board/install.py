@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import time
+import re
 import urllib.request
 from pathlib import Path
 
@@ -39,8 +40,14 @@ VENV_DIR = REPO_ROOT / ".venv"
 # ---------------------------------------------------------------------------
 
 BOARDS = {
-    "relay": {"volume": "ROADIE_RLY", "label": "📥 IN", "name": "Relay"},
-    "hid":   {"volume": "ROADIE_HID", "label": "📤 OUT", "name": "HID"},
+    "relay": {
+        "volume": "ROADIE_RLY", "label": "📥 IN", "name": "Relay",
+        "product": "Roadie-Relay",
+    },
+    "hid": {
+        "volume": "ROADIE_HID", "label": "📤 OUT", "name": "HID",
+        "product": "Roadie-HID",
+    },
 }
 
 # All volume names we might find a CircuitPython board mounted as
@@ -55,6 +62,12 @@ UF2_URL_TEMPLATE = (
 )
 CACHE_DIR = Path.home() / ".cache" / "roadie"
 
+# Where to look up what versions exist for this board.
+VERSIONS_URL = "https://circuitpython.org/board/{board}/"
+
+# circuitpython.org rejects urllib's default User-Agent with a 403.
+USER_AGENT = "roadie-install/1.0 (+https://github.com/VibiumDev/roadie)"
+
 POLL_INTERVAL = 1   # seconds
 POLL_TIMEOUT = 60   # seconds
 
@@ -62,6 +75,51 @@ POLL_TIMEOUT = 60   # seconds
 # Without this, operations on freshly-mounted FAT volumes can hit
 # PermissionError or read-only errors on Linux.
 MOUNT_SETTLE = 1    # seconds
+
+
+def parse_version(text):
+    """Turn "10.3.1" into (10, 3, 1); return None for pre-releases."""
+    if "-" in text:
+        return None  # alpha / beta / rc
+    try:
+        return tuple(int(part) for part in text.split("."))
+    except ValueError:
+        return None
+
+
+def resolve_version(version):
+    """Resolve the magic value "latest" to the newest stable release.
+
+    Pre-releases are deliberately excluded — the board page lists things
+    like 11.0.0-alpha.1 alongside the stable builds, and silently flashing
+    an alpha is not what "latest" should mean.
+    """
+    if version != "latest":
+        return version
+
+    url = VERSIONS_URL.format(board=BOARD_ID)
+    print(f"  🔎 Looking up the latest stable CircuitPython for {BOARD_ID}...")
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as resp:
+            html = resp.read().decode("utf-8", "replace")
+    except Exception as e:
+        fail(f"Couldn't reach {url} to resolve 'latest': {e}")
+
+    prefix = f"adafruit-circuitpython-{BOARD_ID}-en_US-"
+    found = {}
+    for match in re.findall(
+            re.escape(prefix) + r"([0-9][^\"\']*?)\.uf2", html):
+        parsed = parse_version(match)
+        if parsed:
+            found[parsed] = match
+
+    if not found:
+        fail(f"No stable releases found on {url}. Pass --cp-version explicitly.")
+
+    newest = found[max(found)]
+    info(f"Latest stable is {newest}")
+    return newest
 
 
 def detect_platform():
@@ -80,6 +138,7 @@ def detect_platform():
             "volume_boot": f"/media/{user}/RPI-RP2",
             "volume_base": f"/media/{user}",
             "serial_patterns": ["/dev/ttyACM*"],
+            "serial_by_id": "/dev/serial/by-id/usb-Adafruit_{product}_*-if00",
         }
     else:
         fail(f"Unsupported platform: {sys.platform}")
@@ -172,6 +231,35 @@ def find_serial_port():
         if matches:
             return matches[0]
     return None
+
+
+def find_board_serial(board):
+    """Find the REPL port belonging to one specific board.
+
+    With both boards plugged in, the bare /dev/ttyACM* glob is ambiguous —
+    it can hand back the other board and reboot the wrong one into the
+    bootloader. Prefer the stable by-id path keyed on the USB product name.
+    """
+    pattern = PLATFORM.get("serial_by_id")
+    product = BOARDS.get(board, {}).get("product")
+    if pattern and product:
+        matches = sorted(glob.glob(pattern.format(product=product)))
+        if matches:
+            return matches[0]
+        return None
+
+    # Platforms without by-id paths (macOS): fall back, but refuse to guess
+    # when more than one candidate is present.
+    ports = []
+    for pat in PLATFORM["serial_patterns"]:
+        ports.extend(sorted(glob.glob(pat)))
+    if len(ports) > 1:
+        warn(
+            f"Multiple serial ports found ({', '.join(ports)}) and this "
+            "platform can't tell them apart. Unplug the other board."
+        )
+        return None
+    return ports[0] if ports else None
 
 
 def send_repl_command(port, command):
@@ -272,12 +360,12 @@ def add_venv_to_path():
 # Phase 1: Enter bootloader
 # ---------------------------------------------------------------------------
 
-def ensure_bootloader():
+def ensure_bootloader(board=None):
     """Get the board into UF2 bootloader mode (RPI-RP2 mounted)."""
     step("Phase 1: Enter bootloader")
 
     volume_boot = PLATFORM["volume_boot"]
-    volume_cp = find_cp_volume()
+    volume_cp = find_cp_volume(board)
 
     if os.path.isdir(volume_boot):
         info(f"Board already in bootloader ({volume_boot} mounted)")
@@ -287,9 +375,9 @@ def ensure_bootloader():
         info(f"CircuitPython detected ({volume_cp} mounted)")
         print("  🔄 Rebooting into UF2 bootloader via serial REPL...")
 
-        port = find_serial_port()
+        port = find_board_serial(board)
         if port:
-            info(f"Found serial port: {port}")
+            info(f"Found serial port for {board}: {port}")
             cmd = (
                 "import microcontroller; "
                 "microcontroller.on_next_reset(microcontroller.RunMode.UF2); "
@@ -303,7 +391,8 @@ def ensure_bootloader():
                     return
             warn("Serial reboot didn't work. Falling through to manual mode.")
         else:
-            warn("No serial port found. Falling through to manual mode.")
+            warn(f"No serial port found for '{board}'. "
+                 "Falling through to manual mode.")
 
     # Manual bootloader entry
     print()
@@ -324,7 +413,7 @@ def ensure_bootloader():
 # Phase 2: Flash CircuitPython firmware
 # ---------------------------------------------------------------------------
 
-def flash_firmware(version):
+def flash_firmware(version, board=None):
     """Download the CircuitPython UF2 and copy it to the bootloader drive."""
     step(f"Phase 2: Flash CircuitPython {version}")
 
@@ -338,8 +427,15 @@ def flash_firmware(version):
     else:
         url = UF2_URL_TEMPLATE.format(board=BOARD_ID, version=version)
         print(f"  ⬇️  Downloading {url}")
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         try:
-            urllib.request.urlretrieve(url, cached_uf2)
+            with urllib.request.urlopen(request, timeout=120) as resp:
+                payload = resp.read()
+            # Write via a temp file so an interrupted download can't leave a
+            # truncated UF2 in the cache for the next run to flash.
+            partial = cached_uf2.with_suffix(".uf2.part")
+            partial.write_bytes(payload)
+            partial.replace(cached_uf2)
             info(f"Downloaded to {cached_uf2}")
         except Exception as e:
             fail(f"Download failed: {e}")
@@ -356,7 +452,7 @@ def flash_firmware(version):
         warn("RPI-RP2 didn't disappear — the UF2 may not have flashed.")
 
     # Volume may be CIRCUITPY (fresh) or a renamed volume (if old boot.py survived)
-    if not wait_for_any_cp_volume(timeout=30):
+    if not wait_for_any_cp_volume(board=board, timeout=30):
         fail(
             "No CircuitPython volume appeared after flashing. "
             "Try unplugging and re-plugging the board."
@@ -518,7 +614,11 @@ def main():
     )
     parser.add_argument(
         "--cp-version", default=CP_VERSION_DEFAULT,
-        help=f"CircuitPython version to install (default: {CP_VERSION_DEFAULT})",
+        help=(
+            f"CircuitPython version to install (default: {CP_VERSION_DEFAULT}). "
+            "Use 'latest' to resolve the newest stable release, "
+            "skipping alphas and betas."
+        ),
     )
 
     args = parser.parse_args()
@@ -566,19 +666,20 @@ def main():
         return
 
     board_info = BOARDS[args.board]
+    cp_version = resolve_version(args.cp_version)
 
     print()
     print(f"  🎯 Provisioning board: {args.board}")
     print(f"     Platform: {PLATFORM['name']}")
-    print(f"     CircuitPython: {args.cp_version}")
+    print(f"     CircuitPython: {cp_version}")
     print(f"     Skip firmware: {args.skip_firmware}")
 
     circup_bin = ensure_venv()
     add_venv_to_path()
 
     if not args.skip_firmware:
-        ensure_bootloader()
-        flash_firmware(args.cp_version)
+        ensure_bootloader(args.board)
+        flash_firmware(cp_version, args.board)
     else:
         info("Skipping firmware install")
         if not find_cp_volume(args.board):
