@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -48,9 +47,10 @@ func (p *PiperDaemon) ensureLocked() error {
 	if p.cmd != nil && (p.cmd.ProcessState == nil || !p.cmd.ProcessState.Exited()) {
 		return nil
 	}
-	dir := filepath.Join(os.TempDir(), "roadie-piper")
-	os.RemoveAll(dir) // drop stale WAVs from a killed daemon
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// Per-daemon temp dir: a fixed path would collide when several roadie
+	// instances run on one host (each would delete the others' WAVs).
+	dir, err := os.MkdirTemp("", "roadie-piper-")
+	if err != nil {
 		return err
 	}
 	cmd := exec.Command(p.bin, "--model", p.model, "--output_dir", dir)
@@ -82,7 +82,10 @@ func (p *PiperDaemon) killLocked() {
 	if p.cmd != nil && p.cmd.Process != nil {
 		p.cmd.Process.Kill()
 	}
-	p.cmd, p.stdin, p.out = nil, nil, nil
+	if p.dir != "" {
+		os.RemoveAll(p.dir) // drop stale WAVs
+	}
+	p.cmd, p.stdin, p.out, p.dir = nil, nil, nil, ""
 }
 
 // sentenceEnd matches sentence boundaries so long text can stream: piper
