@@ -8,8 +8,8 @@ Binary protocol used between the relay and HID boards over UART.
 |-----------|-------|
 | Interface | UART (TX/RX + GND) |
 | Baud rate | 921600 |
-| Message size | 32 bytes (fixed) |
-| Response size | 2 bytes |
+| Message size | 32 bytes (fixed); audio frames are variable-length (see Audio Streaming) |
+| Response size | 2 bytes (none for audio frames) |
 
 The Go server communicates with the relay board over USB serial using newline-delimited JSON. The relay translates JSON commands into the binary protocol described here and forwards them over UART to the HID board.
 
@@ -89,6 +89,22 @@ Each contact is 6 bytes: `id(1) + tip(1) + x_hi(1) + x_lo(1) + y_hi(1) + y_lo(1)
 
 Maximum 2 simultaneous contacts. Send an empty contact list (count=0) to lift all fingers.
 
+### Audio Streaming
+
+Voice input (web app microphone to the target's USB mic) uses a separate variable-length frame so PCM audio does not pay the 32-byte-message + ACK overhead:
+
+```
+Byte 0:  0x50 (CMD_AUDIO)
+Byte 1:  0xA5 (magic, guards against desync)
+Byte 2:  payload length, high byte
+Byte 3:  payload length, low byte
+Bytes 4+: PCM payload (max 512 bytes)
+```
+
+Payload is 16 kHz mono signed 16-bit little-endian PCM (must match `usb_audio.enable()` in `board/hid/boot.py`). Audio frames are **unacknowledged** — a lost frame is a brief glitch and retransmission is useless in real time. The HID board plays frames through a looping 200 ms ring buffer behind the USB microphone and stops the stream after 250 ms without frames.
+
+On the host→relay CDC data port, each audio frame is preceded by a `0x00` lead-in byte, which can never occur in the newline-delimited JSON traffic, so the two streams share the port unambiguously. The relay forwards the frame to the HID board verbatim (without the lead-in).
+
 ## Wait vs No-Wait
 
 Commands marked **no** in the Wait column use fire-and-forget mode: the relay sends the binary message but does not wait for the HID board's response. This avoids blocking on high-frequency commands (mouse movement, touch, scroll, key press/release).
@@ -117,6 +133,8 @@ The relay board accepts newline-delimited JSON on its USB CDC data port. The Go 
 ```
 
 `reset_hid` translates to the binary RESET command sent over UART to the HID board. `reset_self` reboots the relay board directly (no UART involved).
+
+`ping` is answered on the same data port with `{"ok":true}` (HID board ACKed over UART) or `{"ok":false}` (no ACK). This is the only message the relay writes to the data port; the reply uses a 0.2 s write timeout so an unread host buffer can never stall the relay. `board/test_circular.py` relies on this reply.
 
 ## Heartbeat
 
