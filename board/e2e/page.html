@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>roadie e2e</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; touch-action: none; }
+  body {
+    font-family: ui-monospace, "DejaVu Sans Mono", monospace;
+    background: #10131a; color: #e8ecf4;
+    height: 100vh; overflow: hidden; font-size: 12px;
+    display: flex; flex-direction: column;
+  }
+  header {
+    padding: 4px 8px; background: #1b2030; border-bottom: 1px solid #2d3650;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  h1 { font-size: 13px; letter-spacing: .5px; }
+  #focus { font-size: 11px; padding: 1px 6px; border-radius: 3px; }
+  .ok  { background: #1f7a4d; color: #fff; }
+  .bad { background: #8a2435; color: #fff; }
+  main { flex: 1; display: flex; min-height: 0; }
+  #pad {
+    flex: 1; position: relative; background:
+      repeating-linear-gradient(0deg, #171c28 0 39px, #1e2436 39px 40px),
+      repeating-linear-gradient(90deg, #171c28 0 39px, #1e2436 39px 40px);
+  }
+  #log {
+    width: 300px; overflow-y: auto; padding: 4px 6px;
+    background: #0c0f16; border-left: 1px solid #2d3650; line-height: 1.5;
+  }
+  #log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .k { color: #ffd479; } .m { color: #7fd1ff; }
+  .t { color: #b89cff; } .w { color: #7effb2; }
+  #cursor, #touch {
+    position: absolute; border-radius: 50%; pointer-events: none;
+    transform: translate(-50%, -50%); transition: all .05s linear;
+  }
+  #cursor { width: 14px; height: 14px; border: 2px solid #7fd1ff; }
+  #touch  { width: 34px; height: 34px; background: #b89cff66;
+            border: 2px solid #b89cff; opacity: 0; }
+  #typed {
+    position: absolute; bottom: 8px; left: 8px; right: 8px;
+    font-size: 20px; color: #ffd479; word-break: break-all;
+    text-shadow: 0 0 8px #000;
+  }
+  #banner {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    font-size: 15px; color: #5c6a8a; text-align: center; line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎸 roadie end-to-end input test</h1>
+  <span id="focus" class="bad">no focus</span>
+</header>
+<main>
+  <div id="pad">
+    <div id="banner">waiting for input&hellip;<br><span style="font-size:11px">driven via roadie HTTP API &rarr; relay &rarr; HID &rarr; USB</span></div>
+    <div id="cursor" style="left:-99px"></div>
+    <div id="touch"></div>
+    <div id="typed"></div>
+  </div>
+  <div id="log"></div>
+</main>
+<script>
+const logEl = document.getElementById('log');
+const padEl = document.getElementById('pad');
+const cursorEl = document.getElementById('cursor');
+const touchEl = document.getElementById('touch');
+const typedEl = document.getElementById('typed');
+const focusEl = document.getElementById('focus');
+const bannerEl = document.getElementById('banner');
+
+let typed = '';
+let seq = 0;
+
+function paint(cls, text) {
+  const d = document.createElement('div');
+  d.className = cls;
+  d.textContent = text;
+  logEl.prepend(d);
+  while (logEl.childNodes.length > 60) logEl.lastChild.remove();
+}
+
+// Every observation is posted straight to the harness. keepalive so a
+// report still lands if the page is torn down right after.
+function report(kind, data) {
+  data.kind = kind;
+  data.seq = seq++;
+  data.hasFocus = document.hasFocus();
+  fetch('/report', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data),
+    keepalive: true,
+  }).catch(() => {});
+}
+
+function refreshFocus() {
+  const f = document.hasFocus();
+  focusEl.className = f ? 'ok' : 'bad';
+  focusEl.textContent = f ? 'focused' : 'no focus';
+}
+window.addEventListener('focus', refreshFocus);
+window.addEventListener('blur', refreshFocus);
+setInterval(refreshFocus, 500);
+
+// --- keyboard -------------------------------------------------------------
+window.addEventListener('keydown', (e) => {
+  bannerEl.style.display = 'none';
+  // Printable keys have single-character .key values; everything else is
+  // a named key like "Enter" or "Shift".
+  if (e.key.length === 1) {
+    typed += e.key;
+  } else if (e.key === 'Backspace') {
+    typed = typed.slice(0, -1);
+  }
+  typedEl.textContent = typed;
+  paint('k', `keydown ${JSON.stringify(e.key)} code=${e.code}`);
+  report('keydown', {key: e.key, code: e.code, typed: typed});
+  e.preventDefault();
+});
+
+// --- mouse ----------------------------------------------------------------
+window.addEventListener('pointermove', (e) => {
+  if (e.pointerType === 'touch') return;
+  bannerEl.style.display = 'none';
+  cursorEl.style.left = e.clientX + 'px';
+  cursorEl.style.top = (e.clientY - padEl.offsetTop) + 'px';
+  paint('m', `move client=${e.clientX},${e.clientY} screen=${e.screenX},${e.screenY}`);
+  report('pointermove', {
+    clientX: e.clientX, clientY: e.clientY,
+    screenX: e.screenX, screenY: e.screenY,
+    pointerType: e.pointerType,
+  });
+});
+
+for (const type of ['pointerdown', 'pointerup']) {
+  window.addEventListener(type, (e) => {
+    bannerEl.style.display = 'none';
+    const cls = e.pointerType === 'touch' ? 't' : 'm';
+    paint(cls, `${type} ${e.pointerType} btn=${e.button} @${e.clientX},${e.clientY}`);
+    report(type, {
+      clientX: e.clientX, clientY: e.clientY,
+      screenX: e.screenX, screenY: e.screenY,
+      button: e.button, buttons: e.buttons,
+      pointerType: e.pointerType,
+    });
+    if (e.pointerType === 'touch') {
+      touchEl.style.left = e.clientX + 'px';
+      touchEl.style.top = (e.clientY - padEl.offsetTop) + 'px';
+      touchEl.style.opacity = type === 'pointerdown' ? '1' : '0';
+    }
+    e.preventDefault();
+  });
+}
+
+window.addEventListener('wheel', (e) => {
+  bannerEl.style.display = 'none';
+  paint('w', `wheel dy=${e.deltaY}`);
+  report('wheel', {deltaY: e.deltaY, deltaX: e.deltaX});
+  e.preventDefault();
+}, {passive: false});
+
+// --- raw touch ------------------------------------------------------------
+for (const type of ['touchstart', 'touchmove', 'touchend']) {
+  window.addEventListener(type, (e) => {
+    bannerEl.style.display = 'none';
+    const pts = Array.from(e.touches).map(t => ({
+      id: t.identifier,
+      clientX: Math.round(t.clientX), clientY: Math.round(t.clientY),
+      screenX: Math.round(t.screenX), screenY: Math.round(t.screenY),
+    }));
+    const chg = Array.from(e.changedTouches).map(t => ({
+      id: t.identifier,
+      clientX: Math.round(t.clientX), clientY: Math.round(t.clientY),
+      screenX: Math.round(t.screenX), screenY: Math.round(t.screenY),
+    }));
+    paint('t', `${type} n=${pts.length} ${chg.map(p => p.clientX + ',' + p.clientY).join(' ')}`);
+    report(type, {touches: pts, changedTouches: chg});
+    e.preventDefault();
+  }, {passive: false});
+}
+
+// --- announce readiness ---------------------------------------------------
+function announce() {
+  window.focus();
+  report('ready', {
+    screenW: window.screen.width, screenH: window.screen.height,
+    innerW: window.innerWidth, innerH: window.innerHeight,
+    dpr: window.devicePixelRatio,
+    padTop: padEl.offsetTop,
+    maxTouchPoints: navigator.maxTouchPoints,
+    ua: navigator.userAgent,
+  });
+  paint('w', `ready ${window.innerWidth}x${window.innerHeight} dpr=${window.devicePixelRatio}`);
+}
+window.addEventListener('load', announce);
+if (document.readyState === 'complete') announce();
+</script>
+</body>
+</html>
