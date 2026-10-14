@@ -110,6 +110,90 @@ The stream on the target stops ~250 ms after the last message arrives. Returns `
 
 The viewer's microphone button uses this endpoint. It needs a secure context (https or localhost) for `getUserMedia`, and a browser that supports opening an `AudioContext` at 16 kHz (Chrome, Edge, Safari — not Firefox yet).
 
+### `POST /audio-in/say`
+Speak text through the target's USB microphone, like macOS `say`. The server
+runs the TTS command from `--tts-cmd` and paces the audio at real time.
+Returns immediately; playback continues in the background. A new say/play
+preempts whatever is currently playing.
+
+The default engine is [Piper](https://github.com/rhasspy/piper) (natural
+neural voice) when installed at `~/piper` with the
+`en_US-lessac-medium.onnx` model (`--piper-model` overrides; empty
+disables). Piper runs as a warm daemon so each utterance pays only
+inference time, not the ~1.3s model load. Text is synthesized one chunk
+at a time — split at line breaks and sentence punctuation — so playback
+starts after the first chunk (~2s) and streams while the rest synthesize.
+
+Install Piper on the Pi (no sudo needed):
+
+```
+mkdir -p ~/piper && cd ~/piper
+curl -sL https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_aarch64.tar.gz | tar xz --strip-components=1
+curl -sLO "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
+curl -sLO "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
+```
+
+Without Piper, `/audio-in/say` falls back to the `--tts-cmd` template
+(default `espeak-ng`; `sudo apt-get install -y espeak-ng`). Any engine
+works: `{{text}}`/`{{voice}}` tokens are substituted as whole arguments,
+or — when the template has no `{{text}}` — the text is written to the
+engine's stdin. The engine must emit WAV on stdout; ffmpeg normalizes it.
+
+**Request:**
+```json
+{"text": "hello world", "voice": "en"}
+```
+`voice` is optional (default `en`).
+
+**Response:** `{"status": "ok"}`. Returns `400` on empty text, `503` if the
+HID relay is unavailable, `500` if the TTS engine is not installed.
+
+### `POST /audio-in/play`
+Play a canned sound file from `--sounds-dir` (default `~/roadie/sounds`)
+through the target's USB microphone. Any format ffmpeg decodes works (wav,
+mp3, ogg, …). The name must be a bare filename inside the sounds directory.
+
+**Request:**
+```json
+{"name": "doorbell.mp3"}
+```
+
+**Response:** `{"status": "ok"}`. Returns `400` on a bad name, `404` if the
+file does not exist, `503` if the HID relay is unavailable.
+
+### `POST /audio-in/stop`
+Cancel any in-flight say/play. **Response:** `{"status": "ok"}`.
+
+### `GET /audio-in/status`
+Report what the synthetic player is doing, for progress display.
+
+**Response:**
+```json
+{"playing": true, "source": "doorbell.mp3", "position_ms": 1240, "duration_ms": 4000}
+```
+`duration_ms` is omitted when unknown (TTS streams while it synthesizes).
+Idle: `{"playing": false, "position_ms": 0}`.
+
+### `GET /audio-in/sounds`
+List the canned sound files available to `/audio-in/play`.
+
+**Response:**
+```json
+{"sounds": ["doorbell.mp3", "tone440.wav"]}
+```
+
+Synthetic playback does not coordinate with a live viewer microphone session:
+speaking while someone holds the mic button interleaves both streams and
+garbles the audio.
+
+**CLI:** the `roadie-say` script in the repo root wraps these endpoints:
+`roadie-say "hello"`, `roadie-say -f doorbell.mp3`, `-l` (list), `-s` (stop),
+`-q` (status), `-H host:port` or `$ROADIE_HOST` for a remote roadie. Install
+with `ln -s ~/roadie/roadie-say ~/.local/bin/`.
+
+**UI:** the on-screen keyboard popup has Keys/Audio tabs; the Audio tab holds
+the say box, sound picker, playback progress, and stop.
+
 ---
 
 ## Settings
@@ -521,4 +605,7 @@ Ctrl+Alt+Del: press 224, press 226, press 76, release 76, release 226, release 2
 | `--fps` | 30 | Capture framerate |
 | `--quality` | 80 | JPEG quality (30-95) |
 | `--name` | roadie | mDNS service name |
+| `--sounds-dir` | ~/roadie/sounds | Directory of canned audio files for `/audio-in/play` |
+| `--piper-model` | ~/piper/en_US-lessac-medium.onnx if present | Piper voice kept warm for `/audio-in/say` (empty: use --tts-cmd) |
+| `--tts-cmd` | espeak-ng --stdout -v {{voice}} {{text}} | Fallback TTS command template for `/audio-in/say` |
 | `--list-devices` | | List video and audio devices, then exit |

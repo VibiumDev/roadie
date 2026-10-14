@@ -105,6 +105,7 @@ To drive more than one device from the same host, see
 - **Runtime settings**: adjust quality, FPS, and resolution on the fly from the viewer
 - **Audio streaming**: optional PCM audio over WebSocket
 - **Voice input**: microphone button in the viewer streams your voice to the target, which hears it as a USB microphone — works in live phone calls
+- **Text-to-speech and canned audio**: speak text (`POST /audio-in/say`, like macOS `say`) or play local sound files (`POST /audio-in/play`) through the target's USB microphone — from the viewer's Audio tab, the `roadie-say` CLI, or plain HTTP, so AI agents can talk into live calls and voice assistants
 - **Bonjour/mDNS**: discoverable as `roadie.local` on your network
 - **Multiple targets**: run one instance per target on a single host, each pinned to its own capture dongle and relay board, with a `/grid` page to view and drive them together
 - **Platform-aware input**: `--platform` adapts pointer mapping and input mode to Android, iOS, macOS, Windows, or Linux targets

@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# roadie-say — speak text or play canned sounds through the target's USB mic,
+# like macOS `say` but heard by the device on the other end of the cable.
+#
+# Usage:
+#   roadie-say "hello world"        speak text (TTS)
+#   roadie-say -f doorbell.mp3      play a canned sound from the sounds dir
+#   roadie-say -l                   list canned sounds
+#   roadie-say -s                   stop playback
+#   roadie-say -q                   show playback status
+#   roadie-say -H host:port ...     target a different roadie (default
+#                                   localhost:8080, or $ROADIE_HOST)
+set -euo pipefail
+
+host="${ROADIE_HOST:-localhost:8080}"
+action="say"
+file=""
+
+usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+while getopts ":H:f:lsqh" opt; do
+  case "$opt" in
+    H) host="$OPTARG" ;;
+    f) action="play"; file="$OPTARG" ;;
+    l) action="list" ;;
+    s) action="stop" ;;
+    q) action="status" ;;
+    h) usage ;;
+    *) usage 1 >&2 ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+api() { # api METHOD PATH [JSON]
+  curl -sS -X "$1" "http://$host$2" ${3:+-H "Content-Type: application/json" -d "$3"}
+  echo
+}
+
+json_escape() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
+
+case "$action" in
+  say)
+    [ $# -ge 1 ] || { echo "error: no text given (try -h)" >&2; exit 1; }
+    api POST /audio-in/say "{\"text\": $(json_escape "$*")}"
+    ;;
+  play)
+    api POST /audio-in/play "{\"name\": $(json_escape "$file")}"
+    ;;
+  list)
+    api GET /audio-in/sounds
+    ;;
+  stop)
+    api POST /audio-in/stop
+    ;;
+  status)
+    api GET /audio-in/status
+    ;;
+esac
