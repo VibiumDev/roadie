@@ -32,6 +32,7 @@ type AudioBroadcaster struct {
 	nextID      uint64
 	params      AudioParams
 	active      atomic.Bool
+	generation  atomic.Uint64
 }
 
 // NewAudioBroadcaster creates an AudioBroadcaster ready for use.
@@ -91,16 +92,25 @@ func (ab *AudioBroadcaster) Broadcast(chunk []byte) {
 }
 
 // SetParams updates the audio parameters and marks the broadcaster as active.
-func (ab *AudioBroadcaster) SetParams(p AudioParams) {
+// It returns a generation token for SetInactive: a capture goroutine that
+// outlives its 5s teardown wait (stuck in a blocking read) must not mark the
+// broadcaster inactive after a newer capture has taken over.
+func (ab *AudioBroadcaster) SetParams(p AudioParams) uint64 {
 	ab.mu.Lock()
 	ab.params = p
 	ab.mu.Unlock()
+	gen := ab.generation.Add(1)
 	ab.active.Store(true)
+	return gen
 }
 
 // SetInactive marks the broadcaster as inactive (device disconnected).
-func (ab *AudioBroadcaster) SetInactive() {
-	ab.active.Store(false)
+// No-op unless gen matches the latest SetParams — a stale capture goroutine
+// exiting late must not deactivate the capture that replaced it.
+func (ab *AudioBroadcaster) SetInactive(gen uint64) {
+	if ab.generation.Load() == gen {
+		ab.active.Store(false)
+	}
 }
 
 // Params returns the current audio parameters.
@@ -240,7 +250,7 @@ func StartAudioCapture(ctx context.Context, dev deviceInfo, ab *AudioBroadcaster
 		return nil, fmt.Errorf("failed to start audio recording on %q: %w", dev.Name, err)
 	}
 
-	ab.SetParams(AudioParams{
+	gen := ab.SetParams(AudioParams{
 		SampleRate: mediaProp.SampleRate,
 		Channels:   mediaProp.ChannelCount,
 		Format:     "f32-planar",
@@ -250,7 +260,7 @@ func StartAudioCapture(ctx context.Context, dev deviceInfo, ab *AudioBroadcaster
 	go func() {
 		defer close(done)
 		defer d.Close()
-		defer ab.SetInactive()
+		defer ab.SetInactive(gen)
 
 		var consecutiveErrors int
 		for {

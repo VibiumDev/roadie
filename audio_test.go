@@ -85,7 +85,7 @@ func TestAudioBroadcasterParams(t *testing.T) {
 		t.Error("expected inactive initially")
 	}
 
-	ab.SetParams(AudioParams{SampleRate: 48000, Channels: 2, Format: "f32-planar"})
+	gen := ab.SetParams(AudioParams{SampleRate: 48000, Channels: 2, Format: "f32-planar"})
 	if !ab.IsActive() {
 		t.Error("expected active after SetParams")
 	}
@@ -95,9 +95,28 @@ func TestAudioBroadcasterParams(t *testing.T) {
 		t.Errorf("unexpected params: %+v", p)
 	}
 
-	ab.SetInactive()
+	ab.SetInactive(gen)
 	if ab.IsActive() {
 		t.Error("expected inactive after SetInactive")
+	}
+}
+
+// A capture goroutine that outlives its teardown wait must not deactivate
+// the capture that replaced it (issue #8).
+func TestAudioBroadcasterStaleSetInactive(t *testing.T) {
+	ab := NewAudioBroadcaster()
+
+	oldGen := ab.SetParams(AudioParams{SampleRate: 48000, Channels: 2, Format: "f32-planar"})
+	newGen := ab.SetParams(AudioParams{SampleRate: 44100, Channels: 1, Format: "f32-planar"})
+
+	ab.SetInactive(oldGen) // stale goroutine finally exiting
+	if !ab.IsActive() {
+		t.Error("stale SetInactive deactivated the new capture")
+	}
+
+	ab.SetInactive(newGen)
+	if ab.IsActive() {
+		t.Error("expected inactive after current-generation SetInactive")
 	}
 }
 
