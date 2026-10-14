@@ -41,8 +41,12 @@ line_buf = ""
 last_ping = time.monotonic()
 HEARTBEAT_INTERVAL = 5
 
-# flush stale UART bytes
-while uart.read(64):
+# Flush stale UART bytes. Bounded on purpose: if the HID board is unpowered
+# while the jumpers are still attached, its TX line sits low and the UART
+# hands back an endless stream of 0x00, so an unbounded loop never exits and
+# the board never finishes booting.
+_flush_deadline = time.monotonic() + 0.5
+while uart.read(64) and time.monotonic() < _flush_deadline:
     pass
 
 print("roadie relay board ready (uart + serial)")

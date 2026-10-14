@@ -14,7 +14,7 @@ import microcontroller
 from protocol import (
     MSG_SIZE, BAUD, STATUS_OK, STATUS_ERR,
     CMD_AUDIO, AUDIO_MAGIC, AUDIO_MAX, AUDIO_HDR, AUDIO_RATE,
-    CMD_PING, CMD_KEY_PRESS, CMD_KEY_RELEASE, CMD_KEY_TYPE,
+    CMD_NOOP, CMD_PING, CMD_KEY_PRESS, CMD_KEY_RELEASE, CMD_KEY_TYPE,
     CMD_MOUSE_MOVE, CMD_MOUSE_CLICK, CMD_MOUSE_PRESS, CMD_MOUSE_RELEASE,
     CMD_MOUSE_SCROLL, CMD_TOUCH, CMD_RESET,
     unpack_msg, pack_resp,
@@ -124,7 +124,13 @@ def read_exact(n, deadline=0.5):
 def handle_command(cmd, seq, payload):
     """Execute a HID command. Returns status byte."""
     try:
-        if cmd == CMD_PING:
+        if cmd == CMD_NOOP:
+            # An unpowered or idle peer leaves the line low, which arrives as
+            # all-zero frames. Swallow them: printing here spams the console,
+            # and a print with no reader draining it blocks the board.
+            return STATUS_OK
+
+        elif cmd == CMD_PING:
             return STATUS_OK
 
         elif cmd == CMD_KEY_TYPE:
@@ -229,7 +235,8 @@ while True:
         microcontroller.reset()
 
     # skip LED blink for high-frequency commands to avoid back-pressure
-    if cmd not in (CMD_KEY_PRESS, CMD_KEY_RELEASE, CMD_MOUSE_MOVE, CMD_MOUSE_SCROLL, CMD_TOUCH):
+    # (CMD_NOOP included: an undriven line delivers these continuously)
+    if cmd not in (CMD_NOOP, CMD_KEY_PRESS, CMD_KEY_RELEASE, CMD_MOUSE_MOVE, CMD_MOUSE_SCROLL, CMD_TOUCH):
         neopixel_write.neopixel_write(pixel_pin, OFF)
         time.sleep(0.1)
         neopixel_write.neopixel_write(pixel_pin, GREEN)
