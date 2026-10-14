@@ -493,7 +493,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       }
     };
 
-    // --- Voice input: hold-to-talk, browser mic -> /audio-in -> target's USB mic ---
+    // --- Voice input: mic toggle, browser mic -> /audio-in -> target's USB mic ---
     var pttBtn = document.getElementById('ptt');
     var pttWs = null, pttCtx = null, pttStream = null, pttNode = null;
     var talking = false;
