@@ -1,12 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
 	"image"
+	"io"
 	"log"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -36,6 +42,20 @@ type Server struct {
 	// Name is this instance's --name. It labels the browser tab so that
 	// several targets open at once stay tellable apart.
 	Name string
+
+	// Player paces synthetic audio (TTS, sound files) into the HID mic.
+	Player *AudioPlayer
+
+	// SoundsDir holds canned audio files playable via /audio-in/play.
+	SoundsDir string
+
+	// TTSCmd is the text-to-speech command template; {{text}} and {{voice}}
+	// are replaced per request.
+	TTSCmd string
+
+	// Piper, when set, synthesizes speech in a warm daemon instead of the
+	// TTSCmd template, skipping per-request model load.
+	Piper *PiperDaemon
 }
 
 // pageTitle names the browser tab after the target this instance drives. The
@@ -72,6 +92,11 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/api/settings", s.handleAPISettings)
 	mux.HandleFunc("/audio", s.handleAudio)
 	mux.HandleFunc("/audio-in", s.handleAudioIn)
+	mux.HandleFunc("/audio-in/say", s.handleAudioSay)
+	mux.HandleFunc("/audio-in/play", s.handleAudioPlay)
+	mux.HandleFunc("/audio-in/stop", s.handleAudioStop)
+	mux.HandleFunc("/audio-in/sounds", s.handleAudioSounds)
+	mux.HandleFunc("/audio-in/status", s.handleAudioStatus)
 	mux.HandleFunc("/test", s.handleTest)
 	mux.HandleFunc("/api/capture/reset", s.handleCaptureReset)
 	mux.HandleFunc("/api/hid/reset", s.handleHIDReset)
@@ -187,6 +212,30 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     </div>
     <div id="onscreen-kbd" style="display:none; user-select:none; -webkit-user-select:none; overflow-x:auto;">
       <div id="kbd-inner" style="padding:6px 8px;">
+      <div id="kbd-tabs" style="display:flex; gap:4px; margin-bottom:4px;">
+        <button id="tabKeys" style="padding:3px 14px; background:var(--kbd-key-active); color:var(--kbd-text); border:1px solid var(--kbd-border); border-radius:5px; font-family:monospace; font-size:12px; cursor:pointer;">Keys</button>
+        <button id="tabAudio" style="padding:3px 14px; background:var(--kbd-key); color:var(--kbd-text); border:1px solid var(--kbd-border); border-radius:5px; font-family:monospace; font-size:12px; cursor:pointer;">Audio</button>
+      </div>
+      <div id="audio-tab" style="display:none; background:var(--kbd-bg); border-radius:8px; padding:12px; color:var(--kbd-text); font-family:monospace; font-size:13px; width:480px; max-width:100%; box-sizing:border-box; text-align:left;">
+        <div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:10px;">
+          <label style="min-width:48px; padding-top:5px;">Say</label>
+          <textarea id="sayText" rows="2" placeholder="text to speak" style="flex:1; background:var(--kbd-key); color:var(--kbd-text); border:1px solid var(--kbd-border); border-radius:4px; padding:4px 6px; font-family:monospace; font-size:13px; resize:vertical;"></textarea>
+          <button id="sayGo" style="padding:4px 12px; background:var(--kbd-key); color:var(--kbd-text); border:1px solid #6af; border-radius:4px; font-family:monospace; cursor:pointer;">Say</button>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+          <label style="min-width:48px;">Sound</label>
+          <select id="soundSelect" style="flex:1; background:var(--kbd-key); color:var(--kbd-text); border:1px solid var(--kbd-border); border-radius:4px; padding:3px 6px; font-family:monospace; font-size:13px;"></select>
+          <button id="soundGo" style="padding:4px 12px; background:var(--kbd-key); color:var(--kbd-text); border:1px solid #6af; border-radius:4px; font-family:monospace; cursor:pointer;">Play</button>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span id="audioNow" style="min-width:48px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:140px; opacity:0.8;">idle</span>
+          <div id="audioBar" style="flex:1; height:8px; background:var(--kbd-key); border:1px solid var(--kbd-border); border-radius:4px; overflow:hidden;">
+            <div id="audioFill" style="height:100%; width:0%; background:#6af;"></div>
+          </div>
+          <span id="audioTime" style="min-width:5.5em; text-align:right; opacity:0.8;"></span>
+          <button id="audioStop" style="padding:4px 12px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer;">Stop</button>
+        </div>
+      </div>
       <div id="kbd-body" style="background:var(--kbd-bg); border-radius:8px; padding:6px; display:inline-block;">
       <div class="kr" id="kr-0"></div>
       <div class="kr" id="kr-1"></div>
@@ -670,6 +719,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       alignment = mode;
       var viewer = document.getElementById('viewer');
       var kbdI = document.getElementById('kbd-inner');
+      var kbdTabs = document.getElementById('kbd-tabs');
       if (mode === 'center') {
         alignTLBtn.style.background = '#333'; alignTLBtn.style.color = '#888'; alignTLBtn.style.borderColor = '#555';
         alignCenterBtn.style.background = '#444'; alignCenterBtn.style.color = '#fff'; alignCenterBtn.style.borderColor = '#6af';
@@ -677,6 +727,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         viewer.style.justifyContent = 'center';
         viewer.style.alignItems = 'center';
         kbdI.style.textAlign = 'center';
+        kbdTabs.style.justifyContent = 'center';
       } else {
         alignCenterBtn.style.background = '#333'; alignCenterBtn.style.color = '#888'; alignCenterBtn.style.borderColor = '#555';
         alignTLBtn.style.background = '#444'; alignTLBtn.style.color = '#fff'; alignTLBtn.style.borderColor = '#6af';
@@ -684,6 +735,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         viewer.style.justifyContent = '';
         viewer.style.alignItems = '';
         kbdI.style.textAlign = '';
+        kbdTabs.style.justifyContent = '';
       }
       applyZoom(parseInt(zoomRange.value));
     }
@@ -1056,7 +1108,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     document.addEventListener('keydown', function(e) {
       if (!kbdCapture) return;
       var tag = e.target.tagName;
-      if (tag === 'INPUT' || tag === 'SELECT') return;
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
       var hid = KEY_MAP[e.code];
       if (hid !== undefined) {
         e.preventDefault();
@@ -1094,14 +1146,108 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         oskPanel.style.display = 'block';
         syncKbdWidth();
         applyKbdZoom(kbdZoomPct);
+        if (audioTab.style.display !== 'none') { startAudioPoll(); }
       } else {
         oskPanel.style.display = 'none';
+        stopAudioPoll();
       }
       kbdBtn.style.opacity = oskVisible ? '1' : '0.4';
     }
     kbdBtn.onclick = function() {
       showKbd(!oskVisible);
       saveSettings({kbdVisible: oskVisible});
+    };
+
+    // --- Keys/Audio tabs: TTS and canned sounds -> target's USB mic ---
+    var tabKeys = document.getElementById('tabKeys');
+    var tabAudio = document.getElementById('tabAudio');
+    var audioTab = document.getElementById('audio-tab');
+    var kbdBody = document.getElementById('kbd-body');
+    var sayText = document.getElementById('sayText');
+    var sayGo = document.getElementById('sayGo');
+    var soundSelect = document.getElementById('soundSelect');
+    var soundGo = document.getElementById('soundGo');
+    var audioNow = document.getElementById('audioNow');
+    var audioFill = document.getElementById('audioFill');
+    var audioTime = document.getElementById('audioTime');
+    var audioStop = document.getElementById('audioStop');
+    var soundsLoaded = false;
+    var audioPollTimer = null;
+
+    function showAudioTab(audio) {
+      audioTab.style.display = audio ? 'inline-block' : 'none';
+      kbdBody.style.display = audio ? 'none' : 'inline-block';
+      tabAudio.style.background = audio ? 'var(--kbd-key-active)' : 'var(--kbd-key)';
+      tabKeys.style.background = audio ? 'var(--kbd-key)' : 'var(--kbd-key-active)';
+      saveSettings({kbdTab: audio ? 'audio' : 'keys'});
+      if (audio && !soundsLoaded) {
+        fetch('/audio-in/sounds').then(function(r){ return r.json(); }).then(function(d) {
+          soundsLoaded = true;
+          (d.sounds || []).forEach(function(n) {
+            var o = document.createElement('option');
+            o.value = n; o.textContent = n;
+            soundSelect.appendChild(o);
+          });
+        }).catch(function(){});
+      }
+      if (audio && oskVisible) { startAudioPoll(); } else { stopAudioPoll(); }
+    }
+    tabKeys.onclick = function() { showAudioTab(false); };
+    tabAudio.onclick = function() { showAudioTab(true); };
+
+    function fmtTime(ms) {
+      var s = Math.floor(ms / 1000);
+      return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
+    }
+    function pollAudioStatus() {
+      fetch('/audio-in/status').then(function(r){ return r.json(); }).then(function(st) {
+        if (st.playing) {
+          audioNow.textContent = st.source || 'playing';
+          audioNow.title = st.source || '';
+          audioNow.style.opacity = '1';
+          if (st.duration_ms) {
+            var pct = Math.min(100, st.position_ms * 100 / st.duration_ms);
+            audioFill.style.width = pct + '%';
+            audioTime.textContent = fmtTime(st.position_ms) + '/' + fmtTime(st.duration_ms);
+          } else if (!st.position_ms) {
+            audioFill.style.width = '0%';
+            audioTime.textContent = 'synth…';
+          } else {
+            audioFill.style.width = '100%';
+            audioTime.textContent = fmtTime(st.position_ms);
+          }
+        } else {
+          audioNow.textContent = 'idle';
+          audioNow.title = '';
+          audioNow.style.opacity = '0.8';
+          audioFill.style.width = '0%';
+          audioTime.textContent = '';
+        }
+      }).catch(function(){});
+    }
+    function startAudioPoll() {
+      if (audioPollTimer) return;
+      pollAudioStatus();
+      audioPollTimer = setInterval(pollAudioStatus, 500);
+    }
+    function stopAudioPoll() {
+      clearInterval(audioPollTimer);
+      audioPollTimer = null;
+    }
+
+    sayGo.onclick = function() {
+      var t = sayText.value.trim();
+      if (!t) return;
+      fetch('/audio-in/say', { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text: t}) }).then(pollAudioStatus);
+    };
+    soundGo.onclick = function() {
+      if (!soundSelect.value) return;
+      fetch('/audio-in/play', { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: soundSelect.value}) }).then(pollAudioStatus);
+    };
+    audioStop.onclick = function() {
+      fetch('/audio-in/stop', { method: 'POST' }).then(pollAudioStatus);
     };
 
     var kbdZoomRange = document.getElementById('kbdZoomRange');
@@ -1121,6 +1267,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       var saved = {};
       try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
       if (saved.kbdZoom !== undefined) { kbdZoomPct = saved.kbdZoom; }
+      if (saved.kbdTab === 'audio') { showAudioTab(true); }
       if (saved.kbdVisible) { showKbd(true); }
     })();
 
@@ -1692,6 +1839,139 @@ func (s *Server) handleAudioIn(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// handleAudioSay speaks text through the target's USB microphone, like
+// macOS `say` but heard by the device on the other end of the cable.
+// Playback runs in the background; a new say/play preempts the current one.
+func (s *Server) handleAudioSay(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.HID == nil || s.Player == nil {
+		http.Error(w, "HID not available", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Text  string `json:"text"`
+		Voice string `json:"voice"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(body.Text) == "" {
+		http.Error(w, "empty text", http.StatusBadRequest)
+		return
+	}
+	if s.Piper == nil {
+		argv, _, err := ttsArgv(s.TTSCmd, body.Text, body.Voice)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if _, err := exec.LookPath(argv[0]); err != nil {
+			http.Error(w, fmt.Sprintf("%s not installed", argv[0]), http.StatusInternalServerError)
+			return
+		}
+	}
+	label := body.Text
+	if r := []rune(label); len(r) > 40 {
+		label = string(r[:40]) + "…"
+	}
+	go func() {
+		err := s.Player.Play("say: "+label, 0, func(ctx context.Context) (io.ReadCloser, func() error, error) {
+			return s.synthToPCM(ctx, body.Text, body.Voice)
+		})
+		if err != nil {
+			log.Printf("audio say: %v", err)
+		}
+	}()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleAudioPlay plays a canned sound file from SoundsDir through the
+// target's USB microphone. Any format ffmpeg decodes works.
+func (s *Server) handleAudioPlay(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.HID == nil || s.Player == nil {
+		http.Error(w, "HID not available", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	// The name must be a bare filename inside SoundsDir.
+	if body.Name == "" || body.Name != filepath.Base(body.Name) ||
+		strings.ContainsAny(body.Name, `/\`) || strings.Contains(body.Name, "..") {
+		http.Error(w, "bad name", http.StatusBadRequest)
+		return
+	}
+	path := filepath.Join(s.SoundsDir, body.Name)
+	if info, err := os.Stat(path); err != nil || info.IsDir() {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	durationMS := fileDurationMS(path)
+	go func() {
+		err := s.Player.Play(body.Name, durationMS, func(ctx context.Context) (io.ReadCloser, func() error, error) {
+			return fileToPCM(ctx, path)
+		})
+		if err != nil {
+			log.Printf("audio play %s: %v", body.Name, err)
+		}
+	}()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleAudioStop cancels any in-flight synthetic playback.
+func (s *Server) handleAudioStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.Player != nil {
+		s.Player.Stop()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleAudioStatus reports what the synthetic player is doing, so the UI
+// can show playback progress and a stop control.
+func (s *Server) handleAudioStatus(w http.ResponseWriter, r *http.Request) {
+	st := PlaybackStatus{}
+	if s.Player != nil {
+		st = s.Player.Status()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(st)
+}
+
+// handleAudioSounds lists the canned sound files available to /audio-in/play.
+// A missing sounds directory reads as an empty list, not an error.
+func (s *Server) handleAudioSounds(w http.ResponseWriter, r *http.Request) {
+	sounds := []string{}
+	if entries, err := os.ReadDir(s.SoundsDir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			sounds = append(sounds, e.Name())
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string][]string{"sounds": sounds})
 }
 
 func (s *Server) handleTest(w http.ResponseWriter, r *http.Request) {

@@ -8,7 +8,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 )
@@ -26,6 +28,9 @@ func main() {
 	name := flag.String("name", "roadie", "Bonjour service name")
 	inputMode := flag.String("input", "", "default pointer mode for viewers: mouse or touch (empty: viewer decides)")
 	platformName := flag.String("platform", "", "target OS: android, ios, mac, windows, linux (tunes pointer mapping and input mode)")
+	soundsDir := flag.String("sounds-dir", defaultSoundsDir(), "directory of canned audio files playable through the mic")
+	ttsCmd := flag.String("tts-cmd", "espeak-ng --stdout -v {{voice}} {{text}}", "fallback TTS command template for /audio-in/say; {{text}} and {{voice}} are replaced per request, or text goes to stdin when {{text}} is absent")
+	piperModel := flag.String("piper-model", defaultPiperModel(), "piper voice model for /audio-in/say, kept warm in a daemon (empty: use --tts-cmd)")
 	flag.Parse()
 
 	if *listDevices {
@@ -172,6 +177,17 @@ func main() {
 		InputMode:      *inputMode,
 		Platform:       platform,
 		Name:           *name,
+		Player:         NewAudioPlayer(hid),
+		SoundsDir:      *soundsDir,
+		TTSCmd:         *ttsCmd,
+	}
+	if *piperModel != "" {
+		if bin := findPiperBin(*piperModel); bin != "" {
+			srv.Piper = NewPiperDaemon(bin, *piperModel)
+			srv.Piper.Warm()
+		} else {
+			fmt.Fprintf(os.Stderr, "⚠️  piper binary not found for %s — TTS falls back to --tts-cmd\n", *piperModel)
+		}
 	}
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", listenPort),
@@ -193,6 +209,9 @@ func main() {
 
 	shutdownFunc()
 	hid.Shutdown()
+	if srv.Piper != nil {
+		srv.Piper.Shutdown()
+	}
 
 	if mdnsShutdown != nil {
 		mdnsShutdown()
@@ -201,6 +220,52 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	httpServer.Shutdown(ctx)
+}
+
+// defaultPiperModel finds the Piper voice at ~/piper (natural neural voice,
+// kept warm in a daemon). Empty when Piper is not installed — /audio-in/say
+// then falls back to the --tts-cmd template.
+func defaultPiperModel() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	bin := filepath.Join(home, "piper", "piper")
+	model := filepath.Join(home, "piper", "en_US-lessac-medium.onnx")
+	if _, err := os.Stat(bin); err != nil {
+		return ""
+	}
+	if _, err := os.Stat(model); err != nil {
+		return ""
+	}
+	return model
+}
+
+// findPiperBin locates the piper binary: next to the model, at ~/piper, or
+// on PATH. Empty when none exists.
+func findPiperBin(model string) string {
+	candidates := []string{filepath.Join(filepath.Dir(model), "piper")}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, filepath.Join(home, "piper", "piper"))
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	if p, err := exec.LookPath("piper"); err == nil {
+		return p
+	}
+	return ""
+}
+
+// defaultSoundsDir is ~/roadie/sounds, next to the usual checkout location.
+func defaultSoundsDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "sounds"
+	}
+	return filepath.Join(home, "roadie", "sounds")
 }
 
 // findAvailablePort tries ports starting from start and returns the first one available.
