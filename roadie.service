@@ -1,0 +1,19 @@
+; Roadie systemd unit template. `make install-service` fills in the user and
+; home placeholders, installs it, and enables the service, so the server and
+; its flags survive reboots. Flags live in roadie.env (see roadie.env.example).
+[Unit]
+Description=Roadie — HDMI capture and HID control server
+Documentation=https://github.com/VibiumDev/roadie
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=@USER@
+WorkingDirectory=@HOME@/roadie
+EnvironmentFile=-@HOME@/roadie/roadie.env
+ExecStart=@HOME@/roadie/roadie $ROADIE_FLAGS
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

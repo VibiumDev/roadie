@@ -17,6 +17,7 @@ go.work.sum
 
 # Environment
 .env
+roadie.env
 
 # Python venv
 .venv/
