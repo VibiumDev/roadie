@@ -270,23 +270,26 @@ class Runner:
         mark = "✅" if passed else "❌"
         print(f"  {mark} {name}: {detail}")
 
-    def leg_ping(self, repl):
+    def leg_ping(self):
+        """Ping and read the relay's reply on the data port.
+
+        The relay answers {"ok":true} once the HID board has ACKed over
+        UART, so this confirms the round-trip rather than merely that the
+        relay accepted the command. It deliberately does not look at the
+        console: a print with nothing draining it blocks the board.
+        """
         self.capture.drain()
-        if repl:
-            repl.reset_input_buffer()
+        self.data.reset_input_buffer()
         self.send(cmd="ping")
-        time.sleep(self.settle)
-        if not repl:
-            self.record("ping", False, "no relay REPL to observe")
-            return
-        chatter = repl.read(repl.in_waiting or 1).decode(errors="replace")
-        # A healthy relay is silent on a good ping; errors show up as text.
-        bad = [w for w in ("Traceback", "Error", "error", "unknown cmd")
-               if w in chatter]
-        if bad:
-            self.record("ping", False, f"relay reported {bad[0]}: {chatter.strip()[:120]}")
+        reply = self.data.readline().decode(errors="replace").strip()
+        if '"ok":true' in reply.replace(" ", ""):
+            self.record("ping", True, f"relay round-trip confirmed ({reply})")
+        elif reply:
+            self.record("ping", False, f"relay reported {reply}")
         else:
-            self.record("ping", True, "relay accepted ping, UART link alive")
+            self.record("ping", False,
+                        "no reply from the relay — is the HID board powered "
+                        "and wired to it?")
 
     def leg_type(self, text):
         self.capture.drain()
@@ -463,7 +466,7 @@ def main():
     runner = Runner(data, capture, args.settle)
     try:
         if "ping" not in args.skip:
-            runner.leg_ping(rrepl)
+            runner.leg_ping()
         if "type" not in args.skip:
             runner.leg_type(args.text)
         if "mouse" not in args.skip:
