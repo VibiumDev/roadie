@@ -515,6 +515,15 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       "registerProcessor('pcm-sender', PCMSender);"
     ].join('\n');
 
+    function pttFail(err) {
+      // Surface pipeline failures instead of dying silently in a promise chain.
+      console.error('voice input:', err);
+      stopTalk();
+      pttBtn.title = 'Voice input failed: ' + (err && err.message ? err.message : err);
+      pttBtn.style.background = 'rgba(180,120,20,0.95)';
+      setTimeout(function() { pttBtn.style.background = 'rgba(50,50,50,0.9)'; }, 2000);
+    }
+
     function startTalk() {
       if (talking || !navigator.mediaDevices) return;
       talking = true;
@@ -527,31 +536,56 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         pttWs = new WebSocket(proto + '//' + location.host + '/audio-in');
         pttWs.binaryType = 'arraybuffer';
-        pttCtx = new AudioContext({ sampleRate: 16000 });
+        // Native rate, downsampled to 16 kHz below: a 16 kHz context works in
+        // Chrome/Safari, but Firefox can't connect a mic to a context whose
+        // rate differs from the device's (NotSupportedError).
+        pttCtx = new AudioContext();
         var url = URL.createObjectURL(new Blob([pttWorkletCode], { type: 'application/javascript' }));
         pttCtx.audioWorklet.addModule(url).then(function() {
           if (!talking || !pttCtx) return;
           var src = pttCtx.createMediaStreamSource(pttStream);
           pttNode = new AudioWorkletNode(pttCtx, 'pcm-sender', { numberOfInputs: 1, numberOfOutputs: 0 });
+          // Linear-interpolation downsampler, ctx rate -> 16 kHz. Carries the
+          // unconsumed tail and fractional read position across chunks so
+          // there are no seams at chunk boundaries.
+          var ratio = pttCtx.sampleRate / 16000;
+          var tail = new Float32Array(0), frac = 0;
+          function downsample(chunk) {
+            var input;
+            if (tail.length) {
+              input = new Float32Array(tail.length + chunk.length);
+              input.set(tail, 0); input.set(chunk, tail.length);
+            } else { input = chunk; }
+            var avail = Math.max(0, Math.floor((input.length - 1 - frac) / ratio));
+            var out = new Int16Array(avail);
+            var pos = frac;
+            for (var i = 0; i < avail; i++) {
+              var i0 = Math.floor(pos), f = pos - i0;
+              var s = input[i0] + (input[i0 + 1] - input[i0]) * f;
+              s = Math.max(-1, Math.min(1, s));
+              out[i] = s < 0 ? s * 32768 : s * 32767;
+              pos += ratio;
+            }
+            var keepFrom = Math.floor(pos);
+            frac = pos - keepFrom;
+            tail = input.slice(keepFrom);
+            return out;
+          }
           var acc = [], accLen = 0;
           pttNode.port.onmessage = function(ev) {
             if (!pttWs || pttWs.readyState !== 1) return;
-            acc.push(ev.data); accLen += ev.data.length;
+            var ds = downsample(ev.data);
+            if (ds.length) { acc.push(ds); accLen += ds.length; }
             if (accLen >= 320) {  // send ~20ms batches; board buffers only ~100ms
-              var f32 = new Float32Array(accLen), o = 0;
-              for (var i = 0; i < acc.length; i++) { f32.set(acc[i], o); o += acc[i].length; }
+              var i16 = new Int16Array(accLen), o = 0;
+              for (var i = 0; i < acc.length; i++) { i16.set(acc[i], o); o += acc[i].length; }
               acc = []; accLen = 0;
-              var i16 = new Int16Array(f32.length);
-              for (var j = 0; j < f32.length; j++) {
-                var s2 = Math.max(-1, Math.min(1, f32[j]));
-                i16[j] = s2 < 0 ? s2 * 32768 : s2 * 32767;
-              }
               pttWs.send(i16.buffer);
             }
           };
           src.connect(pttNode);
-        });
-      }).catch(function() { stopTalk(); });
+        }).catch(pttFail);
+      }).catch(pttFail);
     }
 
     function stopTalk() {
