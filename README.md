@@ -92,6 +92,15 @@ make                # build
 
 Open `http://localhost:8080/view` to see and control the target's screen.
 
+To run at boot instead (Linux), with flags that survive reboots:
+
+```bash
+make install-service   # installs + starts a systemd unit; flags live in roadie.env
+```
+
+Edit `roadie.env` and `sudo systemctl restart roadie` to change flags;
+`make uninstall-service` removes it.
+
 To drive more than one device from the same host, see
 [Running Multiple Targets](docs/how-to/multiple-targets.md).
 
