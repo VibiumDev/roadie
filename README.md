@@ -125,8 +125,7 @@ To drive more than one device from the same host, see
 | [Board Reference](docs/reference/boards.md) | Hardware specs, wiring, USB identifiers, LED behavior |
 | [Architecture](docs/explanation/architecture.md) | System design, pipeline, and design decisions |
 | [Flash Boards](docs/how-to/flash-boards.md) | Flashing, re-flashing, and syncing board code |
-| [Test the Input Chain](docs/how-to/test-the-chain.md) | Verifying keyboard, mouse, and touch end to end, per target device |
-| [Watch the Tests Run](docs/how-to/watch-tests.md) | Viewing a test over VNC, including on a Pi with no monitor |
+| [Testing](docs/how-to/testing.md) | Checking keyboard, mouse, touch, and voice input against real hardware |
 | [Running Multiple Targets](docs/how-to/multiple-targets.md) | Driving several devices from one host, and viewing them together |
 | [Troubleshooting](docs/how-to/troubleshooting.md) | Common problems and fixes |
 | [Automate with Vibium](docs/tutorials/automate-with-vibium.md) | Drive Roadie with JavaScript using browser automation |
@@ -145,12 +144,8 @@ make test-e2e-iphone  # full stack into Safari on an iPhone
 make clean            # remove binary
 ```
 
-Both hardware tests work on any Roadie dev Pi regardless of what is plugged
-into it — a Pi with the official 7" touchscreen and a Pi with no display at
-all run the same commands. `make test-hid` reads `/dev/input` directly and
-needs no display. `make test-e2e-pi` creates its own isolated display, which
-is also what keeps the input it injects out of your desktop. Add `-vnc` to
-watch a run: it serves that display over VNC and waits until you connect.
+No monitor required: `make test-hid` needs no display, and `make test-e2e-pi`
+creates its own. Add `-vnc` to watch a run.
 
-See [Flash Boards](docs/how-to/flash-boards.md) for re-flashing and syncing board code,
-and [Test the Input Chain](docs/how-to/test-the-chain.md) for what each test covers.
+See [Flash Boards](docs/how-to/flash-boards.md) for re-flashing and syncing
+board code, and [Testing](docs/how-to/testing.md) for what each test covers.

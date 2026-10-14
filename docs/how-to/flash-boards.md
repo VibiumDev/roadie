@@ -83,10 +83,10 @@ After flashing, always **unplug and re-plug** the board. The custom USB HID desc
 After flashing, confirm the whole chain still works:
 
 ```bash
-make test-hid-quick
+make test-hid
 ```
 
-See [Test the Input Chain](test-the-chain.md) for the fuller tests.
+See [Testing](testing.md) for the fuller tests.
 
 ### Checking the serial console
 

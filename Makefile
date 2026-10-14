@@ -93,7 +93,7 @@ test-e2e-pi:
 
 # Watch it happen: the isolated display is served over VNC, and the run waits
 # until a viewer actually connects. Works with or without a monitor attached.
-# See docs/how-to/watch-tests.md.
+# See docs/how-to/testing.md.
 #
 # (To run on an attached monitor instead, set ROADIE_E2E_USE_ATTACHED=1. There
 # is no make target for it because input then goes wherever focus is, which

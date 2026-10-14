@@ -20,7 +20,7 @@
 # the caveats above if you do.
 #
 # Set ROADIE_E2E_VNC=1 to serve the virtual display over VNC, so a machine
-# with no monitor can still be watched. See docs/how-to/watch-tests.md.
+# with no monitor can still be watched. See docs/how-to/testing.md.
 #
 # Two notes, both measured rather than assumed:
 #
