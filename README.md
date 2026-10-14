@@ -104,6 +104,7 @@ To drive more than one device from the same host, see
 - **Auto-crop**: detects and removes black bars from HDMI capture (pillarbox/letterbox), remaps touch coordinates to match
 - **Runtime settings**: adjust quality, FPS, and resolution on the fly from the viewer
 - **Audio streaming**: optional PCM audio over WebSocket
+- **Voice input**: microphone button in the viewer streams your voice to the target, which hears it as a USB microphone — works in live phone calls
 - **Bonjour/mDNS**: discoverable as `roadie.local` on your network
 - **Multiple targets**: run one instance per target on a single host, each pinned to its own capture dongle and relay board, with a `/grid` page to view and drive them together
 - **Platform-aware input**: `--platform` adapts pointer mapping and input mode to Android, iOS, macOS, Windows, or Linux targets

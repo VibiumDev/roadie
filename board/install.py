@@ -47,7 +47,8 @@ BOARDS = {
 VOLUME_NAMES = ["CIRCUITPY"] + [b["volume"] for b in BOARDS.values()]
 
 BOARD_ID = "adafruit_qtpy_rp2040"
-CP_VERSION_DEFAULT = "10.1.3"
+# usb_audio (the HID board's voice-input microphone) needs CircuitPython 10.3+.
+CP_VERSION_DEFAULT = "10.3.1"
 UF2_URL_TEMPLATE = (
     "https://downloads.circuitpython.org/bin/{board}/en_US/"
     "adafruit-circuitpython-{board}-en_US-{version}.uf2"
