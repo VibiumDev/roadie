@@ -32,7 +32,9 @@ done
 shift $((OPTIND - 1))
 
 api() { # api METHOD PATH [JSON]
-  curl -sS -X "$1" "http://$host$2" ${3:+-H "Content-Type: application/json" -d "$3"}
+  # The content type is sent even on body-less POSTs like /audio-in/stop:
+  # the server requires it, to force a CORS preflight on cross-site calls.
+  curl -sS -X "$1" "http://$host$2" -H "Content-Type: application/json" ${3:+-d "$3"}
   echo
 }
 

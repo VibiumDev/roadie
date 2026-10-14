@@ -1247,7 +1247,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         body: JSON.stringify({name: soundSelect.value}) }).then(pollAudioStatus);
     };
     audioStop.onclick = function() {
-      fetch('/audio-in/stop', { method: 'POST' }).then(pollAudioStatus);
+      fetch('/audio-in/stop', { method: 'POST', headers: {'Content-Type': 'application/json'} }).then(pollAudioStatus);
     };
 
     var kbdZoomRange = document.getElementById('kbdZoomRange');
@@ -1816,9 +1816,11 @@ func (s *Server) handleAudioIn(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "HID not available", http.StatusServiceUnavailable)
 		return
 	}
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true, // allow any origin for local network use
-	})
+	// Default same-origin check: audio-in is write-direction (it speaks into
+	// the target's live calls), so a malicious webpage on the LAN must not be
+	// able to open it cross-origin (#12). Non-browser clients send no Origin
+	// header and are unaffected.
+	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		log.Printf("audio-in websocket accept: %v", err)
 		return
@@ -1841,12 +1843,28 @@ func (s *Server) handleAudioIn(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// requireJSON rejects POSTs whose Content-Type is not application/json.
+// Browsers let any webpage fire "simple" cross-origin POSTs blind, but
+// application/json is not a simple content type, so requiring it forces a
+// CORS preflight the server never approves — closing the cross-site vector
+// (#12) while same-origin pages and non-browser clients are unaffected.
+func requireJSON(w http.ResponseWriter, r *http.Request) bool {
+	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
+		return false
+	}
+	return true
+}
+
 // handleAudioSay speaks text through the target's USB microphone, like
 // macOS `say` but heard by the device on the other end of the cable.
 // Playback runs in the background; a new say/play preempts the current one.
 func (s *Server) handleAudioSay(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !requireJSON(w, r) {
 		return
 	}
 	if s.HID == nil || s.Player == nil {
@@ -1899,6 +1917,9 @@ func (s *Server) handleAudioPlay(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !requireJSON(w, r) {
+		return
+	}
 	if s.HID == nil || s.Player == nil {
 		http.Error(w, "HID not available", http.StatusServiceUnavailable)
 		return
@@ -1938,6 +1959,9 @@ func (s *Server) handleAudioPlay(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAudioStop(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !requireJSON(w, r) {
 		return
 	}
 	if s.Player != nil {
