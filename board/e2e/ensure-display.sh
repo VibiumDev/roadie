@@ -114,11 +114,47 @@ done
 # only fall back to sudo, so the common path needs no privileges at all.
 SUDO=""
 
+# A run that was killed outright leaves its Xorg, window manager and VNC
+# server behind, squatting the display number and the VNC port. The next run
+# would then quietly move to another port while a viewer -- or a saved
+# bookmark -- still points at a dead server. So reap our own leftovers first.
+# PIDs are tracked in a state file rather than matched by name, so this can
+# never touch an unrelated X server or someone else's x11vnc.
+STATE_FILE="${ROADIE_E2E_STATE_FILE:-/tmp/roadie-e2e-display.state}"
+
+reap_previous_run() {
+    [ -f "$STATE_FILE" ] || return 0
+    local reaped=0 entry pid kind
+    while IFS=: read -r kind pid; do
+        [ -n "${pid:-}" ] || continue
+        kill -0 "$pid" 2>/dev/null || continue
+        # Confirm it is still the process we started before signalling it.
+        case "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)" in
+            *Xorg*|*x11vnc*|*matchbox-window-manager*)
+                kill -9 "$pid" 2>/dev/null || $SUDO kill -9 "$pid" 2>/dev/null
+                reaped=$((reaped + 1))
+                ;;
+        esac
+    done < "$STATE_FILE"
+    # Sockets outlive a SIGKILLed Xorg and would push us to a new display.
+    while IFS=: read -r kind pid; do
+        [ "$kind" = "display" ] || continue
+        rm -f "/tmp/.X11-unix/X${pid}" 2>/dev/null \
+            || $SUDO rm -f "/tmp/.X11-unix/X${pid}" 2>/dev/null
+    done < "$STATE_FILE"
+    rm -f "$STATE_FILE"
+    [ "$reaped" -gt 0 ] && echo "  🧹 Cleaned up ${reaped} leftover process(es) from a previous run"
+    return 0
+}
+
+reap_previous_run
+
 DISPLAY_NUM=98
 while [ -e "/tmp/.X11-unix/X${DISPLAY_NUM}" ] && [ "$DISPLAY_NUM" -lt 128 ]; do
     DISPLAY_NUM=$((DISPLAY_NUM + 1))
 done
 VDISPLAY=":${DISPLAY_NUM}"
+printf 'display:%s\n' "$DISPLAY_NUM" > "$STATE_FILE"
 
 # Give the dummy driver an explicit modeline where we can. Not fatal if we
 # can't: the Modes/Virtual lines below still pin the framebuffer size, and
@@ -213,16 +249,38 @@ restore_other_displays() {
     done
 }
 
+stop_pid() {
+    local pid="$1" i
+    [ -n "$pid" ] || return 0
+    kill -0 "$pid" 2>/dev/null || $SUDO kill -0 "$pid" 2>/dev/null || return 0
+    kill "$pid" 2>/dev/null || $SUDO kill "$pid" 2>/dev/null
+    # Xorg does not always go on the first SIGTERM, so wait, then insist.
+    for i in 1 2 3 4 5 6 7 8; do
+        kill -0 "$pid" 2>/dev/null || $SUDO kill -0 "$pid" 2>/dev/null || return 0
+        sleep 0.25
+    done
+    kill -9 "$pid" 2>/dev/null || $SUDO kill -9 "$pid" 2>/dev/null
+}
+
 cleanup() {
     set +e
-    [ -n "${VNC_PID:-}" ] && kill "$VNC_PID" 2>/dev/null
-    [ -n "${WM_PID:-}" ] && kill "$WM_PID" 2>/dev/null
-    pkill -f "Xorg ${VDISPLAY}" 2>/dev/null \
-        || $SUDO pkill -f "Xorg ${VDISPLAY}" 2>/dev/null
+    stop_pid "${VNC_PID:-}"
+    stop_pid "${WM_PID:-}"
+    stop_pid "${XORG_PID:-}"
+    # Belt and braces for a pid we somehow lost track of.
+    pkill -f "Xorg ${VDISPLAY} " 2>/dev/null \
+        || $SUDO pkill -f "Xorg ${VDISPLAY} " 2>/dev/null
     restore_other_displays
-    rm -f "$CONF"
+    rm -f "$CONF" "$STATE_FILE"
 }
-trap cleanup EXIT INT TERM
+# cleanup runs once, on exit. INT and TERM must *exit* rather than just run
+# the handler: a trap handler that returns resumes whatever loop was
+# interrupted, so ctrl-C during the wait-for-viewer loop would tear the
+# display down and then keep polling the server it had just killed -- which
+# looks exactly like a hang, and survives SIGTERM for the same reason.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 if [ -n "$OTHER_DISPLAYS" ] && command -v xinput >/dev/null; then
     # Re-enable first, so a previous run that was killed outright doesn't
@@ -237,9 +295,14 @@ fi
 start_xorg() {
     $SUDO Xorg "$VDISPLAY" -config "$CONF" -ac -nolisten tcp -novtswitch \
         >"$XORG_LOG" 2>&1 &
+    XORG_PID=$!
     local _
     for _ in $(seq 1 80); do
-        [ -e "/tmp/.X11-unix/X${DISPLAY_NUM}" ] && return 0
+        if [ -e "/tmp/.X11-unix/X${DISPLAY_NUM}" ]; then
+            printf 'xorg:%s\n' "$(pgrep -f "Xorg ${VDISPLAY} " | head -1)" \
+                >> "$STATE_FILE"
+            return 0
+        fi
         sleep 0.25
     done
     return 1
@@ -271,6 +334,7 @@ export DISPLAY="$VDISPLAY"
 
 matchbox-window-manager -use_titlebar no >"$WM_LOG" 2>&1 &
 WM_PID=$!
+printf 'wm:%s\n' "$WM_PID" >> "$STATE_FILE"
 sleep 2
 echo "  ✅ Virtual display ready on ${VDISPLAY}"
 
@@ -342,6 +406,7 @@ if [ "${ROADIE_E2E_VNC:-0}" = "1" ]; then
         -rfbauth "$VNC_PASSWD_FILE" $VNC_SCOPE $VNC_MODE \
         -quiet >"$VNC_LOG" 2>&1 &
     VNC_PID=$!
+    printf 'vnc:%s\n' "$VNC_PID" >> "$STATE_FILE"
     sleep 2
     if ! kill -0 "$VNC_PID" 2>/dev/null; then
         echo "  ❌ x11vnc failed to start on port ${VNC_PORT}." >&2
@@ -369,19 +434,28 @@ if [ "${ROADIE_E2E_VNC:-0}" = "1" ]; then
         client)
             # Block until something is actually watching, so the test can't
             # finish before you have connected.
-            VNC_CLIENT_TIMEOUT="${ROADIE_E2E_VNC_CLIENT_TIMEOUT:-300}"
+            VNC_CLIENT_TIMEOUT="${ROADIE_E2E_VNC_CLIENT_TIMEOUT:-120}"
             echo "  ⏳ Waiting for a viewer to connect"
-            echo "     (up to ${VNC_CLIENT_TIMEOUT}s; ctrl-C to give up,"
-            echo "      or set ROADIE_E2E_VNC_WAIT=0 to start immediately)"
+            echo "     (ctrl-C to give up, or ROADIE_E2E_VNC_WAIT=0 to start"
+            echo "      immediately)"
             waited=0
             while ! vnc_client_connected; do
+                # Bail out if the server died rather than polling a corpse.
+                if ! kill -0 "$VNC_PID" 2>/dev/null; then
+                    echo "  ❌ The VNC server stopped. See ${VNC_LOG}" >&2
+                    exit 1
+                fi
                 if [ "$waited" -ge "$VNC_CLIENT_TIMEOUT" ]; then
-                    echo "  ⚠️  No viewer connected after ${VNC_CLIENT_TIMEOUT}s;"
-                    echo "     running anyway."
+                    echo "  ⚠️  No viewer after ${VNC_CLIENT_TIMEOUT}s; running anyway."
                     break
                 fi
                 sleep 1
                 waited=$((waited + 1))
+                # Reassure rather than look hung, and repeat the address so
+                # it is still on screen when you come back to the terminal.
+                if [ $((waited % 20)) -eq 0 ]; then
+                    echo "     still waiting (${waited}s) — ${VNC_WHERE}"
+                fi
             done
             if vnc_client_connected; then
                 echo "  ✅ Viewer connected — starting in 2s"
