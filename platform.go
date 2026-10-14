@@ -73,8 +73,13 @@ func (p Platform) PointerSpace() string {
 // decide as before.
 func (p Platform) DefaultInputMode() string {
 	switch p {
-	case PlatformAndroid, PlatformIOS:
+	case PlatformAndroid:
 		return "touch"
+	case PlatformIOS:
+		// iOS has no support for external touch digitizers; only mice
+		// register (via AssistiveTouch), so touch would send input into
+		// the void.
+		return "mouse"
 	case PlatformMac, PlatformWindows, PlatformLinux:
 		return "mouse"
 	}
