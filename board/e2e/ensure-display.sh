@@ -291,32 +291,21 @@ if [ "${ROADIE_E2E_VNC:-0}" = "1" ]; then
         ss -ltnH 2>/dev/null | awk '{print $4}' | sed 's/.*[:.]//' \
             | grep -qx "$1"
     }
-    # 5934 (VNC display :34) is deliberately out of the way. A port you can
-    # predict matters more than a clever one, because it means an ssh tunnel
-    # and a saved viewer bookmark keep working run after run. The low ports
-    # are the contended ones: Raspberry Pi OS runs RealVNC on 5900, and 5901
-    # is the conventional "display :1" slot other VNC servers take.
-    # A password, stored once, beats an ssh tunnel for this: you save it in
-    # your viewer and then connect straight to the Pi every time. The tunnel
-    # was only ever compensating for an unauthenticated server.
+    # The password is set once with 'make set-vnc-password'. Only x11vnc's
+    # obfuscated form is kept: you chose the password, so storing a readable
+    # copy -- or echoing it into your scrollback every run -- buys nothing.
     VNC_PASSWD_FILE="${ROADIE_E2E_VNC_PASSWD_FILE:-$HOME/.config/roadie/vncpasswd}"
     if [ ! -f "$VNC_PASSWD_FILE" ]; then
-        mkdir -p "$(dirname "$VNC_PASSWD_FILE")"
-        # Read a fixed block first: piping /dev/urandom into `head -c` makes
-        # head close the pipe, and with pipefail that SIGPIPE is fatal.
-        generated="$(head -c 256 /dev/urandom \
-            | LC_ALL=C tr -dc 'a-zA-Z0-9' | cut -c1-8)"
-        x11vnc -storepasswd "$generated" "$VNC_PASSWD_FILE" >/dev/null 2>&1 || {
-            echo "  ❌ Could not create a VNC password file at" >&2
-            echo "     ${VNC_PASSWD_FILE}" >&2
-            exit 1
-        }
-        chmod 600 "$VNC_PASSWD_FILE"
-        echo "  🔑 Generated a VNC password for this machine: ${generated}"
-        echo "     Saved to ${VNC_PASSWD_FILE} — save it in your viewer and"
-        echo "     you will not be asked to think about it again."
+        echo "  ❌ No VNC password set yet. Set one with:" >&2
+        echo "       make set-vnc-password" >&2
+        exit 1
     fi
 
+    # 5934 (VNC display :34) is deliberately out of the way. A predictable
+    # port matters more than a clever one: it means a saved viewer bookmark
+    # keeps working run after run. The low ports are the contended ones --
+    # Raspberry Pi OS runs RealVNC on 5900, and 5901 is the conventional
+    # "display :1" slot other VNC servers take.
     VNC_PORT="${ROADIE_E2E_VNC_PORT:-5934}"
     if [ -z "${ROADIE_E2E_VNC_PORT:-}" ]; then
         while port_in_use "$VNC_PORT" && [ "$VNC_PORT" -lt 5960 ]; do
@@ -337,7 +326,7 @@ if [ "${ROADIE_E2E_VNC:-0}" = "1" ]; then
         VNC_SCOPE=""
         host_addr="$(hostname -I 2>/dev/null | awk '{print $1}')"
         VNC_WHERE="${host_addr:-$(hostname)}:${VNC_PORT}"
-        VNC_NOTE="password is in ${VNC_PASSWD_FILE}"
+        VNC_NOTE="use the password you set with 'make set-vnc-password'"
     fi
 
     # View-only by default. Not only for safety: a stray click from whoever

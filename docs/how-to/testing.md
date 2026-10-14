@@ -17,15 +17,22 @@ None of them need a monitor: `make test-hid` uses no display at all, and
 
 ## Watching a run
 
+Set a password once per machine:
+
+```bash
+make set-vnc-password
+```
+
+Then:
+
 ```bash
 make test-e2e-pi-vnc
 ```
 
-Prints an address and password, then waits for you to connect before running:
+It prints an address and waits for you to connect before running anything:
 
 ```
 📺 Watch the test at:  10.1.10.105:5934
-   password is in /home/you/.config/roadie/vncpasswd
 ```
 
 | Your machine | Connect with |
@@ -34,9 +41,9 @@ Prints an address and password, then waits for you to connect before running:
 | Linux | `remmina`, or `xtightvncviewer 10.1.10.105:5934` |
 | Windows | RealVNC Viewer or TigerVNC |
 
-The port is always 5934 and the password is fixed per machine, so save them
-once. The connection is view-only — a stray click would steal focus and break
-the run.
+The port is always 5934, so save the address and password in your viewer once.
+The connection is view-only — a stray click would steal focus and break the
+run.
 
 Worth watching: the page draws what it receives, so you can see *why* a check
 failed rather than just that it did.

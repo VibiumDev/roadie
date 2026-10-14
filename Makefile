@@ -5,7 +5,7 @@ BINARY = roadie
 #   make flash-hid CP_VERSION=latest
 CP_VERSION ?= 10.3.1
 
-.PHONY: build test setup uninstall flash-relay flash-hid flash-relay-quick flash-hid-quick sync sync-hid sync-relay test-hid test-hid-quick test-audio test-e2e-pi test-e2e-pi-vnc test-e2e-android test-e2e-iphone test-e2e-pc clean
+.PHONY: build test setup uninstall flash-relay flash-hid flash-relay-quick flash-hid-quick sync sync-hid sync-relay set-vnc-password test-hid test-hid-quick test-audio test-e2e-pi test-e2e-pi-vnc test-e2e-android test-e2e-iphone test-e2e-pc clean
 
 build:
 	go build -o $(BINARY) .
@@ -90,6 +90,11 @@ test-hid-quick:
 # desktop. Works the same on a Pi with a screen and one without.
 test-e2e-pi:
 	board/e2e/ensure-display.sh python3 board/test_e2e.py --target pi
+
+# Set the password used to watch tests over VNC. Stores only x11vnc's
+# obfuscated form -- you chose the password, so a readable copy buys nothing.
+set-vnc-password:
+	board/e2e/set-vnc-password.sh
 
 # Watch it happen: the isolated display is served over VNC, and the run waits
 # until a viewer actually connects. Works with or without a monitor attached.
