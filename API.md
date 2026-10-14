@@ -108,6 +108,12 @@ WebSocket endpoint for voice input: audio sent here plays out of the HID board's
 
 The stream on the target stops ~250 ms after the last message arrives. Returns `503` if the HID relay is not connected.
 
+Browser connections must be same-origin (a malicious webpage must not be able
+to speak into the target's calls); non-browser clients send no `Origin` header
+and connect freely. The `POST /audio-in/*` endpoints below require
+`Content-Type: application/json` for the same reason — it forces a CORS
+preflight on cross-site calls, which the server never approves.
+
 The viewer's microphone button uses this endpoint. It needs a secure context (https or localhost) for `getUserMedia`, and a browser that supports opening an `AudioContext` at 16 kHz (Chrome, Edge, Safari — not Firefox yet).
 
 ### `POST /audio-in/say`
@@ -162,7 +168,8 @@ mp3, ogg, …). The name must be a bare filename inside the sounds directory.
 file does not exist, `503` if the HID relay is unavailable.
 
 ### `POST /audio-in/stop`
-Cancel any in-flight say/play. **Response:** `{"status": "ok"}`.
+Cancel any in-flight say/play. Requires `Content-Type: application/json`
+even though the body is empty. **Response:** `{"status": "ok"}`.
 
 ### `GET /audio-in/status`
 Report what the synthetic player is doing, for progress display.
