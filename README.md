@@ -76,6 +76,11 @@ You also need a host computer to run the `roadie` server — a Raspberry Pi 4 (2
 
 **Prerequisites:** macOS or Linux, Go 1.21+, Python 3.10+
 
+A Raspberry Pi is the usual development machine, but nothing assumes a
+particular display: `make setup` installs what the browser test needs to run
+without a monitor attached, and warns if your user is missing the `input`
+group membership the hardware tests need.
+
 ```bash
 git clone https://github.com/VibiumDev/roadie.git && cd roadie
 make setup          # one-time: python venv, dependencies, udev rules
@@ -120,6 +125,8 @@ To drive more than one device from the same host, see
 | [Board Reference](docs/reference/boards.md) | Hardware specs, wiring, USB identifiers, LED behavior |
 | [Architecture](docs/explanation/architecture.md) | System design, pipeline, and design decisions |
 | [Flash Boards](docs/how-to/flash-boards.md) | Flashing, re-flashing, and syncing board code |
+| [Test the Input Chain](docs/how-to/test-the-chain.md) | Verifying keyboard, mouse, and touch end to end, per target device |
+| [Watch the Tests Run](docs/how-to/watch-tests.md) | Viewing a test over VNC, including on a Pi with no monitor |
 | [Running Multiple Targets](docs/how-to/multiple-targets.md) | Driving several devices from one host, and viewing them together |
 | [Troubleshooting](docs/how-to/troubleshooting.md) | Common problems and fixes |
 | [Automate with Vibium](docs/tutorials/automate-with-vibium.md) | Drive Roadie with JavaScript using browser automation |
@@ -129,9 +136,21 @@ To drive more than one device from the same host, see
 
 ```bash
 make                  # build binary
-make test             # run tests
-make test-circular    # end-to-end test (type + mouse) through both boards
+make test             # Go tests
+make test-hid         # do the boards inject correct input?
+make test-e2e-pi      # full stack into a browser on this machine
+make test-e2e-pi-vnc  # same, but watch it over VNC while it runs
+make test-e2e-android # full stack into Chrome on an Android phone
+make test-e2e-iphone  # full stack into Safari on an iPhone
 make clean            # remove binary
 ```
 
-See [Flash Boards](docs/how-to/flash-boards.md) for re-flashing and syncing board code.
+Both hardware tests work on any Roadie dev Pi regardless of what is plugged
+into it — a Pi with the official 7" touchscreen and a Pi with no display at
+all run the same commands. `make test-hid` reads `/dev/input` directly and
+needs no display. `make test-e2e-pi` creates its own isolated display, which
+is also what keeps the input it injects out of your desktop. Add `-vnc` to
+watch a run: it serves that display over VNC and waits until you connect.
+
+See [Flash Boards](docs/how-to/flash-boards.md) for re-flashing and syncing board code,
+and [Test the Input Chain](docs/how-to/test-the-chain.md) for what each test covers.
