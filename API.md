@@ -108,7 +108,7 @@ WebSocket endpoint for voice input: audio sent here plays out of the HID board's
 
 The stream on the target stops ~250 ms after the last message arrives. Returns `503` if the HID relay is not connected.
 
-The viewer's microphone button uses this endpoint. It needs a secure context (https or localhost) for `getUserMedia`, and a browser that supports opening an `AudioContext` at 16 kHz (Chrome, Edge, Safari — not Firefox yet).
+The viewer's microphone button uses this endpoint. It needs a secure context (https or localhost) for `getUserMedia`. The browser captures at its native rate and the viewer downsamples to 16 kHz before sending, so any browser with AudioWorklet support works (Chrome, Edge, Safari, Firefox).
 
 ---
 
