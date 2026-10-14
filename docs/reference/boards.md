@@ -63,13 +63,18 @@ expects one board at a time.
 
 ### HID Board
 
-The HID board exposes one USB CDC serial port (console only) plus three HID devices:
+The HID board exposes one USB CDC serial port (console only), three HID devices, and a USB microphone:
 
 | Device | Type | Description |
 |--------|------|-------------|
 | Keyboard | Standard USB HID | `adafruit_hid` Keyboard + KeyboardLayoutUS |
 | Mouse | Custom HID descriptor | Absolute positioning (0-32767), 8 buttons, wheel, h-pan |
 | Digitizer | Custom HID descriptor | Multi-touch (2 contacts), absolute positioning |
+| Microphone | USB Audio Class | Voice input: 16 kHz mono; the target hears audio streamed from the web app (`usb_audio`, CircuitPython 10.3+) |
+
+The microphone is input-only — no USB speaker is exposed, so the target keeps
+routing its own audio out over HDMI. (iOS still moves media output to the phone
+speaker while the mic is attached; it can be moved back from Control Center.)
 
 ## boot.py Configuration
 
@@ -99,7 +104,16 @@ import usb_hid
 from absolute_mouse.descriptor import device as mouse_device
 from digitizer import device as digitizer_device
 usb_hid.enable((usb_hid.Device.KEYBOARD, mouse_device, digitizer_device))
+
+# Voice input: present a USB microphone beside the HID devices (CircuitPython 10.3+).
+# Mic only — no speaker — so the phone keeps routing its own audio out via HDMI.
+import usb_midi
+usb_midi.disable()
+import usb_audio
+usb_audio.enable(sample_rate=16000, channel_count=1)
 ```
+
+`usb_midi` is disabled to free USB endpoints for the audio interface.
 
 ## CircuitPython Libraries
 
