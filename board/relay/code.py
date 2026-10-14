@@ -33,6 +33,7 @@ uart = busio.UART(board.TX, board.RX, baudrate=BAUD, timeout=1)
 
 # USB serial data port (separate from REPL)
 data = usb_cdc.data
+data.timeout = 0.1        # bound reads so a truncated frame can't hang the loop
 data.write_timeout = 0.2  # never block if the host isn't reading
 
 seq = 0

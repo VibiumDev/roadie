@@ -82,8 +82,7 @@ def feed_audio(payload):
     if not mic:
         return
     if not streaming:
-        for i in range(RING_BYTES):
-            ring[i] = 0
+        ring_mv[:] = bytes(RING_BYTES)
         wpos = RING_BYTES // 2  # give the writer a half-ring head start
         mic.play(ring_sample, loop=True)
         streaming = True
