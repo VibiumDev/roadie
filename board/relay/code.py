@@ -63,9 +63,17 @@ def send_and_recv(msg, wait=True):
     uart.write(msg)
     if not wait:
         return STATUS_OK, msg[1]  # assume success, return seq from message
-    resp = uart.read(RESP_SIZE)
-    if resp and len(resp) == RESP_SIZE:
-        return resp[0], resp[1]  # status, echo_seq
+    # Read until the ack for *this* message: a late ack from an earlier
+    # fire-and-forget command can arrive after the flush above and must not
+    # be taken as ours — the echoed seq exists to catch exactly that.
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        resp = uart.read(RESP_SIZE)
+        if not resp or len(resp) != RESP_SIZE:
+            return None, None  # timeout
+        if resp[1] == msg[1]:
+            return resp[0], resp[1]  # status, echo_seq
+        # stale ack from an earlier command; keep reading
     return None, None
 
 
@@ -81,9 +89,12 @@ def translate(d):
             msgs.append(pack_key_type(next_seq(), text[i:i + 29]))
         return msgs
     elif cmd == "key_press":
-        return [("nowait", pack_key_press(next_seq(), d["keycode"]))]
+        # "quiet": wait for the HID board's ack (sent after the USB report
+        # is out) so the next command can't overtake the keystroke, but skip
+        # the 100 ms LED blink — typing speed must not depend on it (#5).
+        return [("quiet", pack_key_press(next_seq(), d["keycode"]))]
     elif cmd == "key_release":
-        return [("nowait", pack_key_release(next_seq(), d["keycode"]))]
+        return [("quiet", pack_key_release(next_seq(), d["keycode"]))]
     elif cmd == "mouse_move":
         return [("nowait", pack_mouse_move(next_seq(), d["x"], d["y"]))]
     elif cmd == "mouse_click":
@@ -123,15 +134,13 @@ def process_command(line):
     for i, item in enumerate(msgs):
         if i > 0:
             time.sleep(0.05)  # inter-chunk delay for multi-message command
-        if isinstance(item, tuple) and item[0] == "nowait":
-            msg = item[1]
-            wait = False
+        if isinstance(item, tuple):
+            mode, msg = item  # "nowait" or "quiet"
         else:
-            msg = item
-            wait = True
-        status, echo = send_and_recv(msg, wait=wait)
-        if not wait:
-            pass  # skip LED blink for fire-and-forget commands
+            mode, msg = "blink", item
+        status, echo = send_and_recv(msg, wait=(mode != "nowait"))
+        if mode != "blink":
+            pass  # no LED blink: fire-and-forget, or waited-but-unblinked keys
         elif status == STATUS_OK:
             neopixel_write.neopixel_write(pixel_pin, OFF)
             time.sleep(0.1)

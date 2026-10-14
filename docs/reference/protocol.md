@@ -53,8 +53,8 @@ RESET reboots the HID board via `microcontroller.reset()`. The board sends an OK
 
 | Code | Name | Payload | Wait |
 |------|------|---------|------|
-| 0x10 | KEY_PRESS | keycode (1 byte) | no |
-| 0x11 | KEY_RELEASE | keycode (1 byte) | no |
+| 0x10 | KEY_PRESS | keycode (1 byte) | yes (no LED blink) |
+| 0x11 | KEY_RELEASE | keycode (1 byte) | yes (no LED blink) |
 | 0x12 | KEY_TYPE | ASCII text (up to 29 bytes) | yes |
 
 KEY_TYPE sends text through `KeyboardLayoutUS.write()`, handling shift and modifier keys automatically. Strings longer than 29 characters are chunked by the relay with 50ms inter-chunk delay.
@@ -107,11 +107,11 @@ On the host→relay CDC data port, each audio frame is preceded by a `0x00` lead
 
 ## Wait vs No-Wait
 
-Commands marked **no** in the Wait column use fire-and-forget mode: the relay sends the binary message but does not wait for the HID board's response. This avoids blocking on high-frequency commands (mouse movement, touch, scroll, key press/release).
+Commands marked **no** in the Wait column use fire-and-forget mode: the relay sends the binary message but does not wait for the HID board's response. This avoids blocking on high-frequency commands (mouse movement, touch, scroll).
 
-Commands marked **yes** block until the 2-byte response is received (or UART timeout of 1 second).
+Commands marked **yes** block until the 2-byte response is received (or UART timeout of 1 second). KEY_PRESS and KEY_RELEASE wait — the HID board acks after the USB report is out, so a following command cannot overtake the keystroke (#5) — but skip the relay's 100 ms status-LED blink so typing speed doesn't depend on it.
 
-The HID board always sends a response regardless of wait mode. Stale responses from no-wait commands are flushed before the next send.
+The HID board always sends a response regardless of wait mode. Stale responses from no-wait commands are flushed before the next send, and the relay matches the echoed sequence number so a late ack from a fire-and-forget command is never mistaken for the current command's.
 
 ## JSON Command Format
 
