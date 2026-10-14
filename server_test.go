@@ -395,15 +395,17 @@ func TestViewPlatform(t *testing.T) {
 		wantInputMode string // "" means no input global
 	}{
 		{name: "unspecified", wantSpace: false, wantInputMode: ""},
-		{name: "ios", platform: PlatformIOS, wantSpace: true, wantInputMode: "'touch'"},
+		{name: "ios", platform: PlatformIOS, wantSpace: true, wantInputMode: "'mouse'"},
 		{name: "android", platform: PlatformAndroid, wantSpace: false, wantInputMode: "'touch'"},
 		{name: "mac", platform: PlatformMac, wantSpace: false, wantInputMode: "'mouse'"},
 		{
+			// iOS now defaults to mouse, so override with touch -- asking
+			// for mouse here would pass whether or not the flag is honoured.
 			name:          "explicit --input beats the platform default",
 			platform:      PlatformIOS,
-			inputMode:     "mouse",
+			inputMode:     "touch",
 			wantSpace:     true, // pointer space still follows the platform
-			wantInputMode: "'mouse'",
+			wantInputMode: "'touch'",
 		},
 	}
 

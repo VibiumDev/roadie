@@ -62,7 +62,8 @@ func TestPlatformDefaultInputMode(t *testing.T) {
 		want string
 	}{
 		{PlatformAndroid, "touch"},
-		{PlatformIOS, "touch"},
+		// iOS ignores external touch digitizers, so it defaults to mouse.
+		{PlatformIOS, "mouse"},
 		{PlatformMac, "mouse"},
 		{PlatformWindows, "mouse"},
 		{PlatformLinux, "mouse"},
