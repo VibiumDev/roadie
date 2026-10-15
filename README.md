@@ -138,14 +138,15 @@ make                  # build binary
 make test             # Go tests
 make test-hid         # do the boards inject correct input?
 make test-e2e-pi      # full stack into a browser on this machine
-make start-vnc-server # a display to watch test runs in
+make start-vnc-server # watch runs on a Pi with no monitor
 make test-e2e-android # full stack into Chrome on an Android phone
 make test-e2e-iphone  # full stack into Safari on an iPhone
 make clean            # remove binary
 ```
 
 No monitor required: `make test-hid` needs no display, and `make test-e2e-pi`
-creates its own. Add `-vnc` to watch a run.
+uses this machine's desktop if it has one — taking over the screen so you can
+watch over VNC — or makes its own display if it doesn't.
 
 See [Flash Boards](docs/how-to/flash-boards.md) for re-flashing and syncing
 board code, and [Testing](docs/how-to/testing.md) for what each test covers.

@@ -12,10 +12,24 @@ cd "$(dirname "$0")/../.."
 . board/e2e/display-lib.sh
 
 usage() { echo "usage: $(basename "$0") start|stop|status" >&2; exit 2; }
+
+# Someone already watching :0 does not need a second server and a second
+# viewer -- they can run the test on that desktop instead.
+already_watching_desktop() {
+    [ -e /tmp/.X11-unix/X0 ] || return 1
+    ss -tnH 2>/dev/null | awk '$1 == "ESTAB" {print $4}' \
+        | sed 's/.*[:.]//' | grep -qx 5900
+}
 [ $# -eq 1 ] || usage
 
 case "$1" in
 start)
+    if already_watching_desktop; then
+        echo "  ℹ️  You already have a VNC session on this machine's desktop,"
+        echo "     and 'make test-e2e-pi' runs there by default — so you can"
+        echo "     watch runs without this server at all."
+        echo
+    fi
     if display_running; then
         if vnc_running; then
             echo "  ✅ Already running — watch at $(vnc_address)"

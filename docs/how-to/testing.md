@@ -17,36 +17,36 @@ None of them need a monitor: `make test-hid` uses no display at all, and
 
 ## Watching the tests
 
-Set a password once per machine, then start a display and leave it running:
+`make test-e2e-pi` runs on this machine's desktop and **takes over the screen**
+while it runs, so if you already have a VNC or screen-sharing session open,
+you just watch it there. Nothing extra to set up.
+
+The test's input follows focus, so don't use that desktop mid-run. For an
+unattended or CI run, where something stealing focus would break the test,
+keep off the desktop entirely:
+
+```bash
+ROADIE_E2E_ISOLATED=1 make test-e2e-pi
+```
+
+Worth watching: the page draws what it receives, so you can see *why* a check
+failed rather than just that it did.
+
+### On a Pi with no monitor
+
+There is no desktop to take over, so the test makes its own display and you
+see nothing. To watch one, run a display you can connect to:
 
 ```bash
 make set-vnc-password     # once
-make start-vnc-server
-#   📺 Watch at: 10.1.10.105:5934
-```
-
-Connect a viewer to that address once and leave it open. Every test run from
-then on appears in it — runs reuse this display instead of making their own:
-
-| Your machine | Connect with |
-|--------------|--------------|
-| macOS | `open vnc://10.1.10.105:5934` |
-| Linux | `remmina`, or `xtightvncviewer 10.1.10.105:5934` |
-| Windows | RealVNC Viewer or TigerVNC |
-
-```bash
-make vnc-status          # is it up? is anything watching?
+make start-vnc-server     # prints an address; connect a viewer and leave it
+make test-e2e-pi          # appears in that viewer
+make vnc-status
 make stop-vnc-server
 ```
 
 The port is always 5934, so save the address and password in your viewer once.
-The connection is view-only — a stray click would steal focus and break a run.
-
-If no server is running, `make test-e2e-pi` quietly makes its own throwaway
-display and cleans it up, so tests work the same in CI or over ssh.
-
-Worth watching: the page draws what it receives, so you can see *why* a check
-failed rather than just that it did.
+It is view-only — a stray click would steal focus and break a run.
 
 ## Testing a phone instead
 

@@ -84,10 +84,10 @@ test-hid-quick:
 # End-to-end per target device: input is driven through roadie's HTTP API and
 # verified in a real browser running on that target.
 #
-# Runs on an isolated throwaway display by default. Roadie's input goes to
-# whatever has focus, so giving the browser a display of its own is what makes
-# the result trustworthy -- and keeps the typed test string out of your
-# desktop. Works the same on a Pi with a screen and one without.
+# Runs on this machine's desktop if it has one, taking over the screen while
+# it runs, so you can watch over a VNC session you already have. On a Pi with
+# no monitor it makes its own display instead. Set ROADIE_E2E_ISOLATED=1 to
+# never touch the desktop, which is what you want for an unattended run.
 test-e2e-pi:
 	board/e2e/ensure-display.sh python3 board/test_e2e.py --target pi
 
