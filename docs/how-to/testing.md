@@ -242,9 +242,19 @@ The phone targets start roadie with `--platform android` or `--platform ios`,
 so the viewer maps pointers the way that device expects if you open `/view`
 during the run.
 
-On iPhone the touch checks are skipped: iOS registers a mouse through
-AssistiveTouch but not an external touch digitizer, so touch sent there goes
-nowhere.
+On iPhone the touch checks are skipped: iOS does not register an external
+touch digitizer, so touch sent there goes nowhere.
+
+The mouse does work, but **only with AssistiveTouch turned on**:
+
+```
+Settings → Accessibility → Touch → AssistiveTouch → on
+```
+
+Without it there is no pointer at all and roadie's mouse does nothing, which
+looks like a dead board. With it, a grey circular pointer follows the mouse.
+Each button can be reassigned under `Devices → <device> → <button>` if the
+default is not what you want.
 
 They open the page themselves, using the keyboard roadie already
 is to the phone — no second channel onto the device, and the thing being tested
