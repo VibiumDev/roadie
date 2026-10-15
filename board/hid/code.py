@@ -49,6 +49,35 @@ uart = busio.UART(board.TX, board.RX, baudrate=BAUD, timeout=0.005,
 kbd = Keyboard(usb_hid.devices)
 layout = KeyboardLayoutUS(kbd)
 mouse = AbsoluteMouse(usb_hid.devices)
+
+# The last position the host was told about, so a repeat can be spotted.
+# See move_mouse() for why that matters.
+_last_xy = None
+
+
+def move_mouse(x, y):
+    """Move the pointer to an absolute position, and make sure it lands.
+
+    A USB HID report identical to the one before it is dropped before it
+    reaches the host, so asking for the position the host was last told
+    about sends nothing at all. The host's pointer is not necessarily
+    still there: the target moves its own pointer, and a target that has
+    restarted its display server has put it back in the middle of the
+    screen. The move goes missing, the pointer stays where it was, and the
+    click that follows lands somewhere nobody asked for -- silently, which
+    is the worst part.
+
+    So a repeat gets a one-unit step to the side in front of it, which
+    leaves the real report different from the one before it. One unit is
+    1/32767 of the screen: under a pixel on any display, so nothing moves
+    visibly, and the report that follows lands on the exact position asked
+    for.
+    """
+    global _last_xy
+    if (x, y) == _last_xy:
+        mouse.move(x - 1 if x > 0 else x + 1, y)
+    mouse.move(x, y)
+    _last_xy = (x, y)
 try:
     digitizer = Digitizer(usb_hid.devices)
 except ValueError:
@@ -177,7 +206,7 @@ def handle_command(cmd, seq, payload):
         elif cmd == CMD_MOUSE_MOVE:
             x = (payload[0] << 8) | payload[1]
             y = (payload[2] << 8) | payload[3]
-            mouse.move(x, y)
+            move_mouse(x, y)
             return STATUS_OK
 
         elif cmd == CMD_MOUSE_CLICK:
