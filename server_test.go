@@ -13,16 +13,18 @@ import (
 )
 
 type fakeSource struct {
-	frame    []byte
-	rawFrame []byte
-	cropRect image.Rectangle
-	status   CaptureStatus
+	frame       []byte
+	rawFrame    []byte
+	cropRect    image.Rectangle
+	status      CaptureStatus
+	contentRect image.Rectangle
 }
 
-func (f *fakeSource) Latest() []byte            { return f.frame }
-func (f *fakeSource) LatestRaw() []byte         { return f.rawFrame }
-func (f *fakeSource) Status() CaptureStatus     { return f.status }
-func (f *fakeSource) CropRect() image.Rectangle { return f.cropRect }
+func (f *fakeSource) Latest() []byte               { return f.frame }
+func (f *fakeSource) LatestRaw() []byte            { return f.rawFrame }
+func (f *fakeSource) Status() CaptureStatus        { return f.status }
+func (f *fakeSource) CropRect() image.Rectangle    { return f.cropRect }
+func (f *fakeSource) ContentRect() image.Rectangle { return f.contentRect }
 
 func newTestServer() (*Server, http.Handler) {
 	buf := &FrameBuffer{}

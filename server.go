@@ -294,6 +294,10 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 
     var healthOk = false;
     var cropX = 0, cropY = 0, cropW = 0, cropH = 0, fullW = 0, fullH = 0;
+    // Where the target's picture sits in the frame, whether or not we crop
+    // to it. With autocrop off the whole frame is served, and input still
+    // has to land on the picture rather than the letterbox bars.
+    var contentX = 0, contentY = 0, contentW = 0, contentH = 0;
 
     function showOverlay(msg) {
       overlay.textContent = msg || 'Disconnected \u2014 waiting for capture device\u2026';
@@ -340,6 +344,10 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
           cropW = data.crop.width; cropH = data.crop.height;
         } else {
           cropX = 0; cropY = 0; cropW = fullW; cropH = fullH;
+        }
+        if (data.content) {
+          contentX = data.content.x; contentY = data.content.y;
+          contentW = data.content.width; contentH = data.content.height;
         }
         // Show unmute button when audio is available.
         if (data.audio) { unmuteBtn.style.display = 'flex'; }
@@ -843,6 +851,15 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       // addressing the whole captured frame needs the crop folded back in, so
       // the letterbox bars count toward the coordinate. See --platform.
       if (window.__roadiePointerSpace === 'screen') {
+        // px,py are fractions of the picture on screen. When the whole frame
+        // is served, the target's picture is only part of it, so take the
+        // letterbox bars back out before scaling.
+        var whole = !((cropW > 0 && cropW !== fullW) || (cropH > 0 && cropH !== fullH));
+        if (whole && contentW > 0 && fullW > 0) {
+          var fx = Math.max(0, Math.min(1, (px * fullW - contentX) / contentW));
+          var fy = Math.max(0, Math.min(1, (py * fullH - contentY) / contentH));
+          return { x: Math.round(fx * 32767), y: Math.round(fy * 32767) };
+        }
         return { x: Math.round(px * 32767), y: Math.round(py * 32767) };
       }
       var ax = (cropW > 0 && fullW > 0) ? (cropX + px * cropW) / fullW : px;
@@ -1366,6 +1383,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		resp["device"] = s.Device
 		resp["resolution"] = fmt.Sprintf("%dx%d", s.Buf.Width(), s.Buf.Height())
 		resp["fps"] = s.Buf.FPS()
+	}
+	if content := s.Source.ContentRect(); content != (image.Rectangle{}) {
+		resp["content"] = map[string]interface{}{
+			"x": content.Min.X, "y": content.Min.Y,
+			"width": content.Dx(), "height": content.Dy(),
+		}
 	}
 	cropRect := s.Source.CropRect()
 	if cropRect != (image.Rectangle{}) && cropRect != image.Rect(0, 0, s.Buf.Width(), s.Buf.Height()) {
@@ -2037,6 +2060,10 @@ mouse device until you switch back.</div>
   // Scroll accumulator (rate-limited)
   var pendingScroll = 0, scrollDirty = false;
   var cropX = 0, cropY = 0, cropW = 0, cropH = 0, fullW = 0, fullH = 0;
+  // Where the target's picture sits in the frame, whether or not we crop
+  // to it. With autocrop off the whole frame is served, and input still
+  // has to land on the picture rather than the letterbox bars.
+  var contentX = 0, contentY = 0, contentW = 0, contentH = 0;
   setInterval(function() {
     if (scrollDirty) {
       send({cmd:'mouse_scroll', amount:pendingScroll});
@@ -2050,6 +2077,15 @@ mouse device until you switch back.</div>
     // addressing the whole captured frame needs the crop folded back in, so
     // the letterbox bars count toward the coordinate. See --platform.
     if (window.__roadiePointerSpace === 'screen') {
+      // px,py are fractions of the picture on screen. When the whole frame
+      // is served, the target's picture is only part of it, so take the
+      // letterbox bars back out before scaling.
+      var whole = !((cropW > 0 && cropW !== fullW) || (cropH > 0 && cropH !== fullH));
+      if (whole && contentW > 0 && fullW > 0) {
+        var fx = Math.max(0, Math.min(1, (px * fullW - contentX) / contentW));
+        var fy = Math.max(0, Math.min(1, (py * fullH - contentY) / contentH));
+        return { x: Math.round(fx * 32767), y: Math.round(fy * 32767) };
+      }
       return { x: Math.round(px * 32767), y: Math.round(py * 32767) };
     }
     var ax = (cropW > 0 && fullW > 0) ? (cropX + px * cropW) / fullW : px;
@@ -2322,6 +2358,10 @@ mouse device until you switch back.</div>
       } else {
         w = fullW; h = fullH;
         cropX = 0; cropY = 0; cropW = fullW; cropH = fullH;
+      }
+      if (d.content) {
+        contentX = d.content.x; contentY = d.content.y;
+        contentW = d.content.width; contentH = d.content.height;
       }
       if (w && h && w > 0 && h > 0) {
         trackpad.style.aspectRatio = w + ' / ' + h;

@@ -357,3 +357,35 @@ func TestCameraName(t *testing.T) {
 		})
 	}
 }
+
+func TestCropsAgree(t *testing.T) {
+	full := image.Rect(0, 0, 1920, 1080) // tolerance is 2% of width = 38px
+	base := image.Rect(720, 54, 1200, 1027)
+
+	tests := []struct {
+		label string
+		other image.Rectangle
+		want  bool
+	}{
+		{"identical", base, true},
+		{"a few pixels of edge noise", image.Rect(724, 56, 1197, 1025), true},
+		{"nothing pending yet", image.Rectangle{}, false},
+		{
+			// What a target's dark screen produces: the detected content
+			// shrinks to whatever is still lit.
+			label: "collapsed to a fragment",
+			other: image.Rect(240, 24, 400, 457),
+			want:  false,
+		},
+		{"shifted well beyond tolerance", image.Rect(800, 54, 1280, 1027), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.label, func(t *testing.T) {
+			if got := cropsAgree(base, tt.other, full); got != tt.want {
+				t.Errorf("cropsAgree(%v, %v) = %v, want %v",
+					base, tt.other, got, tt.want)
+			}
+		})
+	}
+}

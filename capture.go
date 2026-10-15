@@ -36,6 +36,7 @@ type FrameSource interface {
 	LatestRaw() []byte
 	Status() CaptureStatus
 	CropRect() image.Rectangle
+	ContentRect() image.Rectangle
 }
 
 // FrameBuffer is a thread-safe holder for the most recent JPEG frame.
@@ -44,13 +45,17 @@ type FrameBuffer struct {
 	current  []byte
 	raw      []byte
 	cropRect image.Rectangle
-	status   CaptureStatus
-	quality  atomic.Int32
-	viewers  atomic.Int32
-	fps      atomic.Int32
-	width    atomic.Int32
-	height   atomic.Int32
-	autocrop atomic.Int32 // 0 = unset (default on), 1 = on, 2 = off
+	// Where the target's picture sits inside the captured frame. Tracked
+	// even when autocrop is off: the frame is then served whole, but input
+	// still has to land on the picture rather than on the letterbox bars.
+	contentRect image.Rectangle
+	status      CaptureStatus
+	quality     atomic.Int32
+	viewers     atomic.Int32
+	fps         atomic.Int32
+	width       atomic.Int32
+	height      atomic.Int32
+	autocrop    atomic.Int32 // 0 = unset (default on), 1 = on, 2 = off
 }
 
 // AddViewer increments the active viewer count.
@@ -171,6 +176,21 @@ func (fb *FrameBuffer) LatestRaw() []byte {
 	frame := fb.raw
 	fb.mu.RUnlock()
 	return frame
+}
+
+// SetContentRect records where the picture sits in the captured frame.
+func (fb *FrameBuffer) SetContentRect(rect image.Rectangle) {
+	fb.mu.Lock()
+	fb.contentRect = rect
+	fb.mu.Unlock()
+}
+
+// ContentRect returns where the picture sits in the captured frame.
+func (fb *FrameBuffer) ContentRect() image.Rectangle {
+	fb.mu.RLock()
+	r := fb.contentRect
+	fb.mu.RUnlock()
+	return r
 }
 
 // CropRect returns the current crop rectangle.
@@ -545,6 +565,31 @@ func detectContentRect(img image.Image, threshold uint8) image.Rectangle {
 	return image.Rect(left, top, right, bottom)
 }
 
+// cropAgreeCount is how many detections in a row must agree on a new crop
+// before it replaces the one in use.
+const cropAgreeCount = 2
+
+// cropsAgree reports whether two detected rectangles are close enough to be
+// the same one, allowing for a few pixels of noise at the content edge.
+func cropsAgree(a, b, fullBounds image.Rectangle) bool {
+	if b == (image.Rectangle{}) {
+		return false
+	}
+	tolerance := fullBounds.Dx() / 50 // 2% of the frame width
+	if tolerance < 4 {
+		tolerance = 4
+	}
+	off := func(x, y int) bool {
+		d := x - y
+		if d < 0 {
+			d = -d
+		}
+		return d > tolerance
+	}
+	return !(off(a.Min.X, b.Min.X) || off(a.Min.Y, b.Min.Y) ||
+		off(a.Max.X, b.Max.X) || off(a.Max.Y, b.Max.Y))
+}
+
 // isMajorCropChange returns true when the new crop rectangle represents a
 // significant change from the active crop.  It triggers on:
 //   - first detection (activeCrop is zero)
@@ -592,16 +637,32 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 		return nil, fmt.Errorf("device %q not found", dev.Name)
 	}
 
-	d := drivers[0]
-	if err := d.Open(); err != nil {
-		return nil, fmt.Errorf("failed to open device %q: %w", dev.Name, err)
+	// A capture dongle usually presents more than one node under the same
+	// name -- one that streams video and one that carries only metadata --
+	// and which comes first is not fixed. Take the first that opens and
+	// actually offers a format, rather than assuming it is drivers[0]:
+	// picking the metadata node means retrying a device that can never work
+	// while the usable one sits next to it.
+	var d driver.Driver
+	var props []prop.Media
+	var lastErr error
+	for _, candidate := range drivers {
+		if err := candidate.Open(); err != nil {
+			lastErr = fmt.Errorf("failed to open device %q: %w", dev.Name, err)
+			continue
+		}
+		if p := candidate.Properties(); len(p) > 0 {
+			d, props = candidate, p
+			break
+		}
+		candidate.Close()
+		lastErr = fmt.Errorf("device %q reported no supported formats", dev.Name)
 	}
-
-	// Query device capabilities and pick the best matching format.
-	props := d.Properties()
-	if len(props) == 0 {
-		d.Close()
-		return nil, fmt.Errorf("device %q reported no supported formats", dev.Name)
+	if d == nil {
+		if lastErr == nil {
+			lastErr = fmt.Errorf("device %q has no usable node", dev.Name)
+		}
+		return nil, lastErr
 	}
 
 	best := selectBestProp(props, width, height, fps)
@@ -626,6 +687,8 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 		var consecutiveErrors int
 		var consecutiveStatic int
 		var activeCrop image.Rectangle
+		var pendingCrop image.Rectangle
+		var pendingCropSeen int
 		var frameCount int
 		var prevBlack bool
 		var prevFingerprint uint64
@@ -676,11 +739,37 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 			transitioned := black != prevBlack
 			prevBlack = black
 			fullBounds := img.Bounds()
+			if frameCount == 1 || transitioned || frameCount%fps == 0 {
+				detected := detectContentRect(img, cropThreshold)
+				if detected != (image.Rectangle{}) {
+					buf.SetContentRect(detected)
+				}
+			}
 			if buf.Autocrop() {
 				if frameCount == 1 || transitioned || frameCount%fps == 0 {
-					rect := detectContentRect(img, cropThreshold)
+					rect := buf.ContentRect()
 					if isMajorCropChange(activeCrop, rect, fullBounds) {
-						activeCrop = rect
+						// One frame is a poor witness. When the target's own
+						// screen goes dark near its edges, the detected
+						// content shrinks to whatever is still bright, and
+						// adopting that collapses the view -- and with it
+						// where pointer coordinates land, since they are
+						// measured against the crop. Wait for the same
+						// rectangle twice running before believing it.
+						if activeCrop == (image.Rectangle{}) {
+							activeCrop = rect
+							pendingCrop, pendingCropSeen = image.Rectangle{}, 0
+						} else if cropsAgree(rect, pendingCrop, fullBounds) {
+							pendingCropSeen++
+							if pendingCropSeen >= cropAgreeCount {
+								activeCrop = rect
+								pendingCrop, pendingCropSeen = image.Rectangle{}, 0
+							}
+						} else {
+							pendingCrop, pendingCropSeen = rect, 1
+						}
+					} else {
+						pendingCrop, pendingCropSeen = image.Rectangle{}, 0
 					}
 				}
 			} else {
