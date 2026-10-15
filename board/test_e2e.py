@@ -567,6 +567,37 @@ class Suite:
                         f"({hx},{hy}) → page saw {have}, expected {want} "
                         f"(off by {dx},{dy} > {self.tolerance}px)")
 
+    def leg_pointer_position(self, hx, hy):
+        """Where the pointer is, checked by pressing rather than hovering.
+
+        On iOS the pointer is a touch: with AssistiveTouch's Perform Touch
+        Gestures the mouse acts as a finger, and a finger has no hover, so
+        moving reports nothing until it presses. Moving and then clicking
+        shows where it was.
+        """
+        self.collector.drain()
+        want = self.to_screen(hx, hy)
+        self.hid("mouse/move", {"x": hx, "y": hy})
+        time.sleep(self.settle)
+        self.hid("mouse/click", {"buttons": 1})
+        got = self.collector.wait_for(
+            lambda evs: next(
+                (e for e in evs if e.get("kind") == "pointerdown"), None),
+            self.settle + 3)
+        if not got:
+            self.record("pointer position", False,
+                        f"({hx},{hy}) → the page saw no press")
+            return
+        have = (got["screenX"], got["screenY"])
+        dx, dy = abs(have[0] - want[0]), abs(have[1] - want[1])
+        if dx <= self.tolerance and dy <= self.tolerance:
+            self.record("pointer position", True,
+                        f"({hx},{hy}) → pressed at {have}, expected {want}")
+        else:
+            self.record("pointer position", False,
+                        f"({hx},{hy}) → pressed at {have}, expected {want} "
+                        f"(off by {dx},{dy} > {self.tolerance}px)")
+
     def leg_mouse_click(self):
         self.collector.drain()
         self.hid("mouse/click", {"buttons": 1, "action": "click"})
@@ -832,20 +863,32 @@ def main():
     try:
         if local:
             suite.focus_window()
+        ios = args.target == "iphone"
         if "mouse" not in args.skip:
-            suite.leg_mouse_move(0, 0)
-            suite.leg_mouse_move(HID_MAX, HID_MAX)
-            suite.leg_mouse_move(HID_MAX // 2, HID_MAX // 4)
+            if ios:
+                # Positions are kept inside the page: the screen corners are
+                # Safari's own furniture, where a press never reaches the
+                # page at all.
+                for frac in (0.25, 0.5, 0.75):
+                    suite.leg_pointer_position(round(HID_MAX * frac),
+                                               round(HID_MAX * frac))
+            else:
+                suite.leg_mouse_move(0, 0)
+                suite.leg_mouse_move(HID_MAX, HID_MAX)
+                suite.leg_mouse_move(HID_MAX // 2, HID_MAX // 4)
         if "click" not in args.skip:
             suite.leg_mouse_click()
         if "keyboard" not in args.skip:
             suite.leg_keyboard(args.text)
-        if "scroll" not in args.skip:
+        if "scroll" not in args.skip and not ios:
             suite.leg_scroll()
+        elif ios:
+            suite.record("mouse scroll", True,
+                         "skipped — a touch pointer has no wheel; iOS scrolls "
+                         "by dragging")
         # iOS registers a mouse (through AssistiveTouch) but not an external
         # touch digitizer, so touch there goes nowhere. Skipping says that,
         # where running it would just look like a fault.
-        ios = args.target == "iphone"
         if "touch" not in args.skip and not ios:
             suite.leg_touch(HID_MAX // 4, HID_MAX * 3 // 4)
         elif ios:

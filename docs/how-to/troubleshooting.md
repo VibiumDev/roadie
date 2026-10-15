@@ -143,18 +143,24 @@ Run `make setup` to install the udev rule that grants access to USB unbind/rebin
 not. Reaching the viewer at `http://localhost:8080/view` works; reaching it at
 `http://<pi>:8080/view` does not.
 
-To use it over the network anyway, tell the browser to trust that one origin.
-Chrome needs both flags — the second is not optional, and the origin must
-include the scheme:
+To use it over the network anyway, tell the browser to trust that origin. In
+Chrome, go to `chrome://flags` and search for **Insecure origins treated as
+secure**. It takes a comma-separated list, and each origin needs its scheme
+and port:
 
-```bash
-chrome --unsafely-treat-insecure-origin-as-secure=http://roadie.local:8080        --user-data-dir=/tmp/roadie-chrome
+```
+http://roadie.local:8080,http://10.1.10.105:8080
 ```
 
-A malformed origin here (a missing `p` in `http`, say) leaves Chrome unable to
-reach that host at all, with a plain "site can't be reached" and nothing
-arriving at the server. Chrome warns about the unsupported flag on startup;
-that banner is the clue.
+Relaunch when Chrome asks. It then shows an "unsupported command-line flag"
+banner on every start, which is expected for this flag and not a fault.
+
+List every address you actually use: the exemption is per-origin, so the
+hostname and the IP count as two. A malformed entry, such as a missing `p` in
+`http`, is silently useless.
+
+Safari and iOS have no equivalent, so voice input there needs `localhost` or
+real HTTPS.
 
 ## Video Capture
 
