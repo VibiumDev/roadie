@@ -38,9 +38,8 @@ if [ "${ROADIE_E2E_ISOLATED:-0}" != "1" ]; then
                     timeout 10 xset q >/dev/null 2>&1; then
                 export DISPLAY="$candidate"
                 [ -n "$auth" ] && export XAUTHORITY="$auth" || unset XAUTHORITY
-                echo "  🖥️  Running on this machine's desktop (${DISPLAY})"
-                echo "     The test takes over the screen while it runs."
-                echo
+                echo "  🖥️  Using this machine's desktop (${DISPLAY})" \
+                     "— it takes over the screen while running"
                 exec "$@"
             fi
         done

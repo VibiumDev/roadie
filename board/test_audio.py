@@ -33,8 +33,10 @@ from pathlib import Path
 
 import serial
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "shared"))
 from protocol import AUDIO_LEAD, AUDIO_RATE, pack_audio  # noqa: E402
+from testout import heading, result  # noqa: E402
 
 # The five-note motif from Close Encounters of the Third Kind: re, mi, do,
 # do an octave down, sol. A sequence beats a single tone as a test -- it
@@ -423,6 +425,13 @@ def main():
     global WAV_PATH
     WAV_PATH = WAV_PATHS[args.via]
 
+    WHERE = {
+        "serial": "voice input straight at the relay's serial port",
+        "api": "voice input through roadie's /audio-in WebSocket",
+        "browser": "voice input from a real browser's microphone",
+    }
+    heading(f"test-audio-{args.via}", WHERE[args.via])
+
     pcm = make_tone()
     # Round up: truncating here eats the margin, and the note that would be
     # clipped is the sustained one at the end.
@@ -438,17 +447,17 @@ def main():
 
     try:
         if args.via == "serial":
-            detail(f"  🎯 Path: this script → relay serial → UART → HID → mic")
+            detail("     path: this script → relay serial → UART → HID → mic")
             rec = record(record_secs)
             detail(f"  🔊 Streaming {TONE_SECS:.1f}s — {notes} — in 10 ms frames...")
             stream_serial(pcm)
         elif args.via == "api":
-            detail(f"  🎯 Path: this script → roadie /audio-in → relay → HID → mic")
+            detail("     path: this script → roadie /audio-in → relay → HID → mic")
             rec = record(record_secs)
             detail(f"  🔊 Streaming {TONE_SECS:.1f}s — {notes} — in 10 ms frames...")
             stream_api(pcm, base)
         else:
-            detail(f"  🎯 Path: browser mic → roadie /audio-in → relay → HID → mic")
+            detail("     path: browser mic → roadie /audio-in → relay → HID → mic")
             # It records itself, once the browser is actually streaming.
             if stream_browser(pcm, base, notes, record_secs) is None:
                 sys.exit(1)
@@ -460,6 +469,7 @@ def main():
             roadie.stop()
 
     peak, heard, dropouts = analyze(WAV_PATH)
+
 
     if peak < 500:
         print("  ❌ No signal captured — audio path is not working.")
@@ -501,7 +511,8 @@ def main():
         print("  ❌ The motif did not arrive intact.")
         playback_hint()
         sys.exit(1)
-    print(f"  ✅ {args.via:<8} {len(MOTIF)}/{len(MOTIF)} notes   {WAV_PATH}")
+    print()
+    result(f"test-audio-{args.via:<7} {len(MOTIF)}/{len(MOTIF)} notes   {WAV_PATH}")
     playback_hint()
 
 

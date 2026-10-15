@@ -58,28 +58,17 @@ from pathlib import Path
 from test_hid import INPUT_PREFIX, device_has_mt, one
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
 REPO_ROOT = SCRIPT_DIR.parent
 PAGE = SCRIPT_DIR / "e2e" / "page.html"
 
 HID_MAX = 32767  # absolute HID coordinate range is 0..32767 inclusive
 
 
-# ---------------------------------------------------------------------------
-# Output helpers
-# ---------------------------------------------------------------------------
-
-def step(msg):
-    print(f"\n{'─' * 64}\n  {msg}\n{'─' * 64}")
-
-def info(msg):
-    print(f"  ✅ {msg}")
-
-def warn(msg):
-    print(f"  ⚠️  {msg}")
-
-def fail(msg):
-    print(f"\n  ❌ {msg}")
-    sys.exit(1)
+# Output comes from testout so every test in the suite reads the same way.
+# The old names are kept because they read well at the call sites here.
+from testout import check, fail, heading, note, result, skip, warn  # noqa: E402
+from testout import section as step  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +201,7 @@ def open_on_android(url):
              "    adb connect <phone-ip>:5555\n"
              "  USB ADB can't be used here: the phone's port is busy acting "
              "as a USB host for the HID board.")
-    info(f"ADB device: {connected[0]}")
+    check("adb device", connected[0])
     result = subprocess.run(
         ["adb", "shell", "am", "start", "-a", "android.intent.action.VIEW",
          "-d", url],
@@ -220,7 +209,7 @@ def open_on_android(url):
     )
     if result.returncode != 0:
         fail(f"Couldn't open the browser on the phone: {result.stderr.strip()}")
-    info("Asked the phone to open the test page")
+    check("phone", "asked it to open the test page")
 
 
 def free_port():
@@ -240,18 +229,19 @@ class Roadie:
         # worth three lines of commentary each time they do it.
         self.quiet = quiet
 
-    def _say(self, fn, message):
+    def _say(self, fn, *args):
         if not self.quiet:
-            fn(message)
+            fn(*args)
 
     def ensure(self):
         if self.base and roadie_alive(self.base):
-            self._say(info, f"Using the roadie already serving at {self.base}")
+            self._say(note, f"using the roadie already at {self.base}")
             return self.base
 
         if self.base:
-            self._say(warn,
-                      f"Nothing answering at {self.base} — starting our own roadie")
+            # The default is a port roadie is often not on; only a base the
+            # caller actually asked for is worth a warning.
+            self._say(note, f"nothing at {self.base}, starting our own")
 
         binary = REPO_ROOT / "roadie"
         if not binary.exists():
@@ -260,7 +250,6 @@ class Roadie:
         port = free_port()
         self.base = f"http://127.0.0.1:{port}"
         self.log = open("/tmp/roadie-e2e.log", "w")
-        self._say(print, f"  🚀 Starting {binary} --port {port}")
         self.proc = subprocess.Popen(
             [str(binary), "--port", str(port)],
             cwd=str(REPO_ROOT), stdout=self.log, stderr=subprocess.STDOUT,
@@ -270,7 +259,7 @@ class Roadie:
             if self.proc.poll() is not None:
                 fail("roadie exited during startup — see /tmp/roadie-e2e.log")
             if roadie_alive(self.base):
-                self._say(info, f"roadie is serving at {self.base}")
+                self._say(check, "roadie", self.base)
                 return self.base
             time.sleep(0.5)
         fail("roadie did not become healthy — see /tmp/roadie-e2e.log")
@@ -315,7 +304,7 @@ def detect_browser(override=None):
     }
     preferred = desktop_map.get(out)
     if preferred and shutil.which(preferred):
-        info(f"Desktop default browser is {preferred} ({out})")
+        check("browser", f"{preferred}, this desktop's default ({out})")
         return shutil.which(preferred)
     if out:
         warn(f"Desktop default is {out!r}, which isn't one I can drive")
@@ -323,7 +312,7 @@ def detect_browser(override=None):
     for candidate in ("chromium", "chromium-browser", "firefox", "firefox-esr"):
         path = shutil.which(candidate)
         if path:
-            info(f"Falling back to {candidate}")
+            check("browser", f"{candidate} (no desktop default to go on)")
             return path
     fail("No usable browser found (looked for chromium and firefox)")
 
@@ -388,7 +377,7 @@ class Browser:
             geometry = []
             if size:
                 geometry = [f"--window-size={size[0]},{size[1]}"]
-                info(f"Sizing the browser window to {size[0]}x{size[1]}")
+                check("window", f"sized to {size[0]}x{size[1]}")
             argv = [
                 self.binary,
                 "--kiosk",
@@ -410,7 +399,7 @@ class Browser:
                 "--window-position=0,0",
                 self.url,
             ]
-        print(f"  🌐 Launching {name} --kiosk on {self.env.get('DISPLAY')}")
+        note(f"launching {name} --kiosk on {self.env.get('DISPLAY')}")
         self.proc = subprocess.Popen(
             argv, env=self.env,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -459,7 +448,12 @@ class Suite:
 
     def record(self, name, passed, detail):
         self.results.append((name, passed, detail))
-        print(f"  {'✅' if passed else '❌'} {name}: {detail}")
+        if not passed:
+            print(f"  ❌ {name:<18} {detail}")
+        elif detail.startswith("skipped — "):
+            skip(name, detail[len("skipped — "):])
+        else:
+            check(name, detail)
 
     # -- individual legs ----------------------------------------------------
 
@@ -473,7 +467,7 @@ class Suite:
         got = self.collector.wait_for(
             lambda evs: next((e for e in evs if e.get("hasFocus")), None), 5)
         if got:
-            info("Page has keyboard focus")
+            check("keyboard focus", "the page has it")
         else:
             warn("Page never reported focus — keyboard leg may fail")
 
@@ -487,17 +481,17 @@ class Suite:
                 None),
             self.settle + 3)
         if not got:
-            self.record(f"mouse move ({hx},{hy})", False,
-                        "page saw no pointermove")
+            self.record("mouse move", False,
+                        f"({hx},{hy}) → page saw no pointermove")
             return
         have = (got["screenX"], got["screenY"])
         dx, dy = abs(have[0] - want[0]), abs(have[1] - want[1])
         if dx <= self.tolerance and dy <= self.tolerance:
-            self.record(f"mouse move ({hx},{hy})", True,
-                        f"page saw screen {have}, expected {want}")
+            self.record("mouse move", True,
+                        f"({hx},{hy}) → page saw {have}, expected {want}")
         else:
-            self.record(f"mouse move ({hx},{hy})", False,
-                        f"page saw screen {have}, expected {want} "
+            self.record("mouse move", False,
+                        f"({hx},{hy}) → page saw {have}, expected {want} "
                         f"(off by {dx},{dy} > {self.tolerance}px)")
 
     def leg_mouse_click(self):
@@ -668,7 +662,9 @@ def main():
     if not PAGE.exists():
         fail(f"Test page missing: {PAGE}")
 
-    step("Phase 1: harness")
+    heading(f"test-e2e-{args.target}",
+            "input through roadie's API, checked in a real browser")
+    step("Harness")
     local = args.target == "pi"
     collector = Collector()
     if local:
@@ -678,7 +674,7 @@ def main():
         # A phone or another PC has to be able to reach us.
         port = collector.start("0.0.0.0")
         url = f"http://{lan_address()}:{port}/"
-    info(f"Collector listening on {url}")
+    check("collector", url)
 
     roadie = Roadie(args.roadie)
     started = {}
@@ -709,9 +705,9 @@ def main():
         collector.stop()
         fail(f"Relay board is not connected (status: {status!r}). "
              "Plug in the relay board.")
-    info(f"Relay connected on {status.get('port')}")
+    check("relay", status.get("port"))
 
-    step(f"Phase 2: open the test page on target '{args.target}'")
+    step(f"Opening the test page on target '{args.target}'")
     browser = None
     if local:
         browser = Browser(detect_browser(args.browser), url,
@@ -729,7 +725,7 @@ def main():
         print()
         print("     (the test starts by itself once the page reports in)")
 
-    print(f"  ⏳ Waiting up to {args.ready_timeout:.0f}s for the page...")
+    note(f"waiting up to {args.ready_timeout:.0f}s for the page")
     if not collector.ready.wait(args.ready_timeout):
         if browser:
             browser.stop()
@@ -741,12 +737,12 @@ def main():
              f"{url} on this network, then try --ready-timeout 180.")
 
     geom = collector.ready_info
-    info(f"Page ready: screen {geom['screenW']}x{geom['screenH']}, "
+    check("page ready", f"screen {geom['screenW']}x{geom['screenH']}, "
          f"viewport {geom['innerW']}x{geom['innerH']}, dpr {geom['dpr']}")
-    info(f"navigator.maxTouchPoints = {geom.get('maxTouchPoints')}")
+    check("touch points", f"navigator.maxTouchPoints = {geom.get('maxTouchPoints')}")
     time.sleep(1.0)  # let the kiosk window settle before driving it
 
-    step("Phase 3: legs")
+    step("Checks")
     suite = Suite(base, collector, geom, args.tolerance, args.settle,
                   local=local)
     try:
@@ -782,11 +778,14 @@ def main():
 
     passed = sum(1 for _, ok, _ in suite.results if ok)
     total = len(suite.results)
-    step(f"{'🎯' if passed == total else '💥'} {passed}/{total} legs passed")
+    print()
+    if passed == total:
+        result(f"test-e2e-{args.target:<9} {passed}/{total} checks")
+    else:
+        print(f"  ❌ test-e2e-{args.target:<9} {passed}/{total} checks")
     for name, ok, detail in suite.results:
         if not ok:
             print(f"     ❌ {name}: {detail}")
-    print()
     return 0 if passed == total else 1
 
 

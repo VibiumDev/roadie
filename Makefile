@@ -18,34 +18,44 @@ help:  ## Show this help
 		$(MAKEFILE_LIST)
 	@echo ""
 
+RULE := ──────────────────────────────────────────────────────────────
+
 ##@ Build
 
 build:  ## Build the roadie binary
 	go build -o $(BINARY) .
 
 test:  ## Unit tests, plus the hardware tests if the boards are connected
-	@$(MAKE) --no-print-directory test-unit
+	@# Not "go test -v": two hundred lines of PASS buries everything after
+	@# it. "make test-unit" is there when the detail is what you want.
+	@printf "\n▶ unit  ·  the Go unit tests\n"
+	@if out=$$(go test ./... 2>&1); then \
+		printf "  ✅ %-18s %s\n" "unit" \
+			"$$(printf '%s' "$$out" | tail -1 | tr -s '\t' ' ')"; \
+	else \
+		printf '%s\n' "$$out" | sed 's/^/  /'; \
+		printf "\n  ❌ unit tests failed\n\n"; exit 1; \
+	fi
 	@# The hardware tests need both boards, with the HID board plugged into
 	@# this machine so the input it injects comes back here. Where that is
 	@# not the case -- a laptop, a CI runner -- say so and stop, rather than
 	@# failing in a way that looks like a fault.
 	@if ls /dev/serial/by-id/usb-Adafruit_Roadie-Relay_*-if02 >/dev/null 2>&1 \
 		&& ls /dev/input/by-id/usb-Adafruit_Roadie-HID_*-event-kbd >/dev/null 2>&1; then \
-		echo ""; echo "  🔌 Boards are here — running the hardware tests too"; echo ""; \
+		printf "  🔌 %-18s running the hardware tests too\n" "boards detected"; \
 		$(MAKE) --no-print-directory test-hid test-e2e-pi test-audio; \
 		if command -v chromedriver >/dev/null 2>&1 \
 			&& { command -v vibium >/dev/null 2>&1 || command -v npx >/dev/null 2>&1; }; then \
 			$(MAKE) --no-print-directory test-view; \
 		else \
-			echo ""; \
-			echo "  ⏭️  Skipping test-view: it needs chromedriver and node."; \
-			echo "     Run 'make setup' to install them."; \
+			printf "\n▶ test-view\n  ⏭️  %-18s needs chromedriver and node; run 'make setup'\n" "skipped"; \
 		fi; \
+		printf "\n$(RULE)\n  🎸 all tests passed\n$(RULE)\n\n"; \
 	else \
-		echo ""; \
-		echo "  ⏭️  Skipping the hardware tests: no boards on this machine."; \
-		echo "     They need the relay plugged in and the HID board plugged"; \
-		echo "     into this machine. See 'make status'."; \
+		printf "\n  ⏭️  %-18s no boards on this machine\n" "hardware tests"; \
+		printf "     They need the relay plugged in and the HID board\n"; \
+		printf "     plugged into this machine. See 'make status'.\n"; \
+		printf "\n$(RULE)\n  ✅ unit tests passed (hardware tests skipped)\n$(RULE)\n\n"; \
 	fi
 
 test-unit:  ## Run only the Go unit tests
@@ -127,10 +137,10 @@ sync-relay:  ## Copy changed board code to the relay board
 ##@ Test the hardware
 
 test-hid:  ## Keyboard, mouse and touch, checked at /dev/input
-	python3 board/test_hid.py
+	@python3 board/test_hid.py
 
 test-hid-quick:  ## The same, skipping the slower checks
-	python3 board/test_hid.py --quick
+	@python3 board/test_hid.py --quick
 
 # End-to-end per target device: input is driven through roadie's HTTP API and
 # verified in a real browser running on that target.
@@ -141,7 +151,7 @@ test-hid-quick:  ## The same, skipping the slower checks
 # never touch the desktop, which is what you want for an unattended run.
 
 test-e2e-pi:  ## The whole stack into a browser on this machine
-	board/e2e/ensure-display.sh python3 board/test_e2e.py --target pi
+	@board/e2e/ensure-display.sh python3 board/test_e2e.py --target pi
 
 # Set the password used to watch tests over VNC. Stores only x11vnc's
 # obfuscated form -- you chose the password, so a readable copy buys nothing.
@@ -149,13 +159,13 @@ test-e2e-pi:  ## The whole stack into a browser on this machine
 test-audio: test-audio-serial test-audio-api test-audio-browser  ## Voice input through all three layers below
 
 test-audio-serial:  ## Voice input straight at the relay's serial port
-	python3 board/test_audio.py --via serial
+	@python3 board/test_audio.py --via serial
 
 test-audio-api:  ## Voice input through roadie's /audio-in WebSocket
-	python3 board/test_audio.py --via api
+	@python3 board/test_audio.py --via api
 
 test-audio-browser:  ## Voice input from a real browser's microphone
-	board/e2e/ensure-display.sh python3 board/test_audio.py --via browser
+	@board/e2e/ensure-display.sh python3 board/test_audio.py --via browser
 
 # The tests above supply their own page. This one drives roadie's own
 # viewer: it finds the mic button over WebDriver BiDi (with the vibium
@@ -163,7 +173,7 @@ test-audio-browser:  ## Voice input from a real browser's microphone
 # real USB mouse, so the whole operator path is under test at once.
 
 test-view:  ## Voice input through roadie's own /view page, clicked for real
-	board/e2e/ensure-display.sh python3 board/test_view.py
+	@board/e2e/ensure-display.sh python3 board/test_view.py
 
 # One look at everything roadie talks to: boards, the input it can drive,
 # what comes back from the target, and this machine's audio and displays.

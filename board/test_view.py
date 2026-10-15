@@ -48,8 +48,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "sha
 
 from protocol import AUDIO_RATE  # noqa: E402
 from test_audio import MOTIF, TONE_SECS, analyze, make_tone  # noqa: E402
-from test_e2e import (Roadie, free_port, http_json, reap_old_profiles,  # noqa: E402
-                      fail, info, step, warn)
+from test_e2e import Roadie, free_port, http_json, reap_old_profiles  # noqa: E402
+from testout import check, fail, heading, result  # noqa: E402
 
 WAV_PATH = "/tmp/roadie_audio_view.wav"
 # Silence at the head of the file that stands in for the microphone, so the
@@ -319,8 +319,8 @@ def main():
     if not screen:
         fail(f"No display at {args.display} — run: board/e2e/ensure-display.sh")
 
-    print("🎸 roadie /view voice input test")
-    detail(f"  🖥️  Display {args.display}, {screen[0]}x{screen[1]}")
+    heading("test-view", "roadie's own /view page, clicked with the real mouse")
+    detail(f"     display {args.display}, {screen[0]}x{screen[1]}")
 
     # The browser's "microphone": a second of silence so the tune still
     # starts after recording begins, then the motif, then enough silence
@@ -392,16 +392,15 @@ def main():
         else:
             fail("chromedriver never became ready")
 
-        step("Attaching vibium to our own chromium")
         vib.start()
+        check("vibium attached", "to our own chromium, over WebDriver BiDi")
 
         # 127.0.0.1, not the LAN address: getUserMedia only works in a
         # secure context, and /view disables the button without one.
         view = f"{base}/view"
-        step(f"Opening {view}")
         vib.run("go", view)
+        check("page opened", view)
 
-        step("Finding the mic button")
         probe = vib.eval_json(PROBE_JS)
         if not probe.get("found"):
             fail("No #ptt button on /view — has the viewer page changed?")
@@ -413,9 +412,10 @@ def main():
         if probe.get("talking"):
             fail("The mic was already live before anything clicked it")
 
-        # Checked here so a bad coordinate is reported before anything
+        # Worked out here so a bad coordinate is reported before anything
         # else happens; the click locates the button again for itself.
-        to_screen(probe, screen)
+        _, _, px, py = to_screen(probe, screen)
+        check("mic button found", f"at ({px:.0f}, {py:.0f}) on screen")
 
         # Recording starts first: the browser begins playing the file that
         # stands in for its microphone as soon as the click grants access,
@@ -426,18 +426,16 @@ def main():
         detail(f"  🔊 The browser's microphone plays {TONE_SECS:.1f}s — {notes}")
         rec = record(TONE_SECS + LEAD_SECS + 6)
 
-        step("Clicking it with the real USB mouse")
         click_mic_button(vib, base, screen)
         wait_for(vib, True, "turned on")
-        info("The page is live — a hardware click started voice input")
+        check("hardware click", "the real USB mouse started voice input")
 
         finish_recording(rec)
         rec = None
 
-        step("Clicking again to stop")
         click_mic_button(vib, base, screen)
         wait_for(vib, False, "turned off")
-        info("Voice input stopped on a second click")
+        check("second click", "voice input stopped")
     finally:
         if rec is not None and rec.poll() is None:
             rec.terminate()
@@ -488,7 +486,8 @@ def main():
     if not ok:
         print("  ❌ The motif did not arrive intact.")
         sys.exit(1)
-    print(f"  ✅ /view     {len(MOTIF)}/{len(MOTIF)} notes   {WAV_PATH}")
+    print()
+    result(f"test-view          {len(MOTIF)}/{len(MOTIF)} notes   {WAV_PATH}")
 
 
 if __name__ == "__main__":

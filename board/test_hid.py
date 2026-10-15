@@ -37,6 +37,9 @@ try:
 except ImportError:
     sys.exit("pyserial not installed. Run: make setup")
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from testout import check, heading, note, result, section, skip  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Linux input event plumbing
 # ---------------------------------------------------------------------------
@@ -114,6 +117,20 @@ SHIFT_MAP = {
 HID_PREFIX = "/dev/serial/by-id/usb-Adafruit_Roadie-HID_"
 RELAY_PREFIX = "/dev/serial/by-id/usb-Adafruit_Roadie-Relay_"
 INPUT_PREFIX = "/dev/input/by-id/usb-Adafruit_Roadie-HID_"
+
+
+def describe(found):
+    """Name what was found, and say plainly what was not.
+
+    Which devices are present is the part worth seeing at a glance; the
+    paths are long and only interesting when one is missing.
+    """
+    have = [name for name, path in found.items() if path]
+    missing = [name for name, path in found.items() if not path]
+    text = ", ".join(have) if have else "none found"
+    if missing:
+        text += f" (no {', '.join(missing)})"
+    return text
 
 
 def one(pattern):
@@ -304,8 +321,13 @@ class Runner:
 
     def record(self, name, passed, detail):
         self.results.append((name, passed, detail))
-        mark = "✅" if passed else "❌"
-        print(f"  {mark} {name}: {detail}")
+        if passed:
+            if detail.startswith("skipped"):
+                skip(name, detail[len("skipped — "):])
+            else:
+                check(name, detail)
+        else:
+            print(f"  ❌ {name:<18} {detail}")
 
     def leg_ping(self):
         """Ping and read the relay's reply on the data port.
@@ -485,22 +507,26 @@ def main():
     if not data_port:
         sys.exit("❌ Relay data port not found. Is the relay board plugged in?")
 
-    print()
-    print("  🔌 Ports")
-    print(f"     relay data: {data_port}")
-    print(f"     relay repl: {relay_repl or '(none)'}")
-    print(f"     hid repl:   {hid_repl or '(none)'}")
+    heading("test-hid", "keyboard, mouse and touch, read back at /dev/input")
 
     inputs = {
         "kbd":   one(INPUT_PREFIX + "*-event-kbd"),
         "mouse": one(INPUT_PREFIX + "*-event-mouse"),
         "touch": one(INPUT_PREFIX + "*-event-if03"),
     }
-    print()
-    print("  🎯 Return path (what the Pi receives)"
-          + ("" if args.no_grab else " — grabbed exclusively"))
-    for label, path in inputs.items():
-        print(f"     {label:<6} {path or '(not found)'}")
+
+    # Which ports and devices were found is worth one line each. The paths
+    # themselves are long, change on every re-plug, and only matter when
+    # something is missing -- so they wait for --dump.
+    ports = {"relay data": data_port, "relay repl": relay_repl,
+             "hid repl": hid_repl}
+    check("ports", describe(ports))
+    check("return path", describe(inputs)
+          + ("" if args.no_grab else ", grabbed exclusively"))
+    if args.dump:
+        section("Paths")
+        for label, path in list(ports.items()) + list(inputs.items()):
+            note(f"{label:<11} {path or '(not found)'}")
 
     capture = EventCapture(inputs, grab=not args.no_grab)
     if not capture.ok:
@@ -518,8 +544,6 @@ def main():
         if port:
             port.reset_input_buffer()
 
-    print()
-    print("  ▶️  Running legs")
     runner = Runner(data, capture, args.settle)
     try:
         if "ping" not in args.skip:
@@ -563,8 +587,10 @@ def main():
     passed = sum(1 for _, ok, _ in runner.results if ok)
     total = len(runner.results)
     print()
-    print(f"  {'🎯' if passed == total else '💥'} {passed}/{total} legs passed")
-    print()
+    if passed == total:
+        result(f"test-hid           {passed}/{total} checks")
+    else:
+        print(f"  ❌ test-hid           {passed}/{total} checks")
     return 0 if passed == total else 1
 
 
