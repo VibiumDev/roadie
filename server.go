@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -73,6 +74,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/audio", s.handleAudio)
 	mux.HandleFunc("/audio-in", s.handleAudioIn)
 	mux.HandleFunc("/test", s.handleTest)
+	mux.HandleFunc("/soundcheck", s.handleSoundcheck)
 	mux.HandleFunc("/api/capture/reset", s.handleCaptureReset)
 	mux.HandleFunc("/api/hid/reset", s.handleHIDReset)
 	mux.HandleFunc("/api/relay/reset", s.handleRelayReset)
@@ -1669,9 +1671,11 @@ func (s *Server) handleAudioIn(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "HID not available", http.StatusServiceUnavailable)
 		return
 	}
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true, // allow any origin for local network use
-	})
+	// Default same-origin check. audio-in writes into the target -- it can
+	// speak into a live call -- so a page on some other origin must not be
+	// able to open it. Non-browser clients send no Origin header and are
+	// unaffected; /soundcheck is served by roadie so it is same-origin.
+	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		log.Printf("audio-in websocket accept: %v", err)
 		return
@@ -1692,6 +1696,21 @@ func (s *Server) handleAudioIn(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// soundcheckPage is served at /soundcheck. It captures the browser's
+// microphone and streams it to /audio-in, showing what arrives -- the same
+// path the viewer's mic button uses. Served from roadie rather than from a
+// file so the page is same-origin with /audio-in, which refuses cross-origin
+// connections.
+//
+//go:embed board/e2e/mic-page.html
+var soundcheckPage []byte
+
+func (s *Server) handleSoundcheck(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(soundcheckPage)
 }
 
 func (s *Server) handleTest(w http.ResponseWriter, r *http.Request) {
