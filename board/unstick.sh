@@ -17,8 +17,23 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "  🖐  Releasing every button and contact"
+# Prefer a running roadie: it holds the relay's serial port open, so talking
+# to the port directly is exactly what cannot be done while it is up -- which
+# is when a stuck button actually happens. It also works with the HID board
+# plugged into a phone rather than this machine.
+released=""
+for base in ${ROADIE_URL:-http://127.0.0.1:8080}; do
+    if curl -sf --max-time 5 -X POST "$base/api/hid/release" >/dev/null 2>&1; then
+        echo "     released via $base"
+        released=yes
+        break
+    fi
+done
+
 port=$(ls /dev/serial/by-id/usb-Adafruit_Roadie-Relay_*-if02 2>/dev/null | head -1)
-if [ -n "$port" ]; then
+if [ -n "$released" ]; then
+    :
+elif [ -n "$port" ]; then
     .venv/bin/python - "$port" <<'PY'
 import serial, sys, time
 with serial.Serial(sys.argv[1], 115200, timeout=2) as s:

@@ -77,6 +77,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/soundcheck", s.handleSoundcheck)
 	mux.HandleFunc("/gestures", s.handleGestures)
 	mux.HandleFunc("/api/capture/reset", s.handleCaptureReset)
+	mux.HandleFunc("/api/hid/release", s.handleHIDRelease)
 	mux.HandleFunc("/api/hid/reset", s.handleHIDReset)
 	mux.HandleFunc("/api/relay/reset", s.handleRelayReset)
 	mux.HandleFunc("/api/hid/type", s.handleHIDType)
@@ -1438,6 +1439,32 @@ func (s *Server) handleCaptureReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Capture.ResetUSB(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleHIDRelease lets go of every button and contact the target might
+// still think is held. A press whose release never arrived -- the window
+// lost focus mid-drag, or a test was killed between the two -- leaves the
+// target holding it with no way to know better, and recovering otherwise
+// means unplugging the board.
+func (s *Server) handleHIDRelease(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.HID == nil {
+		http.Error(w, "HID not available", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.HID.MouseRelease(7); err != nil { // left | right | middle
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.HID.Touch(nil); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
