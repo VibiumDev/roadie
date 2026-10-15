@@ -1,6 +1,6 @@
 # How to Test the Boards
 
-Three commands. Each checks input that was *actually received*, not just that
+Four commands. Each checks input that was *actually received*, not just that
 the boards accepted a command.
 
 | Command | Checks |
@@ -8,6 +8,10 @@ the boards accepted a command.
 | `make test-hid` | keyboard, mouse, click, scroll, touch — read back from `/dev/input` |
 | `make test-e2e-pi` | the same, driven through roadie's HTTP API into a real browser |
 | `make test-audio` | voice input, all three layers below |
+| `make test-view` | voice input through roadie's own `/view` page, clicked with the real mouse |
+
+`make test` runs the Go unit tests, then all of the above when the boards are
+plugged into this machine.
 
 Run `make setup` once first. The HID board must be plugged into this machine,
 so the input it injects comes back here.
@@ -146,6 +150,42 @@ of a microphone (`--use-file-for-fake-audio-capture`), so the "voice" is the
 same known tune, and waits for the page to report that it is streaming before
 it starts listening — the browser takes seconds to open a microphone.
 
+## Testing roadie's own viewer
+
+The three audio tests above each supply their own page. `make test-view`
+drives roadie's real one, the way an operator does:
+
+1. It launches Chromium itself, with a wav file standing in for the
+   microphone, and opens `/view`.
+2. It attaches the [vibium](https://github.com/VibiumDev/vibium) CLI to that
+   browser over WebDriver BiDi, and asks the page where its microphone
+   button is.
+3. It moves the **actual USB mouse** to that spot on the screen and clicks.
+4. It records off the HID board's microphone and checks the five notes
+   arrived, then clicks again and checks voice input stopped.
+
+Two things are covered that nothing else reaches: that `/view`'s button
+really starts voice input *when clicked* — as opposed to when a script calls
+`startTalk()`, which is a different claim — and that a hardware click lands
+on the right pixel.
+
+The button's position is read immediately before each click rather than
+worked out once. `/view` reflows while it is open: when roadie picks up a
+capture device the control bar moves down the screen, and a coordinate from
+a few seconds ago clicks whatever has taken that spot.
+
+Chromium's "controlled by automated test software" notice is suppressed, not
+for appearances — it occupies the top of the page and shifts the button down
+by the height of its own bar.
+
+Launching the browser here, rather than letting vibium launch one, is what
+allows the fake microphone flags. It also means vibium never fetches a
+browser of its own, which is the part with no arm64 build — so this works on
+a Pi.
+
+Needs `chromedriver` and node (for `npx vibium`); `make setup` installs both.
+`make test` skips this one if they are missing.
+
 ## Testing a phone instead
 
 Move the HID board to the phone, leave the relay here, and the test page runs
@@ -186,6 +226,7 @@ ROADIE_E2E_RESOLUTION=1920x1080 make test-e2e-pi    # bigger virtual screen
 | clicks do nothing, but the pointer still moves | input is stuck — run `make unstick` |
 | a menu on the desktop will not close | the same; `make unstick` |
 | `make test-audio` finds no signal | the HID board needs a physical re-plug after flashing |
+| `make test-view` says the mic button is unavailable | `/view` was reached over the network, not `localhost`; `getUserMedia` needs a secure context |
 | viewer shows black | the run finished and tore the display down |
 
 For board-level problems see [Troubleshooting](troubleshooting.md), and

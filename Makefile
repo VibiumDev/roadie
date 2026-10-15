@@ -8,7 +8,7 @@ BINARY = roadie
 #   make flash-hid CP_VERSION=latest
 CP_VERSION ?= 10.3.1
 
-.PHONY: help build test test-unit clean setup uninstall flash-hid flash-relay flash-hid-quick flash-relay-quick sync sync-hid sync-relay test-hid test-hid-quick test-e2e-pi test-audio test-audio-serial test-audio-api test-audio-browser test-e2e-android test-e2e-iphone test-e2e-pc set-vnc-password start-vnc-server stop-vnc-server vnc-status status unstick
+.PHONY: help build test test-unit clean setup uninstall flash-hid flash-relay flash-hid-quick flash-relay-quick sync sync-hid sync-relay test-hid test-hid-quick test-e2e-pi test-audio test-audio-serial test-audio-api test-audio-browser test-view test-e2e-android test-e2e-iphone test-e2e-pc set-vnc-password start-vnc-server stop-vnc-server vnc-status status unstick
 
 # Every target carries a "## description"; help prints them by section.
 help:  ## Show this help
@@ -33,6 +33,14 @@ test:  ## Unit tests, plus the hardware tests if the boards are connected
 		&& ls /dev/input/by-id/usb-Adafruit_Roadie-HID_*-event-kbd >/dev/null 2>&1; then \
 		echo ""; echo "  🔌 Boards are here — running the hardware tests too"; echo ""; \
 		$(MAKE) --no-print-directory test-hid test-e2e-pi test-audio; \
+		if command -v chromedriver >/dev/null 2>&1 \
+			&& { command -v vibium >/dev/null 2>&1 || command -v npx >/dev/null 2>&1; }; then \
+			$(MAKE) --no-print-directory test-view; \
+		else \
+			echo ""; \
+			echo "  ⏭️  Skipping test-view: it needs chromedriver and node."; \
+			echo "     Run 'make setup' to install them."; \
+		fi; \
 	else \
 		echo ""; \
 		echo "  ⏭️  Skipping the hardware tests: no boards on this machine."; \
@@ -54,14 +62,17 @@ setup:  ## Install dependencies, udev rules and group membership
 	@# Everything the browser test needs on a Pi with no display attached:
 	@# an X server and the dummy video driver, a window manager so the kiosk
 	@# window fills the screen, xset/xrandr/xinput for probing and muting,
-	@# a browser to drive, and x11vnc to watch it remotely.
+	@# a browser to drive, and x11vnc to watch it remotely. chromedriver
+	@# and node are for 'make test-view', which drives roadie's own viewer
+	@# page over WebDriver BiDi using the vibium CLI.
 	@# Skipped on non-apt systems; only the e2e tests need these.
 	@command -v apt-get >/dev/null && { \
 		echo "  📦 Installing browser-test dependencies"; \
 		sudo apt-get install -y -q \
 			xserver-xorg-core xserver-xorg-video-dummy \
 			matchbox-window-manager x11-xserver-utils xinput \
-			chromium x11vnc \
+			chromium chromium-driver x11vnc \
+			nodejs npm \
 			|| echo "  ⚠️  Install failed; 'make test-e2e-pi' may not run"; \
 	} || true
 	@# Lets the browser test start its own X display over ssh, no root needed.
@@ -145,6 +156,14 @@ test-audio-api:  ## Voice input through roadie's /audio-in WebSocket
 
 test-audio-browser:  ## Voice input from a real browser's microphone
 	board/e2e/ensure-display.sh python3 board/test_audio.py --via browser
+
+# The tests above supply their own page. This one drives roadie's own
+# viewer: it finds the mic button over WebDriver BiDi (with the vibium
+# CLI, attached to a browser the test launches) and clicks it with the
+# real USB mouse, so the whole operator path is under test at once.
+
+test-view:  ## Voice input through roadie's own /view page, clicked for real
+	board/e2e/ensure-display.sh python3 board/test_view.py
 
 # One look at everything roadie talks to: boards, the input it can drive,
 # what comes back from the target, and this machine's audio and displays.
