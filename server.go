@@ -72,7 +72,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/settings", s.handleSettings)
 	mux.HandleFunc("/api/settings", s.handleAPISettings)
 	mux.HandleFunc("/audio", s.handleAudio)
-	mux.HandleFunc("/audio-in", s.handleAudioIn)
+	mux.HandleFunc("/api/hid/audio", s.handleAudioIn)
 	mux.HandleFunc("/test", s.handleTest)
 	mux.HandleFunc("/soundcheck", s.handleSoundcheck)
 	mux.HandleFunc("/api/capture/reset", s.handleCaptureReset)
@@ -495,7 +495,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       }
     };
 
-    // --- Voice input: mic toggle, browser mic -> /audio-in -> target's USB mic ---
+    // --- Voice input: mic toggle, browser mic -> /api/hid/audio -> target's USB mic ---
     var pttBtn = document.getElementById('ptt');
     var pttWs = null, pttCtx = null, pttStream = null, pttNode = null;
     var talking = false;
@@ -527,7 +527,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         if (!talking) { stream.getTracks().forEach(function(t){ t.stop(); }); return; }
         pttStream = stream;
         var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        pttWs = new WebSocket(proto + '//' + location.host + '/audio-in');
+        pttWs = new WebSocket(proto + '//' + location.host + '/api/hid/audio');
         pttWs.binaryType = 'arraybuffer';
         pttCtx = new AudioContext({ sampleRate: 16000 });
         var url = URL.createObjectURL(new Blob([pttWorkletCode], { type: 'application/javascript' }));
@@ -1671,13 +1671,13 @@ func (s *Server) handleAudioIn(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "HID not available", http.StatusServiceUnavailable)
 		return
 	}
-	// Default same-origin check. audio-in writes into the target -- it can
+	// Default same-origin check. This endpoint writes into the target -- it can
 	// speak into a live call -- so a page on some other origin must not be
 	// able to open it. Non-browser clients send no Origin header and are
 	// unaffected; /soundcheck is served by roadie so it is same-origin.
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
-		log.Printf("audio-in websocket accept: %v", err)
+		log.Printf("/api/hid/audio websocket accept: %v", err)
 		return
 	}
 	defer conn.CloseNow()
@@ -1692,16 +1692,16 @@ func (s *Server) handleAudioIn(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if err := s.HID.SendAudio(data); err != nil {
-			log.Printf("audio-in: %v", err)
+			log.Printf("/api/hid/audio: %v", err)
 			return
 		}
 	}
 }
 
 // soundcheckPage is served at /soundcheck. It captures the browser's
-// microphone and streams it to /audio-in, showing what arrives -- the same
+// microphone and streams it to /api/hid/audio, showing what arrives -- the same
 // path the viewer's mic button uses. Served from roadie rather than from a
-// file so the page is same-origin with /audio-in, which refuses cross-origin
+// file so the page is same-origin with /api/hid/audio, which refuses cross-origin
 // connections.
 //
 //go:embed board/e2e/mic-page.html

@@ -17,12 +17,12 @@
 <div id="state">starting…</div>
 <div id="level"><div id="bar"></div></div>
 <script>
-// Captures the microphone and streams it to roadie's /audio-in as 16-bit
+// Captures the microphone and streams it to roadie's /api/hid/audio as 16-bit
 // PCM, the same shape the viewer's mic button sends. Under test the
 // microphone is a file Chromium plays back, so the audio is known.
 const params = new URLSearchParams(location.search);
-// Served by roadie, so /audio-in is on this same origin unless told
-// otherwise. Being same-origin is the point: /audio-in refuses anything else.
+// Served by roadie, so /api/hid/audio is on this same origin unless told
+// otherwise. Being same-origin is the point: /api/hid/audio refuses anything else.
 const target = params.get('roadie') || location.host;
 // A test harness can ask to be told what happened, by passing its own URL.
 // Reports go out as plain GETs so they need no CORS preflight.
@@ -51,7 +51,7 @@ function say(text) { stateEl.textContent = text; }
               autoGainControl: false},
     });
 
-    const ws = new WebSocket('ws://' + target + '/audio-in');
+    const ws = new WebSocket('ws://' + target + '/api/hid/audio');
     ws.binaryType = 'arraybuffer';
     await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
     say('streaming');

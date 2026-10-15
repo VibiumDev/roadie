@@ -59,10 +59,10 @@ Device info and JPEG quality adjustment UI.
 ### `GET /soundcheck`
 
 A microphone check page. Opens the browser's microphone, converts it to
-16 kHz mono PCM, and streams it to `/audio-in` — the same path `/view`'s mic
+16 kHz mono PCM, and streams it to `/api/hid/audio` — the same path `/view`'s mic
 button uses, with a level meter and a status line.
 
-Served by roadie so that it is same-origin with `/audio-in`, which refuses
+Served by roadie so that it is same-origin with `/api/hid/audio`, which refuses
 connections from other origins. `make test-audio-browser` drives this page;
 it is also useful on its own for checking a microphone by hand.
 
@@ -100,6 +100,10 @@ Single JPEG frame (uncropped).
 
 ## Audio
 
+Audio *from* the target. Voice input *into* the target is
+[`WS /api/hid/audio`](#ws-apihidaudio), with the other endpoints that drive
+the target.
+
 ### `GET /audio`
 WebSocket endpoint for live PCM audio.
 
@@ -111,19 +115,6 @@ WebSocket endpoint for live PCM audio.
 2. Server streams PCM audio as binary messages (little-endian float32).
 
 Returns `503` if no audio device is active.
-
-### `GET /audio-in`
-WebSocket endpoint for voice input: audio sent here plays out of the HID board's USB microphone, so the target hears it as mic input.
-
-**Protocol:**
-1. Client streams PCM audio as binary messages: 16 kHz, mono, signed 16-bit little-endian.
-2. Messages should be small (~20 ms / 640 bytes) and sent at real-time pace. The HID board plays from a 400 ms ring buffer and starts once 100 ms has arrived; a burst longer than the ring overwrites audio that has not been played yet.
-
-The stream on the target stops 200 ms after the last message arrives. Returns `503` if the HID relay is not connected.
-
-The viewer's microphone button uses this endpoint. It needs a secure context (https or localhost) for `getUserMedia`, and a browser that supports opening an `AudioContext` at 16 kHz (Chrome, Edge, Safari — not Firefox yet).
-
----
 
 ## Settings
 
@@ -384,6 +375,19 @@ WebSocket for real-time HID control. Accepts the same JSON command format used b
 ```
 
 No server-to-client messages. Connection auto-reconnects on the `/test` page.
+
+---
+
+### `WS /api/hid/audio`
+WebSocket endpoint for voice input: audio sent here plays out of the HID board's USB microphone, so the target hears it as mic input.
+
+**Protocol:**
+1. Client streams PCM audio as binary messages: 16 kHz, mono, signed 16-bit little-endian.
+2. Messages should be small (~20 ms / 640 bytes) and sent at real-time pace. The HID board plays from a 400 ms ring buffer and starts once 100 ms has arrived; a burst longer than the ring overwrites audio that has not been played yet.
+
+The stream on the target stops 200 ms after the last message arrives. Returns `503` if the HID relay is not connected.
+
+The viewer's microphone button uses this endpoint. It needs a secure context (https or localhost) for `getUserMedia`, and a browser that supports opening an `AudioContext` at 16 kHz (Chrome, Edge, Safari — not Firefox yet).
 
 ---
 

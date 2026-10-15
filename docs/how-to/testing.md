@@ -140,13 +140,13 @@ The same five notes are sent three ways, so a failure says which layer broke:
 | | sends via | covers |
 |---|---|---|
 | `make test-audio-serial` | the relay's serial port | the boards and the UART protocol |
-| `make test-audio-api` | roadie's `/audio-in` WebSocket | the above, plus roadie's audio code |
+| `make test-audio-api` | roadie's `/api/hid/audio` WebSocket | the above, plus roadie's audio code |
 | `make test-audio-browser` | a real browser's microphone | the above, plus `getUserMedia` and the page's PCM conversion |
 
 Each writes its own capture (`/tmp/roadie_audio_serial.wav` and so on), so
 they can be compared rather than overwriting each other.
 
-The browser layer uses roadie's own `/soundcheck` page, shown above: it opens the microphone, converts to PCM, and streams to `/audio-in` exactly as `/view` does. It is served by roadie rather than by the test, so it is same-origin with `/audio-in` — which refuses connections from anywhere else. Open it in a browser any time to check a microphone by hand.
+The browser layer uses roadie's own `/soundcheck` page, shown above: it opens the microphone, converts to PCM, and streams to `/api/hid/audio` exactly as `/view` does. It is served by roadie rather than by the test, so it is same-origin with `/api/hid/audio` — which refuses connections from anywhere else. Open it in a browser any time to check a microphone by hand.
 
 All three end the same way: recorded back off the HID board's USB microphone
 and checked note by note. The browser one feeds Chromium a wav file in place

@@ -6,8 +6,8 @@ HID board's USB microphone.
 The same audio can be sent three ways, so a failure says which layer broke:
 
   --via serial   Pi → relay's serial port → UART → HID → mic → Pi
-  --via api      Pi → roadie's /audio-in WebSocket → (as above)
-  --via browser  a real browser's microphone → /audio-in → (as above)
+  --via api      Pi → roadie's /api/hid/audio WebSocket → (as above)
+  --via browser  a real browser's microphone → /api/hid/audio → (as above)
 
 Usage:
     python3 board/test_audio.py --via serial
@@ -183,13 +183,13 @@ def analyze(path):
 
 
 class AudioSocket:
-    """Minimal WebSocket client for /audio-in.
+    """Minimal WebSocket client for /api/hid/audio.
 
     Only what this needs: an upgrade handshake and masked binary frames.
     roadie never replies on this endpoint, so no read path is required.
     """
 
-    def __init__(self, host, port, path="/audio-in"):
+    def __init__(self, host, port, path="/api/hid/audio"):
         key = base64.b64encode(os.urandom(16)).decode()
         self.sock = socket.create_connection((host, port), timeout=10)
         self.sock.sendall(
@@ -282,7 +282,7 @@ def stream_serial(pcm):
 
 
 def stream_api(pcm, base):
-    """Through roadie's /audio-in WebSocket, as the viewer's mic does."""
+    """Through roadie's /api/hid/audio WebSocket, as the viewer's mic does."""
     host, _, port = base.split("//", 1)[1].partition(":")
     ws = AudioSocket(host, int(port or 80))
     frame_bytes = FRAME_SAMPLES * 2
@@ -301,7 +301,7 @@ def stream_browser(pcm, base, notes, record_secs):
     Chromium can play a wav file in place of a microphone, so the "voice"
     is the same motif and still arrives the way a person's would: captured
     by getUserMedia, converted to PCM in the page, and sent to roadie over
-    the /audio-in WebSocket.
+    the /api/hid/audio WebSocket.
     """
     import http.server
     import shutil
@@ -336,7 +336,7 @@ def stream_browser(pcm, base, notes, record_secs):
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    # The page comes from roadie, so it is same-origin with /audio-in --
+    # The page comes from roadie, so it is same-origin with /api/hid/audio --
     # which refuses connections from anywhere else. It reports back here.
     report_url = f"http://127.0.0.1:{server.server_address[1]}/report"
     url = f"{base}/soundcheck?report={report_url}"
@@ -427,7 +427,7 @@ def main():
 
     WHERE = {
         "serial": "voice input straight at the relay's serial port",
-        "api": "voice input through roadie's /audio-in WebSocket",
+        "api": "voice input through roadie's /api/hid/audio WebSocket",
         "browser": "voice input from a real browser's microphone",
     }
     heading(f"test-audio-{args.via}", WHERE[args.via])
@@ -452,12 +452,12 @@ def main():
             detail(f"  🔊 Streaming {TONE_SECS:.1f}s — {notes} — in 10 ms frames...")
             stream_serial(pcm)
         elif args.via == "api":
-            detail("     path: this script → roadie /audio-in → relay → HID → mic")
+            detail("     path: this script → roadie /api/hid/audio → relay → HID → mic")
             rec = record(record_secs)
             detail(f"  🔊 Streaming {TONE_SECS:.1f}s — {notes} — in 10 ms frames...")
             stream_api(pcm, base)
         else:
-            detail("     path: browser mic → roadie /audio-in → relay → HID → mic")
+            detail("     path: browser mic → roadie /api/hid/audio → relay → HID → mic")
             # It records itself, once the browser is actually streaming.
             if stream_browser(pcm, base, notes, record_secs) is None:
                 sys.exit(1)
