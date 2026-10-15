@@ -7,6 +7,8 @@ import (
 	"image/jpeg"
 	"sync"
 	"testing"
+
+	"github.com/pion/mediadevices/pkg/driver"
 )
 
 // makeImage creates a w×h RGBA image filled with fillColor, then draws a
@@ -159,9 +161,19 @@ func TestFrameBufferConcurrent(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(5)
-	go func() { defer wg.Done(); for i := 0; i < 1000; i++ { fb.Update(frame) } }()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			fb.Update(frame)
+		}
+	}()
 	for i := 0; i < 4; i++ {
-		go func() { defer wg.Done(); for j := 0; j < 1000; j++ { fb.Latest() } }()
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 1000; j++ {
+				fb.Latest()
+			}
+		}()
 	}
 	wg.Wait()
 }
@@ -224,7 +236,7 @@ func TestIsMajorCropChangeLargeArea(t *testing.T) {
 func TestIsMajorCropChangeAspectFlip(t *testing.T) {
 	full := image.Rect(0, 0, 1920, 1080)
 	landscape := image.Rect(0, 140, 1920, 940) // 1920x800 landscape
-	portrait := image.Rect(660, 0, 1260, 1080)  // 600x1080 portrait
+	portrait := image.Rect(660, 0, 1260, 1080) // 600x1080 portrait
 	if !isMajorCropChange(landscape, portrait, full) {
 		t.Error("expected true for landscape→portrait flip")
 	}
@@ -295,5 +307,53 @@ func TestDeviceInfoVideoNode(t *testing.T) {
 		if got := (deviceInfo{Label: tt.label}).VideoNode(); got != tt.want {
 			t.Errorf("deviceInfo{Label: %q}.VideoNode() = %q, want %q", tt.label, got, tt.want)
 		}
+	}
+}
+
+func TestCameraName(t *testing.T) {
+	tests := []struct {
+		label    string
+		info     driver.Info
+		wantName string
+		wantOK   bool
+	}{
+		{
+			label:    "named device",
+			info:     driver.Info{Name: "USB Video", Label: "USB Video;/dev/video0"},
+			wantName: "USB Video",
+			wantOK:   true,
+		},
+		{
+			label:    "no name falls back to the label",
+			info:     driver.Info{Label: "bcm2835-isp;platform:bcm2835-isp"},
+			wantName: "bcm2835-isp;platform:bcm2835-isp",
+			wantOK:   true,
+		},
+		{
+			// A Pi node that reports neither: the label is "name;path", so
+			// it comes through as a bare separator. Offering it as a
+			// --device choice is no help to anyone, and the capture monitor
+			// can only fail to open it.
+			label:  "nothing to go on",
+			info:   driver.Info{Label: ";"},
+			wantOK: false,
+		},
+		{
+			label:  "nothing at all",
+			info:   driver.Info{},
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.label, func(t *testing.T) {
+			name, ok := cameraName(tt.info)
+			if ok != tt.wantOK {
+				t.Fatalf("cameraName(%+v) ok = %v, want %v", tt.info, ok, tt.wantOK)
+			}
+			if ok && name != tt.wantName {
+				t.Errorf("cameraName(%+v) = %q, want %q", tt.info, name, tt.wantName)
+			}
+		})
 	}
 }

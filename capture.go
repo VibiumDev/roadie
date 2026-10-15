@@ -240,6 +240,25 @@ func (d deviceInfo) VideoNode() string {
 // matches the prefer keywords, the first non-skipped device is returned as a
 // fallback. If filter is non-empty, it matches as a substring against device
 // names (bypassing the skip/prefer heuristic).
+// cameraName returns the name to show for a camera driver, and false when
+// the driver does not identify itself.
+//
+// A Raspberry Pi registers its ISP and codec nodes as cameras, and some of
+// them report no name at all. The label is "name;path", so an unnamed one
+// reduces to punctuation -- which then gets offered as a --device choice
+// and handed to the capture monitor, which spends the rest of the session
+// failing to open a device called ";".
+func cameraName(info driver.Info) (string, bool) {
+	name := info.Name
+	if name == "" {
+		name = info.Label
+	}
+	if strings.Trim(name, " ;:") == "" {
+		return "", false
+	}
+	return name, true
+}
+
 func DetectDevice(filter string) (deviceInfo, error) {
 	drivers := driver.GetManager().Query(func(d driver.Driver) bool {
 		return d.Info().DeviceType == driver.Camera
@@ -258,13 +277,16 @@ func DetectDevice(filter string) (deviceInfo, error) {
 	var candidates []candidate
 	for _, d := range drivers {
 		info := d.Info()
-		name := info.Name
-		if name == "" {
-			name = info.Label
+		name, ok := cameraName(info)
+		if !ok {
+			continue
 		}
 		candidates = append(candidates, candidate{
 			info: deviceInfo{Name: name, Label: info.Label},
 		})
+	}
+	if len(candidates) == 0 {
+		return deviceInfo{}, fmt.Errorf("no video capture devices found")
 	}
 
 	var names []string
@@ -335,9 +357,9 @@ func CaptureCandidates() []string {
 	var names []string
 	for _, d := range drivers {
 		info := d.Info()
-		name := info.Name
-		if name == "" {
-			name = info.Label
+		name, ok := cameraName(info)
+		if !ok {
+			continue
 		}
 		lower := strings.ToLower(name)
 		skip := false
