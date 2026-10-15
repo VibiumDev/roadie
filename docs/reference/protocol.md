@@ -39,15 +39,34 @@ Byte 1: echo of sequence number
 
 ## Commands
 
+Codes are grouped by what they drive, one range per group, with room to grow inside it:
+
+| Range | Group |
+|-------|-------|
+| 0x00-0x0F | system — the boards themselves: the link, and control |
+| 0x10-0x1F | keyboard |
+| 0x20-0x2F | mouse |
+| 0x30-0x3F | touch |
+| 0x40-0x4F | audio |
+| 0x50+ | unused, for groups still to come |
+
+The split that matters is system versus input. Everything from 0x10 up is something the target experiences as though a person had done it; everything below is the two boards talking about themselves, and injects nothing.
+
+Keep a new command inside its group's range. RESET used to sit at 0x40, between touch and audio, where it read as an input category of its own.
+
+NOOP is at 0x00 so that a stray zero byte — an idle line, a buffer that was never filled — does nothing rather than something.
+
 ### System
 
 | Code | Name | Payload | Wait |
 |------|------|---------|------|
 | 0x00 | NOOP | (none) | — |
 | 0x01 | PING | (none) | yes |
-| 0x40 | RESET | (none) | yes |
+| 0x03 | RESET | (none) | yes |
 
 RESET reboots the HID board via `microcontroller.reset()`. The board sends an OK response before resetting, so the relay receives confirmation. The HID board restarts in ~1-2 seconds.
+
+0x02 is reserved for a HID→relay PONG. The HID board has no way to send anything upstream on its own initiative today — PING is answered by the 2-byte status response, not by a command — but it will need one to report things only it can see, such as the lock-key LED states the host sends down to a USB keyboard.
 
 ### Keyboard
 
@@ -95,12 +114,12 @@ Maximum 2 simultaneous contacts. Send an empty contact list (count=0) to lift al
 
 | Code | Name | Payload | Wait |
 |------|------|---------|------|
-| 0x50 | AUDIO | magic(1) + len_hi(1) + len_lo(1) + PCM (max 512 bytes) | no |
+| 0x40 | AUDIO | magic(1) + len_hi(1) + len_lo(1) + PCM (max 512 bytes) | no |
 
 Voice input (web app microphone to the target's USB mic) uses a variable-length frame so PCM audio does not pay the 32-byte-message + ACK overhead:
 
 ```
-Byte 0:  0x50 (CMD_AUDIO)
+Byte 0:  0x40 (CMD_AUDIO)
 Byte 1:  0xA5 (magic, guards against desync)
 Byte 2:  payload length, high byte
 Byte 3:  payload length, low byte

@@ -4,22 +4,52 @@
 MSG_SIZE = 32
 BAUD = 921600
 
-# command types
+# Command types, grouped by what they drive. One range per group, with
+# room to grow inside it:
+#
+#   0x00-0x0F  system -- the boards themselves: the link, and control
+#   0x10-0x1F  keyboard      \
+#   0x20-0x2F  mouse          |  input: something the target receives
+#   0x30-0x3F  touch          |  as though a person had done it
+#   0x40-0x4F  audio         /
+#   0x50+      unused, for groups still to come
+#
+# The split that matters is system versus input. Everything from 0x10 up is
+# something the target experiences; everything below it is the two boards
+# talking about themselves, and injects nothing.
+#
+# Keep a new command inside its group's range. RESET used to sit at 0x40,
+# between touch and audio, where it read as an input category of its own
+# and left the numbering looking arbitrary once the protocol grew again.
+#
+# NOOP is at 0x00 so that a stray zero byte -- an idle line, a buffer that
+# was never filled -- does nothing rather than something.
+
+# system
 CMD_NOOP          = 0x00
 CMD_PING          = 0x01
+# 0x02 is reserved for a HID->relay PONG. The HID board has no way to send
+# anything upstream on its own initiative today -- PING is answered by the
+# 2-byte status response, not by a command -- but it will need one to report
+# things only it can see, such as the lock-key LED states the host sends
+# down to a USB keyboard.
 CMD_PONG          = 0x02
+CMD_RESET         = 0x03
+
+# keyboard
 CMD_KEY_PRESS     = 0x10
 CMD_KEY_RELEASE   = 0x11
 CMD_KEY_TYPE      = 0x12
+
+# mouse
 CMD_MOUSE_MOVE    = 0x20
 CMD_MOUSE_CLICK   = 0x21
 CMD_MOUSE_PRESS   = 0x22
 CMD_MOUSE_RELEASE = 0x23
 CMD_MOUSE_SCROLL  = 0x24
 
+# touch
 CMD_TOUCH         = 0x30
-
-CMD_RESET         = 0x40
 
 # status codes (returned in 2-byte response)
 STATUS_OK   = 0x00
@@ -95,11 +125,11 @@ def pack_touch(seq, contacts):
 # would halve UART throughput and add latency for no benefit (a lost
 # audio frame is just a glitch; retransmission is useless in real time).
 #
-# UART wire format:   0x50  0xA5  len_hi  len_lo  <PCM payload>
+# UART wire format:   0x40  0xA5  len_hi  len_lo  <PCM payload>
 # On the host→relay CDC data port the same frame is preceded by a 0x00
 # lead-in byte, which can never occur in the JSON line traffic.
 
-CMD_AUDIO    = 0x50
+CMD_AUDIO    = 0x40
 AUDIO_MAGIC  = 0xA5
 AUDIO_LEAD   = 0x00  # CDC lead-in byte
 AUDIO_MAX    = 512   # max PCM payload bytes per frame

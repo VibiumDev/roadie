@@ -263,7 +263,7 @@ while True:
         continue
 
     if first[0] == CMD_AUDIO:
-        # variable-length audio frame: 0x50 0xA5 len_hi len_lo <PCM>
+        # variable-length audio frame: 0x40 0xA5 len_hi len_lo <PCM>
         hdr = read_exact(AUDIO_HDR - 1)
         if hdr is None or hdr[0] != AUDIO_MAGIC:
             continue  # desync: drop this byte and rescan

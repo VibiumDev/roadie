@@ -195,10 +195,13 @@ func (hc *HIDController) Ping() error {
 	return hc.sendJSON(map[string]any{"cmd": "ping"})
 }
 
-// Audio frame constants — must match board/shared/protocol.py.
+// Audio frame constants. These restate board/shared/protocol.py, which the
+// boards themselves import, so the two can drift apart -- and did, silently,
+// when the command was renumbered here but not there. TestAudioConstants
+// reads the Python and fails if they disagree.
 const (
 	audioLead  = 0x00 // CDC lead-in byte; never occurs in the JSON line traffic
-	audioCmd   = 0x50
+	audioCmd   = 0x40
 	audioMagic = 0xA5
 	audioMax   = 512 // max PCM payload bytes per frame
 )
