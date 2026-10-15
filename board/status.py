@@ -95,8 +95,10 @@ def show_target_input():
             row(label, BAD, "not present")
             continue
         found_any = True
-        node = os.path.basename(os.path.realpath(matches[0]))
-        detail = node
+        # The kernel's evdev node. Shown in full because a bare "event7" is
+        # not obviously a path, and because the number is not stable -- it
+        # changes whenever the board is re-plugged.
+        detail = os.path.realpath(matches[0])
         if label == "touch":
             try:
                 from test_hid import device_has_mt
@@ -126,6 +128,10 @@ def show_target_input():
     else:
         row("microphone", WARN,
             "not enumerated — the HID board needs a re-plug after flashing")
+
+    if found_any:
+        print("     (event numbers change on re-plug; the stable names live")
+        print("      under /dev/input/by-id/)")
 
 
 # ---------------------------------------------------------------------------
