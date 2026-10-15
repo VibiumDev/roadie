@@ -198,7 +198,14 @@ while True:
                 last_ping = time.monotonic()
             line_buf = ""
         else:
-            line_buf += byte.decode("ascii", "ignore")
+            # No decode(): CircuitPython raises UnicodeError even with the
+            # "ignore" handler, and a desynced audio frame feeds raw PCM
+            # bytes through here. Keep printable ASCII, drop the rest.
+            b = byte[0]
+            if 32 <= b < 127:
+                line_buf += chr(b)
+            if len(line_buf) > 512:
+                line_buf = ""  # runaway binary; a real command fits well under this
 
     # heartbeat ping when idle
     elif time.monotonic() - last_ping >= HEARTBEAT_INTERVAL:
