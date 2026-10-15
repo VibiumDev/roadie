@@ -20,9 +20,9 @@ type fakeSource struct {
 }
 
 func (f *fakeSource) Latest() []byte            { return f.frame }
-func (f *fakeSource) LatestRaw() []byte          { return f.rawFrame }
-func (f *fakeSource) Status() CaptureStatus      { return f.status }
-func (f *fakeSource) CropRect() image.Rectangle  { return f.cropRect }
+func (f *fakeSource) LatestRaw() []byte         { return f.rawFrame }
+func (f *fakeSource) Status() CaptureStatus     { return f.status }
+func (f *fakeSource) CropRect() image.Rectangle { return f.cropRect }
 
 func newTestServer() (*Server, http.Handler) {
 	buf := &FrameBuffer{}

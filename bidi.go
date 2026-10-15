@@ -281,11 +281,11 @@ type bidiPointerParam struct {
 
 type bidiAction struct {
 	Type     string  `json:"type"`               // pointerMove, pointerDown, pointerUp, keyDown, keyUp, pause
-	X        float64 `json:"x,omitempty"`         // pixel coords for pointer
-	Y        float64 `json:"y,omitempty"`         // pixel coords for pointer
-	Button   int     `json:"button,omitempty"`    // 0=left, 1=middle, 2=right
-	Value    string  `json:"value,omitempty"`     // key value for keyDown/keyUp
-	Duration int     `json:"duration,omitempty"`  // pause duration in ms
+	X        float64 `json:"x,omitempty"`        // pixel coords for pointer
+	Y        float64 `json:"y,omitempty"`        // pixel coords for pointer
+	Button   int     `json:"button,omitempty"`   // 0=left, 1=middle, 2=right
+	Value    string  `json:"value,omitempty"`    // key value for keyDown/keyUp
+	Duration int     `json:"duration,omitempty"` // pause duration in ms
 }
 
 func (s *Server) bidiPerformActions(conn *websocket.Conn, ctx context.Context, cmd bidiCommand) {
@@ -708,9 +708,9 @@ var bidiPrintableKeys = map[rune]int{
 	'Y': 28, 'Z': 29,
 	'1': 30, '2': 31, '3': 32, '4': 33, '5': 34,
 	'6': 35, '7': 36, '8': 37, '9': 38, '0': 39,
-	' ':  44,
-	'-':  45, '=': 46, '[': 47, ']': 48, '\\': 49,
-	';':  51, '\'': 52, '`': 53, ',': 54, '.': 55, '/': 56,
+	' ': 44,
+	'-': 45, '=': 46, '[': 47, ']': 48, '\\': 49,
+	';': 51, '\'': 52, '`': 53, ',': 54, '.': 55, '/': 56,
 }
 
 // BiDi special key values (Unicode Private Use Area) to HID keycodes.
