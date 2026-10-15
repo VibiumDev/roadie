@@ -62,8 +62,16 @@ recv_buf = bytearray(MSG_SIZE)
 # restart (~25% gaps at 10 ms frames), so instead one looping sample plays
 # a 200 ms ring forever and incoming PCM is copied in ahead of the read
 # position. The writer starts half a ring ahead; the stream stops (and the
-# ring is zeroed) after 250 ms without frames so stale audio never repeats.
+# ring is zeroed) once frames stop arriving, before the reader can run past
+# the audio it was given and replay it.
 RING_BYTES = 2 * 3200  # 200 ms of 16 kHz S16 mono
+# The writer runs this far ahead of the reader, so this much real audio is
+# queued at any moment. Playback has to stop within it: wait longer and the
+# reader runs past what it was given, wraps, and replays the tail -- audible
+# as a blip after the last note.
+LEAD_BYTES = RING_BYTES // 2
+LEAD_SECS = LEAD_BYTES / 2 / AUDIO_RATE
+QUIET_SECS = LEAD_SECS * 0.8
 ring = bytearray(RING_BYTES)
 ring_mv = memoryview(ring)
 ring_sample = audiocore.RawSample(
@@ -83,7 +91,7 @@ def feed_audio(payload):
         return
     if not streaming:
         ring_mv[:] = bytes(RING_BYTES)
-        wpos = RING_BYTES // 2  # give the writer a half-ring head start
+        wpos = LEAD_BYTES  # give the writer a head start
         mic.play(ring_sample, loop=True)
         streaming = True
     n = len(payload)
@@ -101,7 +109,7 @@ def feed_audio(payload):
 def pump_audio():
     """Stop playback once the stream has gone quiet."""
     global streaming
-    if streaming and time.monotonic() - last_frame_t > 0.25:
+    if streaming and time.monotonic() - last_frame_t > QUIET_SECS:
         mic.stop()
         streaming = False
 
