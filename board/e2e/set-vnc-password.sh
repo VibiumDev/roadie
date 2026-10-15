@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Set the password for watching tests over VNC (make test-e2e-pi-vnc).
+# Set the password for watching tests over VNC (make start-vnc-server).
 #
 # Only the password's obfuscated x11vnc form is stored -- you chose the
 # password, so there is no reason to keep a readable copy of it on disk.
@@ -43,4 +43,4 @@ x11vnc -storepasswd "$password" "$PASSWD_FILE" >/dev/null 2>&1 || {
 }
 chmod 600 "$PASSWD_FILE"
 
-echo "✅ Saved. Use it in your viewer when you run 'make test-e2e-pi-vnc'."
+echo "✅ Saved. Use it in your viewer after 'make start-vnc-server'."

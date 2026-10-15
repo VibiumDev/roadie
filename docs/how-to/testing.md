@@ -15,25 +15,18 @@ so the input it injects comes back here.
 None of them need a monitor: `make test-hid` uses no display at all, and
 `make test-e2e-pi` creates its own.
 
-## Watching a run
+## Watching the tests
 
-Set a password once per machine:
-
-```bash
-make set-vnc-password
-```
-
-Then:
+Set a password once per machine, then start a display and leave it running:
 
 ```bash
-make test-e2e-pi-vnc
+make set-vnc-password     # once
+make start-vnc-server
+#   📺 Watch at: 10.1.10.105:5934
 ```
 
-It prints an address and waits for you to connect before running anything:
-
-```
-📺 Watch the test at:  10.1.10.105:5934
-```
+Connect a viewer to that address once and leave it open. Every test run from
+then on appears in it — runs reuse this display instead of making their own:
 
 | Your machine | Connect with |
 |--------------|--------------|
@@ -41,9 +34,16 @@ It prints an address and waits for you to connect before running anything:
 | Linux | `remmina`, or `xtightvncviewer 10.1.10.105:5934` |
 | Windows | RealVNC Viewer or TigerVNC |
 
+```bash
+make vnc-status          # is it up? is anything watching?
+make stop-vnc-server
+```
+
 The port is always 5934, so save the address and password in your viewer once.
-The connection is view-only — a stray click would steal focus and break the
-run.
+The connection is view-only — a stray click would steal focus and break a run.
+
+If no server is running, `make test-e2e-pi` quietly makes its own throwaway
+display and cleans it up, so tests work the same in CI or over ssh.
 
 Worth watching: the page draws what it receives, so you can see *why* a check
 failed rather than just that it did.

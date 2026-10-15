@@ -5,7 +5,7 @@ BINARY = roadie
 #   make flash-hid CP_VERSION=latest
 CP_VERSION ?= 10.3.1
 
-.PHONY: build test setup uninstall flash-relay flash-hid flash-relay-quick flash-hid-quick sync sync-hid sync-relay set-vnc-password test-hid test-hid-quick test-audio test-e2e-pi test-e2e-pi-vnc test-e2e-android test-e2e-iphone test-e2e-pc clean
+.PHONY: build test setup uninstall flash-relay flash-hid flash-relay-quick flash-hid-quick sync sync-hid sync-relay set-vnc-password start-vnc-server stop-vnc-server vnc-status test-hid test-hid-quick test-audio test-e2e-pi test-e2e-android test-e2e-iphone test-e2e-pc clean
 
 build:
 	go build -o $(BINARY) .
@@ -96,15 +96,17 @@ test-e2e-pi:
 set-vnc-password:
 	board/e2e/set-vnc-password.sh
 
-# Watch it happen: the isolated display is served over VNC, and the run waits
-# until a viewer actually connects. Works with or without a monitor attached.
-# See docs/how-to/testing.md.
-#
-# (To run on an attached monitor instead, set ROADIE_E2E_USE_ATTACHED=1. There
-# is no make target for it because input then goes wherever focus is, which
-# can drop the test's keystrokes into your desktop.)
-test-e2e-pi-vnc:
-	ROADIE_E2E_VNC=1 board/e2e/ensure-display.sh python3 board/test_e2e.py --target pi
+# Start a long-lived display you can watch over VNC. Connect your viewer
+# once and leave it: test runs reuse this display instead of creating their
+# own, so every run appears without reconnecting.
+start-vnc-server:
+	board/e2e/vnc-server.sh start
+
+stop-vnc-server:
+	board/e2e/vnc-server.sh stop
+
+vnc-status:
+	board/e2e/vnc-server.sh status
 
 test-e2e-android:
 	python3 board/test_e2e.py --target android

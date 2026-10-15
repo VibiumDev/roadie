@@ -138,7 +138,7 @@ make                  # build binary
 make test             # Go tests
 make test-hid         # do the boards inject correct input?
 make test-e2e-pi      # full stack into a browser on this machine
-make test-e2e-pi-vnc  # same, but watch it over VNC while it runs
+make start-vnc-server # a display to watch test runs in
 make test-e2e-android # full stack into Chrome on an Android phone
 make test-e2e-iphone  # full stack into Safari on an iPhone
 make clean            # remove binary
