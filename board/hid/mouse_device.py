@@ -1,3 +1,12 @@
+# UNUSED -- kept for reference, not run by either board.
+#
+# This was tried in place of the absolute_mouse library (2a2c9b8) and
+# reverted in 336e425 because it caused problems; that commit kept the file
+# on purpose. boot.py and code.py both take their mouse from the library,
+# and nothing imports this module. Note that boot.py's
+# "from absolute_mouse.descriptor import device as mouse_device" is an alias
+# for the library's descriptor, not a reference to this file.
+#
 # Custom absolute mouse for USB HID.
 # Descriptor matches the known-working zero-hid/TinyPilot pattern:
 #   - No nested Pointer/Physical collection
