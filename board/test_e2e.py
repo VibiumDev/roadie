@@ -516,8 +516,15 @@ class Suite:
                         f"page saw pointerdown+pointerup "
                         f"(button {down[0]['button']}, pointerType {kinds})")
         else:
+            # Say what did turn up, so a failure points somewhere.
+            kinds = {}
+            for e in evs:
+                kinds[e.get("kind")] = kinds.get(e.get("kind"), 0) + 1
+            seen = ", ".join(f"{k}x{v}" for k, v in sorted(kinds.items())) \
+                or "nothing at all"
             self.record("mouse click", False,
-                        f"pointerdown={len(down)} pointerup={len(up)}")
+                        f"pointerdown={len(down)} pointerup={len(up)}; "
+                        f"page received: {seen}")
 
     def leg_keyboard(self, text):
         self.collector.drain()

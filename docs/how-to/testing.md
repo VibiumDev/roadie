@@ -183,6 +183,8 @@ ROADIE_E2E_RESOLUTION=1920x1080 make test-e2e-pi    # bigger virtual screen
 | `Could not open any HID input device` | run `make setup`, then log out and back in |
 | multi-touch reported as skipped | expected: roadie's udev rule makes this host single-touch |
 | every check fails | check the TX/RX/GND jumpers between the boards |
+| clicks do nothing, but the pointer still moves | input is stuck — run `make unstick` |
+| a menu on the desktop will not close | the same; `make unstick` |
 | `make test-audio` finds no signal | the HID board needs a physical re-plug after flashing |
 | viewer shows black | the run finished and tore the display down |
 

@@ -141,6 +141,13 @@ window.addEventListener('pointermove', (e) => {
   });
 });
 
+for (const type of ['mousedown', 'mouseup', 'click']) {
+  window.addEventListener(type, (e) => {
+    paint('m', `${type} btn=${e.button} @${e.clientX},${e.clientY}`);
+    report(type, {clientX: e.clientX, clientY: e.clientY, button: e.button});
+  });
+}
+
 for (const type of ['pointerdown', 'pointerup']) {
   window.addEventListener(type, (e) => {
     bannerEl.style.display = 'none';

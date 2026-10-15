@@ -5,7 +5,7 @@ BINARY = roadie
 #   make flash-hid CP_VERSION=latest
 CP_VERSION ?= 10.3.1
 
-.PHONY: build test setup uninstall flash-relay flash-hid flash-relay-quick flash-hid-quick sync sync-hid sync-relay status set-vnc-password start-vnc-server stop-vnc-server vnc-status test-hid test-hid-quick test-audio test-audio-serial test-audio-api test-audio-browser test-e2e-pi test-e2e-android test-e2e-iphone test-e2e-pc clean
+.PHONY: build test setup uninstall flash-relay flash-hid flash-relay-quick flash-hid-quick sync sync-hid sync-relay status unstick set-vnc-password start-vnc-server stop-vnc-server vnc-status test-hid test-hid-quick test-audio test-audio-serial test-audio-api test-audio-browser test-e2e-pi test-e2e-android test-e2e-iphone test-e2e-pc clean
 
 build:
 	go build -o $(BINARY) .
@@ -90,6 +90,11 @@ test-audio-browser:
 # what comes back from the target, and this machine's audio and displays.
 status:
 	python3 board/status.py
+
+# Recover from a button or contact left held, and from an X server that has
+# stopped delivering that device's clicks.
+unstick:
+	board/unstick.sh
 
 # Board-level: do the two boards inject correct input? Reads this machine's
 # own /dev/input, so it only makes sense with the HID board plugged in here.

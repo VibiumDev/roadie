@@ -133,8 +133,7 @@ def show_target_input():
         stuck = held_buttons()
         if stuck:
             row("stuck", WARN,
-                f"{', '.join(stuck)} still held — run 'make test-hid' to "
-                "clear it")
+                f"{', '.join(stuck)} still held — run 'make unstick'")
         print("     (event numbers change on re-plug; the stable names live")
         print("      under /dev/input/by-id/)")
 
