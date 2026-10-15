@@ -369,7 +369,11 @@ class Browser:
                 "--disable-infobars",
                 "--noerrdialogs",
                 "--disable-translate",
+                # Keeps Chromium away from the login keyring, which would
+                # otherwise raise an "Unlock Login Keyring" prompt that
+                # steals focus mid-test.
                 "--password-store=basic",
+                "--use-mock-keychain",
                 # Make sure the digitizer is treated as a real touch device.
                 "--touch-events=enabled",
                 "--window-position=0,0",

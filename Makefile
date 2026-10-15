@@ -5,7 +5,7 @@ BINARY = roadie
 #   make flash-hid CP_VERSION=latest
 CP_VERSION ?= 10.3.1
 
-.PHONY: build test setup uninstall flash-relay flash-hid flash-relay-quick flash-hid-quick sync sync-hid sync-relay status set-vnc-password start-vnc-server stop-vnc-server vnc-status test-hid test-hid-quick test-audio test-e2e-pi test-e2e-android test-e2e-iphone test-e2e-pc clean
+.PHONY: build test setup uninstall flash-relay flash-hid flash-relay-quick flash-hid-quick sync sync-hid sync-relay status set-vnc-password start-vnc-server stop-vnc-server vnc-status test-hid test-hid-quick test-audio test-audio-api test-audio-browser test-e2e-pi test-e2e-android test-e2e-iphone test-e2e-pc clean
 
 build:
 	go build -o $(BINARY) .
@@ -69,9 +69,19 @@ sync-relay:
 sync-hid:
 	python3 board/install.py hid --sync
 
-# Voice input: PCM over the data port to the HID board's USB microphone.
+# Voice input, at three depths, so a failure says which layer broke:
+# straight at the relay's serial port, through roadie's /audio-in WebSocket,
+# and from a real browser's microphone (Chromium plays the tune into a fake
+# mic). All three end the same way: recorded back off the HID board's USB
+# microphone and checked note by note.
 test-audio:
-	python3 board/test_audio.py
+	python3 board/test_audio.py --via serial
+
+test-audio-api:
+	python3 board/test_audio.py --via api
+
+test-audio-browser:
+	board/e2e/ensure-display.sh python3 board/test_audio.py --via browser
 
 # One look at everything roadie talks to: boards, the input it can drive,
 # what comes back from the target, and this machine's audio and displays.

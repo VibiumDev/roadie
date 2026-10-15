@@ -1,26 +1,34 @@
 #!/usr/bin/env python3
 """
-Audio path test: stream a 1 kHz tone through the relay and verify it
-comes out the HID board's USB microphone.
+Audio path test: stream a tune to the target and verify it comes out the
+HID board's USB microphone.
 
-  Pi → serial audio frames → Relay → UART → HID → usb_audio mic → Pi (arecord)
+The same audio can be sent three ways, so a failure says which layer broke:
+
+  --via serial   Pi → relay's serial port → UART → HID → mic → Pi
+  --via api      Pi → roadie's /audio-in WebSocket → (as above)
+  --via browser  a real browser's microphone → /audio-in → (as above)
 
 Usage:
-    python3 board/test_audio.py
+    python3 board/test_audio.py --via serial
 
 Requires both boards plugged into the Pi via USB and connected over
 UART (TX/RX/GND). The HID board's mic must enumerate (ALSA card
 "RoadieHID" — CircuitPython 10.3+ with usb_audio enabled in boot.py).
 """
 
+import argparse
+import base64
 import glob
 import math
 import os
+import socket
 import struct
 import subprocess
 import sys
 import time
 import wave
+from pathlib import Path
 
 import serial
 
@@ -65,12 +73,30 @@ def make_tone():
     return bytes(out)
 
 
-def _pitch(chunk, rate):
-    """Frequency of a chunk, from its zero-crossing rate."""
+def _zero_crossing_hz(chunk, rate):
     if len(chunk) < 2:
         return 0.0
     crossings = sum(1 for a, b in zip(chunk, chunk[1:]) if (a < 0) != (b < 0))
     return crossings * rate / (2.0 * len(chunk))
+
+
+def _pitch(chunk, rate):
+    """Frequency of a note, as the median over short sub-windows.
+
+    A single measurement across the whole note is easily dragged off by its
+    edges, and how cleanly a note starts and stops varies by path -- a
+    browser hands over audio in chunks of its own, so the boundaries land
+    where they land. Most sub-windows sit inside the note and agree; the
+    median ignores the few that straddle an edge.
+    """
+    sub = int(rate * 0.03)  # 30 ms
+    if len(chunk) < sub * 3:
+        return _zero_crossing_hz(chunk, rate)
+    readings = sorted(
+        _zero_crossing_hz(chunk[off:off + sub], rate)
+        for off in range(0, len(chunk) - sub, sub)
+    )
+    return readings[len(readings) // 2]
 
 
 def analyze(path):
@@ -117,6 +143,58 @@ def analyze(path):
     return peak, notes
 
 
+class AudioSocket:
+    """Minimal WebSocket client for /audio-in.
+
+    Only what this needs: an upgrade handshake and masked binary frames.
+    roadie never replies on this endpoint, so no read path is required.
+    """
+
+    def __init__(self, host, port, path="/audio-in"):
+        key = base64.b64encode(os.urandom(16)).decode()
+        self.sock = socket.create_connection((host, port), timeout=10)
+        self.sock.sendall(
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {host}:{port}\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\n"
+            "Sec-WebSocket-Version: 13\r\n\r\n".encode()
+        )
+        response = b""
+        while b"\r\n\r\n" not in response:
+            chunk = self.sock.recv(4096)
+            if not chunk:
+                raise OSError("server closed during the handshake")
+            response += chunk
+        if b"101" not in response.split(b"\r\n")[0]:
+            raise OSError(f"upgrade refused: {response.splitlines()[0]!r}")
+
+    def send(self, payload):
+        """Send one binary frame."""
+        header = bytearray([0x82])  # FIN + binary
+        n = len(payload)
+        if n < 126:
+            header.append(0x80 | n)
+        elif n < 1 << 16:
+            header.append(0x80 | 126)
+            header += struct.pack(">H", n)
+        else:
+            header.append(0x80 | 127)
+            header += struct.pack(">Q", n)
+        mask = os.urandom(4)
+        header += mask
+        masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+        self.sock.sendall(bytes(header) + masked)
+
+    def close(self):
+        try:
+            self.sock.sendall(b"\x88\x80" + os.urandom(4))  # close frame
+        except OSError:
+            pass
+        self.sock.close()
+
+
 def playback_hint():
     """Say how to listen to the capture, including from another machine.
 
@@ -138,19 +216,150 @@ def playback_hint():
         print(f"     are. To listen locally:  scp {user}@{host}:{WAV_PATH} .")
 
 
-def main():
-    data_port = glob.glob("/dev/serial/by-id/usb-Adafruit_Roadie-Relay_*-if02")
-    if not data_port:
-        print("❌ Relay data port not found.")
+def pace(index, t0):
+    """Hold each frame to real time, so the board's queue can't overflow."""
+    target = t0 + (index + 1) * FRAME_SAMPLES / AUDIO_RATE
+    delay = target - time.monotonic()
+    if delay > 0:
+        time.sleep(delay)
+
+
+def stream_serial(pcm):
+    """Straight at the relay's serial port: no roadie, no browser."""
+    ports = glob.glob("/dev/serial/by-id/usb-Adafruit_Roadie-Relay_*-if02")
+    if not ports:
+        print("  ❌ Relay data port not found.")
+        sys.exit(1)
+    port = serial.Serial(ports[0], 115200, timeout=2)
+    time.sleep(0.3)
+    frame_bytes = FRAME_SAMPLES * 2
+    t0 = time.monotonic()
+    for i in range(0, len(pcm), frame_bytes):
+        port.write(bytes([AUDIO_LEAD]) + pack_audio(pcm[i:i + frame_bytes]))
+        pace(i // frame_bytes, t0)
+    port.close()
+
+
+def stream_api(pcm, base):
+    """Through roadie's /audio-in WebSocket, as the viewer's mic does."""
+    host, _, port = base.split("//", 1)[1].partition(":")
+    ws = AudioSocket(host, int(port or 80))
+    frame_bytes = FRAME_SAMPLES * 2
+    t0 = time.monotonic()
+    try:
+        for i in range(0, len(pcm), frame_bytes):
+            ws.send(pcm[i:i + frame_bytes])
+            pace(i // frame_bytes, t0)
+    finally:
+        ws.close()
+
+
+def stream_browser(pcm, base, notes, record_secs):
+    """Through a real browser's microphone.
+
+    Chromium can play a wav file in place of a microphone, so the "voice"
+    is the same motif and still arrives the way a person's would: captured
+    by getUserMedia, converted to PCM in the page, and sent to roadie over
+    the /audio-in WebSocket.
+    """
+    import http.server
+    import shutil
+    import tempfile
+    import threading
+
+    page = Path(__file__).resolve().parent / "e2e" / "mic-page.html"
+    if not page.exists():
+        print(f"  ❌ Missing {page}")
         sys.exit(1)
 
-    pcm = make_tone()
-    data = serial.Serial(data_port[0], 115200, timeout=2)
-    time.sleep(0.3)
+    # Chromium starts playing the fake capture file as soon as the page is
+    # granted the microphone, which is before it has connected and started
+    # sending. A second of lead-in silence means the motif still begins
+    # after we are recording. The trailing silence stops the file looping
+    # back round into the tune mid-capture.
+    lead = b"\x00\x00" * int(AUDIO_RATE * 1.0)
+    fake_wav = Path(tempfile.mkdtemp(prefix="roadie-mic-")) / "voice.wav"
+    with wave.open(str(fake_wav), "w") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(AUDIO_RATE)
+        w.writeframes(lead + pcm + b"\x00\x00" * int(AUDIO_RATE * 8))
 
-    # Round up: truncating here eats the margin, and the note that would be
-    # clipped is the sustained one at the end.
-    record_secs = math.ceil(TONE_SECS + 2)
+    events = []
+    html = page.read_bytes()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(html)))
+            self.end_headers()
+            self.wfile.write(html)
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(length)
+            self.send_response(204)
+            self.end_headers()
+            events.append(body)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    host_port = base.split("//", 1)[1]
+    url = (f"http://127.0.0.1:{server.server_address[1]}/"
+           f"?roadie={host_port}")
+
+    browser = shutil.which("chromium") or shutil.which("chromium-browser")
+    if not browser:
+        print("  ❌ chromium not found (needed to drive a real microphone)")
+        sys.exit(1)
+
+    profile = tempfile.mkdtemp(prefix="roadie-mic-profile-")
+    print(f"  🔊 Browser microphone plays {TONE_SECS:.1f}s — {notes}")
+    proc = subprocess.Popen(
+        [browser, "--kiosk", f"--user-data-dir={profile}",
+         "--no-first-run", "--no-default-browser-check", "--noerrdialogs",
+         # Without these Chromium reaches for the login keyring and the
+         # desktop puts up an "Unlock Login Keyring" prompt, which steals
+         # focus from whatever is being tested.
+         "--password-store=basic", "--use-mock-keychain",
+         # Grant the mic without a prompt, and make it play our file.
+         "--use-fake-ui-for-media-stream",
+         "--use-fake-device-for-media-stream",
+         f"--use-file-for-fake-audio-capture={fake_wav}",
+         "--autoplay-policy=no-user-gesture-required",
+         url],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    rec = None
+    try:
+        print("  ⏳ Waiting for the browser to open its microphone...")
+        deadline = time.monotonic() + 45
+        while time.monotonic() < deadline and not events:
+            time.sleep(0.2)
+        if not events:
+            print("  ⚠️  The page never reported in; is a display available?")
+            return None
+        # Now that audio is actually flowing, start listening.
+        rec = record(record_secs)
+        rec.wait()
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        server.shutdown()
+        shutil.rmtree(profile, ignore_errors=True)
+        shutil.rmtree(fake_wav.parent, ignore_errors=True)
+    return rec
+
+
+def record(record_secs):
+    """Start capturing from the HID board's microphone."""
     print(f"  🎙️  Recording {record_secs}s from ALSA card RoadieHID...")
     rec = subprocess.Popen(
         ["arecord", "-q", "-D", "plughw:RoadieHID", "-f", "S16_LE",
@@ -158,21 +367,54 @@ def main():
          "-d", str(record_secs), WAV_PATH],
     )
     time.sleep(0.8)  # let capture spin up
+    return rec
 
-    print(f"  🔊 Streaming {TONE_SECS:.1f}s — "
-          f"{' '.join(n for n, _, _ in MOTIF)} — in 10 ms frames...")
-    frame_bytes = FRAME_SAMPLES * 2
-    t0 = time.monotonic()
-    for i in range(0, len(pcm), frame_bytes):
-        data.write(bytes([AUDIO_LEAD]) + pack_audio(pcm[i:i + frame_bytes]))
-        # pace to real time so the board's playout queue never overflows
-        target = t0 + (i // frame_bytes + 1) * FRAME_SAMPLES / AUDIO_RATE
-        delay = target - time.monotonic()
-        if delay > 0:
-            time.sleep(delay)
 
-    rec.wait()
-    data.close()
+def main():
+    parser = argparse.ArgumentParser(
+        description="Check the audio path to the target's microphone.")
+    parser.add_argument("--via", default="serial",
+                        choices=["serial", "api", "browser"],
+                        help="which layer to send the audio through")
+    parser.add_argument("--roadie", default="http://127.0.0.1:8080",
+                        help="base URL of a running roadie (api/browser)")
+    args = parser.parse_args()
+
+    pcm = make_tone()
+    # Round up: truncating here eats the margin, and the note that would be
+    # clipped is the sustained one at the end.
+    record_secs = math.ceil(TONE_SECS + 2)
+    notes = " ".join(n for n, _, _ in MOTIF)
+
+    roadie = None
+    if args.via in ("api", "browser"):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from test_e2e import Roadie
+        roadie = Roadie(args.roadie)
+        base = roadie.ensure()
+
+    try:
+        if args.via == "serial":
+            print(f"  🎯 Path: this script → relay serial → UART → HID → mic")
+            rec = record(record_secs)
+            print(f"  🔊 Streaming {TONE_SECS:.1f}s — {notes} — in 10 ms frames...")
+            stream_serial(pcm)
+        elif args.via == "api":
+            print(f"  🎯 Path: this script → roadie /audio-in → relay → HID → mic")
+            rec = record(record_secs)
+            print(f"  🔊 Streaming {TONE_SECS:.1f}s — {notes} — in 10 ms frames...")
+            stream_api(pcm, base)
+        else:
+            print(f"  🎯 Path: browser mic → roadie /audio-in → relay → HID → mic")
+            # It records itself, once the browser is actually streaming.
+            if stream_browser(pcm, base, notes, record_secs) is None:
+                sys.exit(1)
+            rec = None
+        if rec is not None:
+            rec.wait()
+    finally:
+        if roadie:
+            roadie.stop()
 
     peak, heard = analyze(WAV_PATH)
 

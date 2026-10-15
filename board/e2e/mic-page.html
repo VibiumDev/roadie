@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>roadie voice input</title>
+<style>
+  body { font-family: ui-monospace, monospace; background:#10131a; color:#e8ecf4;
+         display:flex; flex-direction:column; align-items:center;
+         justify-content:center; height:100vh; margin:0; gap:1rem; }
+  #state { font-size:1.4rem; }
+  #level { width:60%; height:18px; background:#1b2030; border:1px solid #2d3650; }
+  #bar { height:100%; width:0; background:#7effb2; transition:width .05s; }
+  #log { font-size:.8rem; color:#5c6a8a; }
+</style>
+</head>
+<body>
+<h1>🎸 roadie voice input</h1>
+<div id="state">starting…</div>
+<div id="level"><div id="bar"></div></div>
+<div id="log"></div>
+<script>
+// Captures the microphone and streams it to roadie's /audio-in as 16-bit
+// PCM, the same shape the viewer's mic button sends. Under test the
+// microphone is a file Chromium plays back, so the audio is known.
+const params = new URLSearchParams(location.search);
+const target = params.get('roadie');     // e.g. 127.0.0.1:8080
+const RATE = 16000;
+const stateEl = document.getElementById('state');
+const barEl = document.getElementById('bar');
+const logEl = document.getElementById('log');
+
+function report(what, extra) {
+  fetch('/report', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(Object.assign({event: what}, extra || {})),
+    keepalive: true,
+  }).catch(() => {});
+}
+
+function say(text) { stateEl.textContent = text; logEl.textContent = text; }
+
+(async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {channelCount: 1, sampleRate: RATE,
+              echoCancellation: false, noiseSuppression: false,
+              autoGainControl: false},
+    });
+
+    const ws = new WebSocket('ws://' + target + '/audio-in');
+    ws.binaryType = 'arraybuffer';
+    await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+    say('streaming');
+    report('open');
+
+    const ctx = new AudioContext({sampleRate: RATE});
+    const src = ctx.createMediaStreamSource(stream);
+    // ScriptProcessor is deprecated but needs no module loading, which keeps
+    // this page a single file with nothing to serve alongside it.
+    const node = ctx.createScriptProcessor(1024, 1, 1);
+    let sent = 0;
+    node.onaudioprocess = (e) => {
+      const input = e.inputBuffer.getChannelData(0);
+      const pcm = new Int16Array(input.length);
+      let peak = 0;
+      for (let i = 0; i < input.length; i++) {
+        const v = Math.max(-1, Math.min(1, input[i]));
+        pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+        peak = Math.max(peak, Math.abs(v));
+      }
+      barEl.style.width = Math.round(peak * 100) + '%';
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(pcm.buffer);
+        sent += pcm.length;
+        if (sent % (RATE / 2) < input.length) report('sent', {samples: sent});
+      }
+    };
+    src.connect(node);
+    node.connect(ctx.destination);
+  } catch (err) {
+    say('failed: ' + err);
+    report('error', {message: String(err)});
+  }
+})();
+</script>
+</body>
+</html>
