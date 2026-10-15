@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -227,5 +230,58 @@ func TestSelectRelay(t *testing.T) {
 				t.Errorf("selectRelay(%q) = %v, want %v", tt.filter, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestAudioConstants checks the audio frame constants in this package
+// against board/shared/protocol.py, which is what the boards actually run.
+//
+// The two are separate declarations of one wire format, and a comment
+// asking for them to match is not enough: renumbering CMD_AUDIO in the
+// Python moved the boards but not the server, and the only symptom was
+// audio arriving through the relay's serial port (pure Python) while every
+// path through the server went silent.
+func TestAudioConstants(t *testing.T) {
+	const pyPath = "board/shared/protocol.py"
+	body, err := os.ReadFile(pyPath)
+	if err != nil {
+		t.Fatalf("cannot read %s: %v", pyPath, err)
+	}
+
+	// Pull out "NAME = 0x40" / "NAME = 512" definitions.
+	defs := map[string]int64{}
+	re := regexp.MustCompile(`(?m)^([A-Z_][A-Z0-9_]*)\s*=\s*(0[xX][0-9A-Fa-f]+|\d+)\s*(?:#.*)?$`)
+	for _, m := range re.FindAllStringSubmatch(string(body), -1) {
+		v, err := strconv.ParseInt(m[2], 0, 64)
+		if err != nil {
+			continue
+		}
+		defs[m[1]] = v
+	}
+	if len(defs) == 0 {
+		t.Fatalf("parsed no constants out of %s", pyPath)
+	}
+
+	for _, tt := range []struct {
+		pyName string
+		goName string
+		goVal  int64
+	}{
+		{"CMD_AUDIO", "audioCmd", audioCmd},
+		{"AUDIO_MAGIC", "audioMagic", audioMagic},
+		{"AUDIO_LEAD", "audioLead", audioLead},
+		{"AUDIO_MAX", "audioMax", audioMax},
+	} {
+		want, ok := defs[tt.pyName]
+		if !ok {
+			t.Errorf("%s is no longer defined in %s; %s has nothing to "+
+				"match", tt.pyName, pyPath, tt.goName)
+			continue
+		}
+		if tt.goVal != want {
+			t.Errorf("%s = %#x but %s = %#x in %s — the server and the "+
+				"boards disagree about the wire format", tt.goName,
+				tt.goVal, tt.pyName, want, pyPath)
+		}
 	}
 }
