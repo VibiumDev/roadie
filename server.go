@@ -1375,6 +1375,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if mode := s.effectiveInputMode(); mode != "" {
 		resp["input_mode"] = mode
 	}
+	if s.HID != nil && s.HID.Status() == HIDConnected && !s.HID.BoardResponding() {
+		resp["hid_board"] = "not_answering"
+	}
 	if s.Platform != "" {
 		resp["platform"] = string(s.Platform)
 		resp["pointer_space"] = s.Platform.PointerSpace()
@@ -2449,6 +2452,12 @@ func (s *Server) handleHIDStatus(w http.ResponseWriter, r *http.Request) {
 			if serial := s.HID.Serial(); serial != "" {
 				resp["serial"] = serial
 			}
+		}
+		// Reaching the relay is not the same as reaching the board behind
+		// it. An unpowered target leaves the relay perfectly healthy while
+		// nothing at all arrives at the phone.
+		if status == string(HIDConnected) && !s.HID.BoardResponding() {
+			resp["board"] = "not_answering"
 		}
 	}
 	resp["status"] = status

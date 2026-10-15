@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -82,6 +83,11 @@ type HIDController struct {
 	port   io.WriteCloser
 	status atomic.Value // stores HIDStatus
 	path   atomic.Value // stores string: the bound serial port path
+
+	// boardSilent records that the relay is answering but the HID board
+	// behind it is not. That is a fault at the far end of the UART, not in
+	// the relay, and resetting the relay would fix nothing.
+	boardSilent atomic.Bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -169,6 +175,17 @@ func (hc *HIDController) Run() {
 				}
 
 				if err := hc.pingRoundTrip(2 * time.Second); err != nil {
+					if errors.Is(err, errHIDBoardSilent) {
+						// The relay is healthy, so none of the recovery
+						// below applies. Usually this means the target is
+						// not powering the HID board.
+						if !hc.boardSilent.Swap(true) {
+							log.Printf("HID board is not answering the " +
+								"relay (is the target powering it?)")
+						}
+						missed = 0
+						continue
+					}
 					missed++
 					log.Printf("HID relay did not answer (%d/%d): %v",
 						missed, relayMissedPingLimit, err)
@@ -208,6 +225,9 @@ func (hc *HIDController) Run() {
 					// returns at once.
 					hc.closePort()
 					break
+				}
+				if hc.boardSilent.Swap(false) {
+					log.Printf("HID board is answering again")
 				}
 				if missed > 0 || attempts > 0 {
 					log.Printf("HID relay is answering again")
@@ -276,6 +296,13 @@ func (hc *HIDController) Shutdown() {
 	}
 }
 
+// BoardResponding reports whether the HID board behind the relay is
+// acking. False means the relay is reachable but the board is not, which
+// is what an unpowered target looks like from here.
+func (hc *HIDController) BoardResponding() bool {
+	return !hc.boardSilent.Load()
+}
+
 // Status returns the current connection status.
 func (hc *HIDController) Status() HIDStatus {
 	return hc.status.Load().(HIDStatus)
@@ -323,6 +350,12 @@ func (hc *HIDController) Ping() error {
 	return hc.sendJSON(map[string]any{"cmd": "ping"})
 }
 
+// errHIDBoardSilent means the relay answered but the HID board behind it
+// did not. The relay reports this itself: it waits out its own 1s UART
+// timeout and replies {"ok":false}. The two failures need telling apart,
+// because only one of them is the relay's fault.
+var errHIDBoardSilent = errors.New("the HID board is not answering the relay")
+
 // pingRoundTrip sends a ping and waits for the relay's answer.
 //
 // Writing alone proves only that the port still exists. A relay that is
@@ -369,8 +402,11 @@ func (hc *HIDController) pingRoundTrip(timeout time.Duration) error {
 			break // read timed out
 		}
 		line = append(line, buf[:n]...)
-		if bytes.Contains(line, []byte("\"ok\"")) {
+		if bytes.Contains(line, []byte(`"ok":true`)) {
 			return nil
+		}
+		if bytes.Contains(line, []byte(`"ok":false`)) {
+			return errHIDBoardSilent
 		}
 		if len(line) > 4096 {
 			break
