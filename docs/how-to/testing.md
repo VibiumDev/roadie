@@ -15,6 +15,71 @@ so the input it injects comes back here.
 None of them need a monitor: `make test-hid` uses no display at all, and
 `make test-e2e-pi` creates its own.
 
+## What the browser test actually does
+
+![The test page at the end of a run](../screenshots/e2e-test-page.png)
+
+That is the page at the end of a run: the cyan ring is where the pointer was
+left, `roadie e2e 123` is the text that arrived as real keystrokes, and the
+log on the right is every event the page received — `touchstart` at
+`199,359`, `wheel dy=600`, a `keydown` per character, and `pen` pointer
+events (Chromium reports the absolute-positioning HID device as a pen rather
+than a mouse).
+
+`make test-e2e-pi` stands up two small servers and a browser:
+
+- **roadie** — reuses one already serving on `:8080` if there is one, otherwise
+  starts its own on a free port. This is what the test drives, via
+  `POST /api/hid/type`, `/api/hid/mouse/move` and friends.
+- **the harness** — a throwaway HTTP server on `127.0.0.1`, random port. It
+  serves the test page and receives what the page reports back. The page is
+  **not** served by roadie; it lives in `board/e2e/page.html`.
+
+It then opens your desktop's default browser in kiosk mode, sized to the
+screen. The browser is whatever `xdg-settings get default-web-browser` says —
+chromium on a stock Raspberry Pi OS, and Firefox is handled too. It runs with
+a throwaway profile, so your own browser session and tabs are untouched.
+
+A run prints all of it:
+
+```
+✅ Collector listening on http://127.0.0.1:40523/
+✅ roadie is serving at http://127.0.0.1:39871
+✅ Desktop default browser is chromium (chromium.desktop)
+✅ Page ready: screen 800x480, viewport 799x388, dpr 1
+```
+
+Each check sends input through roadie and compares what the page received:
+
+```
+✅ mouse move (32767,32767): page saw screen (799, 479), expected (799, 479)
+✅ keyboard: page assembled 'roadie e2e 123'
+✅ mouse scroll: page saw wheel dy=600
+✅ touch: page saw touchstart at screen (199, 359), expected (200, 359)
+```
+
+Coordinates are compared in **screen pixels**, so HID's 0–32767 range is
+checked against the real display geometry rather than taken on trust.
+
+### Seeing the page yourself
+
+The harness's server only lives for the duration of a run, so its URL dies
+with it. Two ways to look at the page:
+
+```bash
+# leave the browser open after the checks finish
+python3 board/test_e2e.py --target pi --keep-open
+
+# or just open the page on its own
+chromium board/e2e/page.html
+```
+
+Opened on its own it still works as a live input monitor: it has no external
+dependencies, and its attempts to report back fail harmlessly. So you can
+point the HID board at this machine, open the page, and watch keystrokes,
+pointer moves and touches arrive — a cursor ring, a touch blob, the typed
+text, and a running event log.
+
 ## Watching the tests
 
 `make test-e2e-pi` runs on this machine's desktop and **takes over the screen**
