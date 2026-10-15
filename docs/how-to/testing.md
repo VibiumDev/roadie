@@ -218,6 +218,19 @@ where it was asked to, that they move independently (a pinch separates them),
 and that both lift. It is the one test that cannot run alongside the others —
 it needs the mouse device gone — which is why `make test` leaves it out.
 
+`make test-multitouch` also drives a browser. Checking at `/dev/input` says
+the kernel tracked two contacts; it says nothing about whether a page ever
+hears about them. The browser half plays a pinch and a twist at
+[`/gestures`](#trying-gestures-by-hand) and checks the guitar on it actually
+scaled and rotated — so the gesture was *understood*, which is otherwise the
+thing only a phone could tell you.
+
+```
+✅ browser two fingers  page had 2 touches at once
+✅ browser pinch zooms  guitar scaled 1.00x → 2.40x
+✅ browser twist rotates  guitar turned 90°
+```
+
 ### Trying gestures by hand
 
 `/test` has a **Gestures** section: pinch in and out, two-finger scroll, rotate
@@ -225,6 +238,13 @@ and two-finger tap. Each plays a path for two contacts, centred on wherever the
 crosshair is, so you can aim one at something on the target and watch what it
 does. Switch the host with `make multitouch-on` first if the target is this
 machine.
+
+To watch the result, open **`/gestures`** on the target: a guitar that scales
+when you pinch, turns when you twist, and moves when you drag, with the contact
+count and current scale and rotation printed underneath. It is the same page
+`make test-multitouch` drives, so the two cannot drift apart. The guitar is
+drawn rather than an emoji — the system emoji font is bitmap only, so zooming
+one turns it to mush.
 
 ## Testing a phone instead
 
