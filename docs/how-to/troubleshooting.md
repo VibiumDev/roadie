@@ -136,6 +136,25 @@ curl -X POST http://localhost:8080/api/relay/reset   # reset relay board
 **"permission denied" on capture reset**
 Run `make setup` to install the udev rule that grants access to USB unbind/rebind. You may need to unplug/replug the capture dongle once after installing the rule.
 
+## Reaching the Viewer
+
+**"This site can't be reached" / `ERR_ADDRESS_UNREACHABLE` in one browser,
+while another browser and `ping` work**
+
+macOS 15 and later require an app to be granted local network access, and a
+browser without it cannot reach anything on the LAN. Nothing arrives at the
+server at all, so roadie's logs stay empty and it looks like a network fault.
+
+```
+System Settings → Privacy & Security → Local Network → enable the browser
+```
+
+Then quit the browser fully (`Cmd+Q`, not just the window) and reopen it.
+
+What distinguishes this from an actual network problem: `route get <pi-ip>`
+succeeds and names an interface, `ping` works, and another browser loads the
+page — but the server never sees a connection.
+
 ## Voice Input
 
 **The microphone button is greyed out**
