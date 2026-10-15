@@ -136,6 +136,26 @@ curl -X POST http://localhost:8080/api/relay/reset   # reset relay board
 **"permission denied" on capture reset**
 Run `make setup` to install the udev rule that grants access to USB unbind/rebind. You may need to unplug/replug the capture dongle once after installing the rule.
 
+## Voice Input
+
+**The microphone button is greyed out**
+`getUserMedia` needs a secure context, which plain HTTP over the network is
+not. Reaching the viewer at `http://localhost:8080/view` works; reaching it at
+`http://<pi>:8080/view` does not.
+
+To use it over the network anyway, tell the browser to trust that one origin.
+Chrome needs both flags — the second is not optional, and the origin must
+include the scheme:
+
+```bash
+chrome --unsafely-treat-insecure-origin-as-secure=http://roadie.local:8080        --user-data-dir=/tmp/roadie-chrome
+```
+
+A malformed origin here (a missing `p` in `http`, say) leaves Chrome unable to
+reach that host at all, with a plain "site can't be reached" and nothing
+arriving at the server. Chrome warns about the unsupported flag on startup;
+that banner is the clue.
+
 ## Video Capture
 
 **"No capture device found"**
