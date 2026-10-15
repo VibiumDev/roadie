@@ -174,20 +174,6 @@ really starts voice input *when clicked* — as opposed to when a script calls
 `startTalk()`, which is a different claim — and that a hardware click lands
 on the right pixel.
 
-The button's position is read immediately before each click rather than
-worked out once. `/view` reflows while it is open: when roadie picks up a
-capture device the control bar moves down the screen, and a coordinate from
-a few seconds ago clicks whatever has taken that spot.
-
-Chromium's "controlled by automated test software" notice is suppressed, not
-for appearances — it occupies the top of the page and shifts the button down
-by the height of its own bar.
-
-Launching the browser here, rather than letting vibium launch one, is what
-allows the fake microphone flags. It also means vibium never fetches a
-browser of its own, which is the part with no arm64 build — so this works on
-a Pi.
-
 Needs `chromedriver` and node (for `npx vibium`); `make setup` installs both.
 `make test` skips this one if they are missing.
 
@@ -218,12 +204,9 @@ where it was asked to, that they move independently (a pinch separates them),
 and that both lift. It is the one test that cannot run alongside the others —
 it needs the mouse device gone — which is why `make test` leaves it out.
 
-`make test-multitouch` also drives a browser. Checking at `/dev/input` says
-the kernel tracked two contacts; it says nothing about whether a page ever
-hears about them. The browser half plays a pinch and a twist at
-[`/gestures`](#trying-gestures-by-hand) and checks the guitar on it actually
-scaled and rotated — so the gesture was *understood*, which is otherwise the
-thing only a phone could tell you.
+It then plays a pinch and a twist at [`/gestures`](#trying-gestures-by-hand)
+in a browser and checks the guitar there actually scaled and rotated — the
+`/dev/input` checks say the kernel saw two contacts, not that a page did.
 
 ```
 ✅ browser two fingers  page had 2 touches at once
@@ -241,10 +224,8 @@ machine.
 
 To watch the result, open **`/gestures`** on the target: a guitar that scales
 when you pinch, turns when you twist, and moves when you drag, with the contact
-count and current scale and rotation printed underneath. It is the same page
-`make test-multitouch` drives, so the two cannot drift apart. The guitar is
-drawn rather than an emoji — the system emoji font is bitmap only, so zooming
-one turns it to mush.
+count, scale and rotation printed underneath. It is the same page
+`make test-multitouch` drives.
 
 ## Testing a phone instead
 
