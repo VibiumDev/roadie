@@ -71,6 +71,8 @@ KEY_TYPE sends text through `KeyboardLayoutUS.write()`, handling shift and modif
 
 Coordinates are big-endian unsigned 16-bit, range 0-32767. The mouse uses absolute positioning (not relative).
 
+A MOUSE_MOVE to the position the host was last sent emits **two** HID reports, not one: a one-unit step to the side, then the position asked for. A USB HID report identical to the one before it is dropped before it reaches the host, and the host's pointer may no longer be where it was last told — the target can move its own pointer, and a target that has restarted its display server has put it back in the middle of the screen. One unit is 1/32767 of the screen, so nothing moves visibly.
+
 Button mask: `1` = left, `2` = right, `4` = middle (can be OR'd together).
 
 Scroll amount is an unsigned byte interpreted as signed: values > 127 are negative (e.g., 254 = -2). Positive = scroll down, negative = scroll up.
@@ -89,9 +91,13 @@ Each contact is 6 bytes: `id(1) + tip(1) + x_hi(1) + x_lo(1) + y_hi(1) + y_lo(1)
 
 Maximum 2 simultaneous contacts. Send an empty contact list (count=0) to lift all fingers.
 
-### Audio Streaming
+### Audio
 
-Voice input (web app microphone to the target's USB mic) uses a separate variable-length frame so PCM audio does not pay the 32-byte-message + ACK overhead:
+| Code | Name | Payload | Wait |
+|------|------|---------|------|
+| 0x50 | AUDIO | magic(1) + len_hi(1) + len_lo(1) + PCM (max 512 bytes) | no |
+
+Voice input (web app microphone to the target's USB mic) uses a variable-length frame so PCM audio does not pay the 32-byte-message + ACK overhead:
 
 ```
 Byte 0:  0x50 (CMD_AUDIO)
@@ -101,7 +107,9 @@ Byte 3:  payload length, low byte
 Bytes 4+: PCM payload (max 512 bytes)
 ```
 
-Payload is 16 kHz mono signed 16-bit little-endian PCM (must match `usb_audio.enable()` in `board/hid/boot.py`). Audio frames are **unacknowledged** — a lost frame is a brief glitch and retransmission is useless in real time. The HID board plays frames through a looping 200 ms ring buffer behind the USB microphone and stops the stream after 250 ms without frames.
+Payload is 16 kHz mono signed 16-bit little-endian PCM (must match `usb_audio.enable()` in `board/hid/boot.py`). Unlike every other command, audio frames get no response at all — a lost frame is a brief glitch, and retransmission is useless in real time.
+
+The HID board plays frames through a looping 400 ms ring buffer behind the USB microphone (`RING_BYTES` in `board/hid/code.py`). Playback starts once 100 ms has arrived, and 200 ms of silence is kept ahead of the write point, so a frame that arrives late cannot replay audio that has already been heard. The stream stops after 200 ms with no frames.
 
 On the host→relay CDC data port, each audio frame is preceded by a `0x00` lead-in byte, which can never occur in the newline-delimited JSON traffic, so the two streams share the port unambiguously. The relay forwards the frame to the HID board verbatim (without the lead-in).
 
@@ -111,7 +119,7 @@ Commands marked **no** in the Wait column use fire-and-forget mode: the relay se
 
 Commands marked **yes** block until the 2-byte response is received (or UART timeout of 1 second).
 
-The HID board always sends a response regardless of wait mode. Stale responses from no-wait commands are flushed before the next send.
+The HID board always sends a response regardless of wait mode, except for audio frames, which are never acknowledged. Stale responses from no-wait commands are flushed before the next send.
 
 ## JSON Command Format
 
@@ -134,7 +142,7 @@ The relay board accepts newline-delimited JSON on its USB CDC data port. The Go 
 
 `reset_hid` translates to the binary RESET command sent over UART to the HID board. `reset_self` reboots the relay board directly (no UART involved).
 
-`ping` is answered on the same data port with `{"ok":true}` (HID board ACKed over UART) or `{"ok":false}` (no ACK). This is the only message the relay writes to the data port; the reply uses a 0.2 s write timeout so an unread host buffer can never stall the relay. `board/test_circular.py` relies on this reply.
+`ping` is answered on the same data port with `{"ok":true}` (HID board ACKed over UART) or `{"ok":false}` (no ACK). This is the only message the relay writes to the data port; the reply uses a 0.2 s write timeout so an unread host buffer can never stall the relay. `board/test_hid.py` relies on this reply.
 
 ## Heartbeat
 
