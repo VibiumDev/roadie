@@ -1045,7 +1045,16 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     // key events fire-and-forget, so no error surfaces and the next thing
     // typed just comes out wrong.
     var heldKeys = {};
-    function releaseHeldKeys() {
+    function releaseEverythingHeld() {
+      // Buttons and contacts go too. A press whose release never reached
+      // the page -- let go over the toolbar, or with the window no longer
+      // focused -- otherwise leaves the target holding the button down,
+      // which it has no way of knowing it should stop doing.
+      hidSend({cmd:'mouse_release', buttons:7});
+      hidSend({cmd:'touch', contacts:[]});
+      feedPressed = false;
+      pendingContacts = [];
+      touchDirty = false;
       for (var k in heldKeys) hidSend({cmd:'key_release', keycode:parseInt(k, 10)});
       heldKeys = {};
       // The on-screen keyboard latches its own modifiers; clear those too.
@@ -1055,10 +1064,10 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         if (typeof refreshModifierButtons === 'function') refreshModifierButtons();
       }
     }
-    window.addEventListener('blur', releaseHeldKeys);
-    window.addEventListener('pagehide', releaseHeldKeys);
+    window.addEventListener('blur', releaseEverythingHeld);
+    window.addEventListener('pagehide', releaseEverythingHeld);
     document.addEventListener('visibilitychange', function() {
-      if (document.hidden) releaseHeldKeys();
+      if (document.hidden) releaseEverythingHeld();
     });
 
     document.addEventListener('keydown', function(e) {
