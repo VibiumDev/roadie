@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -19,6 +20,45 @@ import (
 )
 
 const relayDataGlob = "/dev/serial/by-id/usb-Adafruit_Roadie-Relay_*-if02"
+
+// relayMissedPingLimit is how many unanswered pings, five seconds apart, mean
+// the board is wedged rather than briefly busy.
+const relayMissedPingLimit = 3
+
+// relayGiveUpDelay is how long to wait between attempts once a restart and a
+// USB reset have both failed, so a board needing hands does not fill the log.
+const relayGiveUpDelay = 60 * time.Second
+
+// softRebootRelay restarts the program on the relay board through its REPL.
+//
+// This is the recovery that actually works. A USB re-enumeration re-opens
+// the port but leaves the microcontroller exactly as it was, so a board that
+// has stopped running its loop stays stopped. Ctrl-C interrupts whatever it
+// is doing and Ctrl-D restarts code.py, which is what a person does at the
+// REPL by hand.
+//
+// The REPL is a second port on the same board, which roadie does not
+// otherwise hold open.
+func softRebootRelay(dataPath string) error {
+	replPath := strings.Replace(dataPath, "-if02", "-if00", 1)
+	if replPath == dataPath {
+		return fmt.Errorf("cannot work out the REPL port from %q", dataPath)
+	}
+	port, err := serial.Open(replPath, &serial.Mode{BaudRate: 115200})
+	if err != nil {
+		return fmt.Errorf("open %s: %w", replPath, err)
+	}
+	defer port.Close()
+	if _, err := port.Write([]byte{0x03}); err != nil { // Ctrl-C
+		return err
+	}
+	time.Sleep(400 * time.Millisecond)
+	if _, err := port.Write([]byte{0x04}); err != nil { // Ctrl-D
+		return err
+	}
+	time.Sleep(2 * time.Second) // let code.py come back up
+	return nil
+}
 
 // HIDStatus represents the connection state of the relay serial port.
 type HIDStatus string
@@ -104,7 +144,10 @@ func (hc *HIDController) Run() {
 		retryDelay = 2 * time.Second
 		log.Printf("HID relay connected: %s", path)
 
-		// Monitor connection: periodic pings detect disconnect.
+		// Monitor the connection. The ping is a round trip: a board that
+		// has stopped running its loop still accepts everything written to
+		// it, so only its answer distinguishes working from wedged.
+		missed, attempts := 0, 0
 		for {
 			select {
 			case <-hc.ctx.Done():
@@ -118,10 +161,44 @@ func (hc *HIDController) Run() {
 					log.Printf("HID relay disconnected")
 					break
 				}
-				if err := hc.Ping(); err != nil {
-					log.Printf("HID relay ping failed: %v", err)
+				if err := hc.pingRoundTrip(2 * time.Second); err != nil {
+					missed++
+					log.Printf("HID relay did not answer (%d/%d): %v",
+						missed, relayMissedPingLimit, err)
+					if missed < relayMissedPingLimit {
+						continue
+					}
+					path, _ := hc.path.Load().(string)
+					attempts++
+					switch attempts {
+					case 1:
+						log.Printf("HID relay is not answering; restarting its program")
+						if err := softRebootRelay(path); err != nil {
+							log.Printf("HID relay soft reboot failed: %v", err)
+						}
+					case 2:
+						log.Printf("HID relay still not answering; re-enumerating it over USB")
+						if err := resetRelayUSB(path); err != nil {
+							log.Printf("HID relay USB reset failed: %v", err)
+						}
+					default:
+						// Beyond this it is not something software can fix,
+						// and retrying every few seconds only fills the log.
+						log.Printf("HID relay is still not answering after a " +
+							"restart and a USB reset — unplug and replug it")
+						select {
+						case <-hc.ctx.Done():
+							port.Close()
+							return
+						case <-time.After(relayGiveUpDelay):
+						}
+					}
 					break
 				}
+				if missed > 0 || attempts > 0 {
+					log.Printf("HID relay is answering again")
+				}
+				missed, attempts = 0, 0
 				continue
 			}
 			break
@@ -193,6 +270,62 @@ func (hc *HIDController) sendJSON(cmd map[string]any) error {
 // Ping sends a ping command to verify the relay is responsive.
 func (hc *HIDController) Ping() error {
 	return hc.sendJSON(map[string]any{"cmd": "ping"})
+}
+
+// pingRoundTrip sends a ping and waits for the relay's answer.
+//
+// Writing alone proves only that the port still exists. A relay that is
+// enumerated but no longer running its loop accepts bytes forever and does
+// nothing with them, which is indistinguishable from health unless the
+// reply is read. The relay answers {"ok":...} on the same port, and that
+// is the only thing it ever writes there.
+func (hc *HIDController) pingRoundTrip(timeout time.Duration) error {
+	hc.mu.Lock()
+	port := hc.port
+	hc.mu.Unlock()
+	if port == nil {
+		return fmt.Errorf("not connected")
+	}
+	// A real serial port can be read back from; a test's writer cannot, and
+	// there is nothing to verify against in that case.
+	readable, ok := port.(interface {
+		Read([]byte) (int, error)
+		SetReadTimeout(time.Duration) error
+		ResetInputBuffer() error
+	})
+	if !ok {
+		return hc.Ping()
+	}
+
+	// Anything already buffered is the answer to an older ping.
+	_ = readable.ResetInputBuffer()
+	if err := hc.Ping(); err != nil {
+		return err
+	}
+	if err := readable.SetReadTimeout(timeout); err != nil {
+		return err
+	}
+
+	deadline := time.Now().Add(timeout)
+	var line []byte
+	buf := make([]byte, 64)
+	for time.Now().Before(deadline) {
+		n, err := readable.Read(buf)
+		if err != nil {
+			return fmt.Errorf("read failed: %w", err)
+		}
+		if n == 0 {
+			break // read timed out
+		}
+		line = append(line, buf[:n]...)
+		if bytes.Contains(line, []byte("\"ok\"")) {
+			return nil
+		}
+		if len(line) > 4096 {
+			break
+		}
+	}
+	return fmt.Errorf("no answer within %s", timeout)
 }
 
 // Audio frame constants. These restate board/shared/protocol.py, which the

@@ -123,3 +123,38 @@ func parentUSBDevice(ifacePath string) string {
 	}
 	return ""
 }
+
+// resetRelayUSB unbinds and rebinds the relay board over USB, which is the
+// software equivalent of unplugging it. A board that has stopped running its
+// loop still holds its port open and accepts bytes, so nothing short of a
+// re-enumeration brings it back.
+//
+// ttyPath is the serial device roadie is bound to, e.g. a
+// /dev/serial/by-id/... symlink.
+func resetRelayUSB(ttyPath string) error {
+	resolved, err := filepath.EvalSymlinks(ttyPath)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", ttyPath, err)
+	}
+	name := filepath.Base(resolved) // ttyACM1
+	devLink := filepath.Join("/sys/class/tty", name, "device")
+	devPath, err := filepath.EvalSymlinks(devLink)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", devLink, err)
+	}
+	usbDev := parentUSBDevice(devPath)
+	if usbDev == "" {
+		return fmt.Errorf("%s is not on USB", name)
+	}
+
+	devID := filepath.Base(usbDev)
+	const usbDriverPath = "/sys/bus/usb/drivers/usb"
+	if err := sysfsWrite(filepath.Join(usbDriverPath, "unbind"), devID); err != nil {
+		return fmt.Errorf("unbind %s: %w", devID, err)
+	}
+	time.Sleep(2 * time.Second)
+	if err := sysfsWrite(filepath.Join(usbDriverPath, "bind"), devID); err != nil {
+		return fmt.Errorf("rebind %s: %w", devID, err)
+	}
+	return nil
+}

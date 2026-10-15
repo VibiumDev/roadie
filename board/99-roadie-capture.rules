@@ -1,5 +1,14 @@
-# Roadie Capture: allow the current user's group to reset USB capture devices
-# by writing to the kernel's USB driver unbind/bind files.
+# Roadie: allow the current user's group to re-enumerate roadie's own USB
+# devices by writing to the kernel's USB driver unbind/bind files.
+#
+# Both rules grant the same thing. The relay board needs it too: a board that
+# has stopped running its loop still holds its port open, and only a USB
+# re-enumeration brings it back. Keying it to the board as well means the
+# permission does not depend on a capture dongle being plugged in.
 SUBSYSTEM=="usb", DRIVER=="uvcvideo", \
+  RUN+="/bin/chmod 0660 /sys/bus/usb/drivers/usb/unbind /sys/bus/usb/drivers/usb/bind", \
+  RUN+="/bin/chgrp video /sys/bus/usb/drivers/usb/unbind /sys/bus/usb/drivers/usb/bind"
+
+SUBSYSTEM=="usb", ATTRS{idVendor}=="239a", ATTRS{idProduct}=="80f8", \
   RUN+="/bin/chmod 0660 /sys/bus/usb/drivers/usb/unbind /sys/bus/usb/drivers/usb/bind", \
   RUN+="/bin/chgrp video /sys/bus/usb/drivers/usb/unbind /sys/bus/usb/drivers/usb/bind"

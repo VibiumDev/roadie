@@ -7,3 +7,7 @@ import "fmt"
 func resetCaptureUSB(videoNode string) error {
 	return fmt.Errorf("USB reset is only supported on Linux")
 }
+
+func resetRelayUSB(ttyPath string) error {
+	return fmt.Errorf("USB reset is only supported on Linux")
+}
