@@ -19,12 +19,14 @@ None of them need a monitor: `make test-hid` uses no display at all, and
 
 ![The test page at the end of a run](../screenshots/e2e-test-page.png)
 
-That is the page at the end of a run: the cyan ring is where the pointer was
-left, `roadie e2e 123` is the text that arrived as real keystrokes, and the
-log on the right is every event the page received — `touchstart` at
-`199,359`, `wheel dy=600`, a `keydown` per character, and `pen` pointer
-events (Chromium reports the absolute-positioning HID device as a pen rather
-than a mouse).
+That is the page at the end of a run. The cyan ring is where the pointer was
+left, and `roadie e2e 123` is text that arrived as real keystrokes. The log
+on the right is every event the page received, oldest first — you can read
+the typed string straight down it, a `keydown` per character, then the touch:
+`pointerdown`, `touchstart` at `199,359`, `touchend`.
+
+The pointer events say `pen` because Chromium classifies the board's
+absolute-positioning device as a stylus rather than a mouse.
 
 `make test-e2e-pi` stands up two small servers and a browser:
 

@@ -81,8 +81,11 @@ function paint(cls, text) {
   const d = document.createElement('div');
   d.className = cls;
   d.textContent = text;
-  logEl.prepend(d);
-  while (logEl.childNodes.length > 60) logEl.lastChild.remove();
+  // Chronological, newest last: prepending read backwards, so a typed
+  // string appeared in reverse down the column.
+  logEl.append(d);
+  while (logEl.childNodes.length > 60) logEl.firstChild.remove();
+  logEl.scrollTop = logEl.scrollHeight;
 }
 
 // Every observation is posted straight to the harness. keepalive so a
