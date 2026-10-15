@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/pion/mediadevices/pkg/wave"
 )
 
 func TestAudioBroadcasterSubscribeUnsubscribe(t *testing.T) {
@@ -129,5 +134,83 @@ func TestAudioHandlerInactive(t *testing.T) {
 	NewMux(s).ServeHTTP(w, httptest.NewRequest("GET", "/audio", nil))
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected 503 when audio inactive, got %d", w.Code)
+	}
+}
+
+// readerFunc adapts a function to the audio reader interface the capture
+// loop consumes.
+type readerFunc func() (wave.Audio, func(), error)
+
+func (f readerFunc) Read() (wave.Audio, func(), error) { return f() }
+
+// TestRunAudioCaptureSurvivesDriverPanic covers the case that killed the
+// whole server: the microphone driver panics inside Read instead of
+// returning an error, which an ALSA null device does on a machine with no
+// real audio hardware. Audio is secondary to video and input, so this has
+// to come back rather than take the process down.
+func TestRunAudioCaptureSurvivesDriverPanic(t *testing.T) {
+	ab := NewAudioBroadcaster()
+	reader := readerFunc(func() (wave.Audio, func(), error) {
+		panic("unsupported format")
+	})
+
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		runAudioCapture(context.Background(), "null device", reader, ab)
+	}()
+
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runAudioCapture did not return after the driver panicked")
+	}
+}
+
+func TestRunAudioCaptureStopsAfterRepeatedErrors(t *testing.T) {
+	ab := NewAudioBroadcaster()
+	var reads int
+	reader := readerFunc(func() (wave.Audio, func(), error) {
+		reads++
+		return nil, nil, errors.New("device gone")
+	})
+
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		runAudioCapture(context.Background(), "flaky device", reader, ab)
+	}()
+
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runAudioCapture kept reading a device that only returns errors")
+	}
+	if reads < maxConsecutiveErrors {
+		t.Errorf("gave up after %d reads, want at least %d", reads, maxConsecutiveErrors)
+	}
+}
+
+func TestRunAudioCaptureStopsOnContextCancel(t *testing.T) {
+	ab := NewAudioBroadcaster()
+	ctx, cancel := context.WithCancel(context.Background())
+	reader := readerFunc(func() (wave.Audio, func(), error) {
+		// A working device: silence, and nothing to release.
+		return wave.NewFloat32Interleaved(wave.ChunkInfo{
+			Len: 16, Channels: 1, SamplingRate: 16000,
+		}), func() {}, nil
+	})
+
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		runAudioCapture(ctx, "good device", reader, ab)
+	}()
+
+	cancel()
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runAudioCapture ignored a cancelled context")
 	}
 }

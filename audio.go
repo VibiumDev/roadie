@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/pion/mediadevices/pkg/driver"
+	"github.com/pion/mediadevices/pkg/io/audio"
 	"github.com/pion/mediadevices/pkg/prop"
 	"github.com/pion/mediadevices/pkg/wave"
 
@@ -251,40 +252,61 @@ func StartAudioCapture(ctx context.Context, dev deviceInfo, ab *AudioBroadcaster
 		defer close(done)
 		defer d.Close()
 		defer ab.SetInactive()
-
-		var consecutiveErrors int
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			audio, release, err := reader.Read()
-			if err != nil {
-				consecutiveErrors++
-				if consecutiveErrors >= maxConsecutiveErrors {
-					log.Printf("audio device %q: %d consecutive errors, stopping", dev.Name, consecutiveErrors)
-					return
-				}
-				continue
-			}
-			consecutiveErrors = 0
-
-			if ab.Listeners() == 0 {
-				release()
-				continue
-			}
-
-			chunk := audioToBytes(audio)
-			if chunk != nil {
-				ab.Broadcast(chunk)
-			}
-			release()
-		}
+		runAudioCapture(ctx, dev.Name, reader, ab)
 	}()
 
 	return done, nil
+}
+
+// runAudioCapture broadcasts what an audio device produces, until the
+// context is cancelled or the device stops working.
+//
+// A panic here is survivable and has to be: the microphone driver panics,
+// rather than returning an error, when a device cannot actually produce the
+// format it advertised. An ALSA null device -- "Discard all samples
+// (playback) or generate zero samples (capture)" -- does exactly that, and
+// it is what gets picked on a machine with no real audio hardware, such as
+// a Pi with nothing plugged into it. The panic is raised inside Read, so
+// the error handling below never sees it, and an unrecovered panic in this
+// goroutine takes the whole server with it: no video, no HID, no web UI,
+// because audio was unavailable.
+func runAudioCapture(ctx context.Context, name string, reader audio.Reader, ab *AudioBroadcaster) {
+	// Declared last so it runs first, ahead of the callers' cleanup.
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("audio device %q: capture failed (%v) — serving without audio", name, r)
+		}
+	}()
+
+	var consecutiveErrors int
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		chunk, release, err := reader.Read()
+		if err != nil {
+			consecutiveErrors++
+			if consecutiveErrors >= maxConsecutiveErrors {
+				log.Printf("audio device %q: %d consecutive errors, stopping", name, consecutiveErrors)
+				return
+			}
+			continue
+		}
+		consecutiveErrors = 0
+
+		if ab.Listeners() == 0 {
+			release()
+			continue
+		}
+
+		if buf := audioToBytes(chunk); buf != nil {
+			ab.Broadcast(buf)
+		}
+		release()
+	}
 }
 
 // audioToBytes converts wave.Audio to little-endian float32 bytes.
