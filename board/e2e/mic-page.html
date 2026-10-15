@@ -21,17 +21,24 @@
 // PCM, the same shape the viewer's mic button sends. Under test the
 // microphone is a file Chromium plays back, so the audio is known.
 const params = new URLSearchParams(location.search);
-const target = params.get('roadie');     // e.g. 127.0.0.1:8080
+// Served by roadie, so /audio-in is on this same origin unless told
+// otherwise. Being same-origin is the point: /audio-in refuses anything else.
+const target = params.get('roadie') || location.host;
+// A test harness can ask to be told what happened, by passing its own URL.
+// Reports go out as plain GETs so they need no CORS preflight.
+const reportTo = params.get('report');
 const RATE = 16000;
 const stateEl = document.getElementById('state');
 const barEl = document.getElementById('bar');
 
 function report(what, extra) {
-  fetch('/report', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(Object.assign({event: what}, extra || {})),
-    keepalive: true,
-  }).catch(() => {});
+  if (!reportTo) return;
+  const url = new URL(reportTo);
+  url.searchParams.set('event', what);
+  for (const [k, v] of Object.entries(extra || {})) {
+    url.searchParams.set(k, String(v));
+  }
+  new Image().src = url.toString();
 }
 
 function say(text) { stateEl.textContent = text; }

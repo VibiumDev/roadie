@@ -22,6 +22,7 @@ import base64
 import glob
 import math
 import os
+import re
 import socket
 import struct
 import subprocess
@@ -305,11 +306,6 @@ def stream_browser(pcm, base, notes, record_secs):
     import tempfile
     import threading
 
-    page = Path(__file__).resolve().parent / "e2e" / "mic-page.html"
-    if not page.exists():
-        print(f"  ❌ Missing {page}")
-        sys.exit(1)
-
     # Chromium starts playing the fake capture file as soon as the page is
     # granted the microphone, which is before it has connected and started
     # sending. A second of lead-in silence means the motif still begins
@@ -324,31 +320,24 @@ def stream_browser(pcm, base, notes, record_secs):
         w.writeframes(lead + pcm + b"\x00\x00" * int(AUDIO_RATE * 8))
 
     events = []
-    html = page.read_bytes()
 
     class Handler(http.server.BaseHTTPRequestHandler):
+        """Just collects what the page reports; roadie serves the page."""
+
         def log_message(self, *a):
             pass
 
         def do_GET(self):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(html)))
-            self.end_headers()
-            self.wfile.write(html)
-
-        def do_POST(self):
-            length = int(self.headers.get("Content-Length") or 0)
-            body = self.rfile.read(length)
             self.send_response(204)
             self.end_headers()
-            events.append(body)
+            events.append(self.path)
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    host_port = base.split("//", 1)[1]
-    url = (f"http://127.0.0.1:{server.server_address[1]}/"
-           f"?roadie={host_port}")
+    # The page comes from roadie, so it is same-origin with /audio-in --
+    # which refuses connections from anywhere else. It reports back here.
+    report_url = f"http://127.0.0.1:{server.server_address[1]}/report"
+    url = f"{base}/soundcheck?report={report_url}"
 
     browser = shutil.which("chromium") or shutil.which("chromium-browser")
     if not browser:
@@ -387,6 +376,11 @@ def stream_browser(pcm, base, notes, record_secs):
         # Now that audio is actually flowing, start listening.
         rec = record(record_secs)
         rec.wait()
+        # Hold the window open briefly so the run is watchable rather than a
+        # flicker. ROADIE_E2E_LINGER=10 to study it for longer.
+        linger = float(os.environ.get("ROADIE_E2E_LINGER", "2"))
+        if linger > 0:
+            time.sleep(linger)
     finally:
         proc.terminate()
         try:

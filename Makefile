@@ -1,19 +1,37 @@
 BINARY = roadie
 
+# "make" on its own builds, as the README says; "make help" lists targets.
+.DEFAULT_GOAL := build
+
 # CircuitPython version installed by the flash targets.
 # Override to track the newest stable release instead of the pin:
 #   make flash-hid CP_VERSION=latest
 CP_VERSION ?= 10.3.1
 
-.PHONY: build test setup uninstall flash-relay flash-hid flash-relay-quick flash-hid-quick sync sync-hid sync-relay status unstick set-vnc-password start-vnc-server stop-vnc-server vnc-status test-hid test-hid-quick test-audio test-audio-serial test-audio-api test-audio-browser test-e2e-pi test-e2e-android test-e2e-iphone test-e2e-pc clean
+.PHONY: help build test clean setup uninstall flash-hid flash-relay flash-hid-quick flash-relay-quick sync sync-hid sync-relay test-hid test-hid-quick test-e2e-pi test-audio test-audio-serial test-audio-api test-audio-browser test-e2e-android test-e2e-iphone test-e2e-pc set-vnc-password start-vnc-server stop-vnc-server vnc-status status unstick
 
-build:
+# Every target carries a "## description"; help prints them by section.
+help:  ## Show this help
+	@awk 'BEGIN {FS = ":.*?## "} \
+		/^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5); next } \
+		/^[a-zA-Z0-9_-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' \
+		$(MAKEFILE_LIST)
+	@echo ""
+
+##@ Build
+
+build:  ## Build the roadie binary
 	go build -o $(BINARY) .
 
-test:
+test:  ## Run the Go unit tests
 	go test -v ./...
 
-setup:
+clean:  ## Remove the built binary
+	rm -f $(BINARY)
+
+##@ Set up this machine
+
+setup:  ## Install dependencies, udev rules and group membership
 	python3 board/install.py --setup-only
 	sudo cp board/99-roadie-hid.rules board/99-roadie-capture.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger
 	@# Everything the browser test needs on a Pi with no display attached:
@@ -45,28 +63,27 @@ setup:
 	}
 	@echo "  🎯 Setup complete. Try: make test-hid"
 
-uninstall:
+uninstall:  ## Remove the udev rules installed by setup
 	sudo rm -f /etc/udev/rules.d/99-roadie-hid.rules /etc/udev/rules.d/99-roadie-capture.rules && sudo udevadm control --reload-rules
 
-flash-relay:
-	python3 board/install.py relay --cp-version $(CP_VERSION)
+##@ Flash and sync the boards
 
-flash-hid:
+flash-hid:  ## Flash CircuitPython and the HID board's code
 	python3 board/install.py hid --cp-version $(CP_VERSION)
 
-flash-relay-quick:
-	python3 board/install.py relay --skip-firmware
+flash-relay:  ## Flash CircuitPython and the relay board's code
+	python3 board/install.py relay --cp-version $(CP_VERSION)
 
-flash-hid-quick:
+flash-hid-quick:  ## Re-copy the HID board's code, keep its firmware
 	python3 board/install.py hid --skip-firmware
 
-sync:
+flash-relay-quick:  ## Re-copy the relay board's code, keep its firmware
+	python3 board/install.py relay --skip-firmware
+
+sync:  ## Copy changed board code to both boards
 	python3 board/install.py --sync
 
-sync-relay:
-	python3 board/install.py relay --sync
-
-sync-hid:
+sync-hid:  ## Copy changed board code to the HID board
 	python3 board/install.py hid --sync
 
 # Voice input, at three depths, so a failure says which layer broke:
@@ -75,33 +92,16 @@ sync-hid:
 # mic). All three end the same way: recorded back off the HID board's USB
 # microphone and checked note by note.
 # Plain "make test-audio" runs all three; the suffixed ones pick a layer.
-test-audio: test-audio-serial test-audio-api test-audio-browser
 
-test-audio-serial:
-	python3 board/test_audio.py --via serial
+sync-relay:  ## Copy changed board code to the relay board
+	python3 board/install.py relay --sync
 
-test-audio-api:
-	python3 board/test_audio.py --via api
+##@ Test the hardware
 
-test-audio-browser:
-	board/e2e/ensure-display.sh python3 board/test_audio.py --via browser
-
-# One look at everything roadie talks to: boards, the input it can drive,
-# what comes back from the target, and this machine's audio and displays.
-status:
-	python3 board/status.py
-
-# Recover from a button or contact left held, and from an X server that has
-# stopped delivering that device's clicks.
-unstick:
-	board/unstick.sh
-
-# Board-level: do the two boards inject correct input? Reads this machine's
-# own /dev/input, so it only makes sense with the HID board plugged in here.
-test-hid:
+test-hid:  ## Keyboard, mouse and touch, checked at /dev/input
 	python3 board/test_hid.py
 
-test-hid-quick:
+test-hid-quick:  ## The same, skipping the slower checks
 	python3 board/test_hid.py --quick
 
 # End-to-end per target device: input is driven through roadie's HTTP API and
@@ -111,34 +111,66 @@ test-hid-quick:
 # it runs, so you can watch over a VNC session you already have. On a Pi with
 # no monitor it makes its own display instead. Set ROADIE_E2E_ISOLATED=1 to
 # never touch the desktop, which is what you want for an unattended run.
-test-e2e-pi:
+
+test-e2e-pi:  ## The whole stack into a browser on this machine
 	board/e2e/ensure-display.sh python3 board/test_e2e.py --target pi
 
 # Set the password used to watch tests over VNC. Stores only x11vnc's
 # obfuscated form -- you chose the password, so a readable copy buys nothing.
-set-vnc-password:
+
+test-audio: test-audio-serial test-audio-api test-audio-browser  ## Voice input through all three layers below
+
+test-audio-serial:  ## Voice input straight at the relay's serial port
+	python3 board/test_audio.py --via serial
+
+test-audio-api:  ## Voice input through roadie's /audio-in WebSocket
+	python3 board/test_audio.py --via api
+
+test-audio-browser:  ## Voice input from a real browser's microphone
+	board/e2e/ensure-display.sh python3 board/test_audio.py --via browser
+
+# One look at everything roadie talks to: boards, the input it can drive,
+# what comes back from the target, and this machine's audio and displays.
+
+##@ Test against another device
+
+test-e2e-android:  ## The whole stack into Chrome on an Android phone
+	python3 board/test_e2e.py --target android
+
+test-e2e-iphone:  ## The whole stack into Safari on an iPhone
+	python3 board/test_e2e.py --target iphone
+
+test-e2e-pc:  ## The whole stack into a browser on another computer
+	python3 board/test_e2e.py --target pc
+
+##@ Watch a run
+
+set-vnc-password:  ## Set the password for watching over VNC
 	board/e2e/set-vnc-password.sh
 
 # Start a long-lived display you can watch over VNC. Connect your viewer
 # once and leave it: test runs reuse this display instead of creating their
 # own, so every run appears without reconnecting.
-start-vnc-server:
+
+start-vnc-server:  ## Start a display you can watch test runs in
 	board/e2e/vnc-server.sh start
 
-stop-vnc-server:
+stop-vnc-server:  ## Stop that display
 	board/e2e/vnc-server.sh stop
 
-vnc-status:
+vnc-status:  ## Is it running, and is anything watching?
 	board/e2e/vnc-server.sh status
 
-test-e2e-android:
-	python3 board/test_e2e.py --target android
+##@ Diagnose
 
-test-e2e-iphone:
-	python3 board/test_e2e.py --target iphone
+status:  ## What's connected: boards, input, audio, displays
+	python3 board/status.py
 
-test-e2e-pc:
-	python3 board/test_e2e.py --target pc
+# Recover from a button or contact left held, and from an X server that has
+# stopped delivering that device's clicks.
 
-clean:
-	rm -f $(BINARY)
+unstick:  ## Recover input that has got stuck
+	board/unstick.sh
+
+# Board-level: do the two boards inject correct input? Reads this machine's
+# own /dev/input, so it only makes sense with the HID board plugged in here.

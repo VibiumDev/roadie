@@ -768,6 +768,10 @@ def main():
             suite.leg_multitouch()
     finally:
         suite.release_everything()
+        # Hold the window open briefly so the run is watchable.
+        linger = float(os.environ.get("ROADIE_E2E_LINGER", "2"))
+        if browser and not args.keep_open and linger > 0:
+            time.sleep(linger)
         if browser and args.keep_open:
             warn(f"Leaving the browser open. Kill it with: "
                  f"pkill -f {browser.profile}")
