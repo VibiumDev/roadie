@@ -162,6 +162,14 @@ class Digitizer:
         for i in range(13):
             report[i] = 0
 
+        # Give both slots their identity every time. A contact that is not in
+        # this report is one that has lifted, and the host still has to be
+        # told which contact that was -- with the ids zeroed, both slots claim
+        # to be contact 0, so the host releases slot 0 and leaves slot 1 held
+        # down. Nothing noticed while the host was reading us as single-touch.
+        report[0] = 0
+        report[6] = 1
+
         # Fill in contacts (always write both slots)
         for cid, tip, x, y in contacts:
             off = cid * 6  # contact 0 at byte 0, contact 1 at byte 6
