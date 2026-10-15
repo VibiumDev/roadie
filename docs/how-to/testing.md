@@ -59,19 +59,19 @@ a throwaway profile, so your own browser session and tabs are untouched.
 A run prints all of it:
 
 ```
-✅ Collector listening on http://127.0.0.1:40523/
-✅ roadie is serving at http://127.0.0.1:39871
-✅ Desktop default browser is chromium (chromium.desktop)
-✅ Page ready: screen 800x480, viewport 799x388, dpr 1
+✅ collector          http://127.0.0.1:43129/
+✅ roadie             http://127.0.0.1:47669
+✅ browser            chromium, this desktop's default (chromium.desktop)
+✅ page ready         screen 800x480, viewport 799x388, dpr 1
 ```
 
 Each check sends input through roadie and compares what the page received:
 
 ```
-✅ mouse move (32767,32767): page saw screen (799, 479), expected (799, 479)
-✅ keyboard: page assembled 'roadie e2e 123'
-✅ mouse scroll: page saw wheel dy=600
-✅ touch: page saw touchstart at screen (199, 359), expected (200, 359)
+✅ mouse move         (32767,32767) → page saw (799, 479), expected (799, 479)
+✅ keyboard           page assembled 'roadie e2e 123'
+✅ mouse scroll       page saw wheel dy=600
+✅ touch              page saw touchstart at screen (199, 359), expected (200, 359)
 ```
 
 Coordinates are compared in **screen pixels**, so HID's 0–32767 range is
@@ -131,6 +131,8 @@ It is view-only — a stray click would steal focus and break a run.
 
 ## The three audio levels
 
+![The soundcheck page while audio is streaming](../screenshots/soundcheck-page.png)
+
 The same five notes are sent three ways, so a failure says which layer broke:
 
 `make test-audio` runs all three. To pick one:
@@ -143,6 +145,8 @@ The same five notes are sent three ways, so a failure says which layer broke:
 
 Each writes its own capture (`/tmp/roadie_audio_serial.wav` and so on), so
 they can be compared rather than overwriting each other.
+
+The browser layer uses roadie's own `/soundcheck` page, shown above: it opens the microphone, converts to PCM, and streams to `/audio-in` exactly as `/view` does. It is served by roadie rather than by the test, so it is same-origin with `/audio-in` — which refuses connections from anywhere else. Open it in a browser any time to check a microphone by hand.
 
 All three end the same way: recorded back off the HID board's USB microphone
 and checked note by note. The browser one feeds Chromium a wav file in place

@@ -512,7 +512,15 @@ def install_board(board, circup_bin):
 
     # Install libs via circup
     req_file = board_dir / "requirements.txt"
+    wanted = []
     if req_file.exists():
+        wanted = [ln.strip() for ln in req_file.read_text().splitlines()
+                  if ln.strip() and not ln.strip().startswith("#")]
+    if req_file.exists() and not wanted:
+        # A board that needs no libraries still gets a requirements.txt, so
+        # that the reason is written down. circup has nothing to do here.
+        info("No libraries needed")
+    elif req_file.exists():
         print(f"  📚 Installing libraries from {req_file.name}...")
         subprocess.run(
             [str(circup_bin), "--path", volume_cp, "install", "-r", str(req_file)],

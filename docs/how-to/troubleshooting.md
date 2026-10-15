@@ -40,13 +40,15 @@ Make sure you're connecting at 115200 baud (the CircuitPython console default), 
 
 ## UART Communication
 
-**HID board printing "unknown cmd: 0x00" repeatedly**
+**HID board printing "unknown cmd: 0x.." repeatedly**
 The UART RX pin is reading noise. Most common causes:
 - GND wire not connected between the boards
 - Boards powered from different USB hosts without common ground (e.g., relay on Pi, HID on Mac)
 - Jumper wires disconnected or loose
 
 Fix: ensure TX, RX, **and GND** wires are connected. When boards are on different hosts, the GND wire is essential.
+
+Note that an all-zero byte no longer shows up this way: `0x00` is NOOP, which the HID board accepts and ignores, precisely because an undriven line delivers those continuously. So a missing GND can also be *silent* — the symptom is then input that never arrives rather than a noisy console. `make test-hid` is the quicker check either way.
 
 **HID board LED blinks but commands don't work on target**
 - Check the serial console for error messages

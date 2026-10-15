@@ -117,16 +117,20 @@ usb_audio.enable(sample_rate=16000, channel_count=1)
 
 ## CircuitPython Libraries
 
+Installed from the Adafruit bundle by `board/install.py`, per each board's
+`requirements.txt`. None of them ship with CircuitPython itself.
+
 ### Relay
 
-- `adafruit_hid` (bundled with CircuitPython)
+None. The relay only parses JSON and writes bytes to the UART, so it needs
+nothing beyond the standard modules and `board/shared/protocol.py`.
 
 ### HID
 
 - `adafruit_hid` — keyboard and keyboard layout
-- `absolute_mouse` — custom absolute mouse HID device
+- `absolute_mouse` — the absolute mouse HID device, used by `boot.py` via
+  `absolute_mouse.descriptor`
 - `digitizer.py` — custom multi-touch digitizer (in-repo, `board/hid/digitizer.py`)
-- `mouse_device.py` — custom mouse device (in-repo, `board/hid/mouse_device.py`)
 
 ## NeoPixel LED Behavior
 
@@ -135,7 +139,7 @@ usb_audio.enable(sample_rate=16000, channel_count=1)
 | State | LED |
 |-------|-----|
 | Startup | Solid red |
-| Successful pong from HID board | Blink (off 100ms, then red) |
+| Status response from HID board | Blink (off 100ms, then red) |
 | No response from HID board | Off |
 
 ### HID (Green)
@@ -144,7 +148,7 @@ usb_audio.enable(sample_rate=16000, channel_count=1)
 |-------|-----|
 | Startup | Solid green |
 | Command received (low-frequency) | Blink (off 100ms, then green) |
-| High-frequency commands (mouse_move, key_press/release, scroll, touch) | No blink (avoids back-pressure) |
+| High-frequency commands (mouse_move, key_press/release, scroll, touch) and NOOP | No blink (avoids back-pressure) |
 
 ## Identifying Boards
 
@@ -182,7 +186,7 @@ ioreg -n Roadie-HID -r -l | grep IOCalloutDevice
 |------|-------------|
 | `board/hid/boot.py` | HID board USB/storage config |
 | `board/hid/code.py` | HID board main loop |
-| `board/hid/mouse_device.py` | Custom absolute mouse HID descriptor and driver |
+| `board/hid/mouse_device.py` | Unused. An in-repo absolute mouse descriptor and driver that nothing imports — `boot.py` takes its mouse from the `absolute_mouse` library instead |
 | `board/hid/digitizer.py` | Custom multi-touch digitizer HID descriptor and driver |
 | `board/relay/boot.py` | Relay board USB/storage config |
 | `board/relay/code.py` | Relay board main loop |

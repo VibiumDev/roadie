@@ -111,7 +111,14 @@ def key(*keycodes):
     kbd.send(*keycodes)
 
 def mouse_move(x, y):
-    """Move mouse to absolute coords (0-32767)."""
+    """Move mouse to absolute coords (0-32767).
+
+    Note this calls the driver directly, which code.py does not: a HID
+    report identical to the one before it never reaches the host, so
+    asking twice for the same position sends nothing the second time.
+    code.py works around that (see move_mouse there); from the REPL,
+    nudge by a pixel or move somewhere else in between.
+    """
     mouse.move(x, y)
 
 def mouse_click(buttons=1):

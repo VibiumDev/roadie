@@ -85,7 +85,7 @@ The HID board presents three USB devices to the target:
 
 High-frequency commands (mouse_move, key_press, key_release, mouse_scroll, touch) use "nowait" mode: the relay sends the binary message over UART but does not wait for the HID board's 2-byte response. This prevents the relay from blocking during rapid input sequences.
 
-The HID board still sends responses for nowait commands. Stale responses are flushed from the UART buffer before each new send.
+The HID board still sends responses for nowait commands. Stale responses are flushed from the UART buffer before each new send. Audio frames are the exception — they are not commands and get no response at all.
 
 The HID board also skips its LED blink for high-frequency commands to avoid 100ms of back-pressure per command.
 
@@ -144,10 +144,13 @@ The HID board's multi-touch digitizer enables native touch interaction, so the p
 | File | Description |
 |------|-------------|
 | `main.go` | Startup, flag parsing, component wiring |
-| `server.go` | HTTP handlers, /view page, /test page, HID API |
+| `server.go` | HTTP handlers, the `/view`, `/test` and `/soundcheck` pages, HID API |
 | `hid.go` | Relay board discovery and selection, serial connection, command methods |
 | `capture.go` | Frame capture, crop detection, frame buffer |
 | `bidi.go` | WebDriver BiDi endpoint (`/session`) |
+| `grid.go` | The `/grid` page: several targets in one view |
+| `platform.go` | `--platform` target profiles: pointer space and default input mode |
+| `capture_reset_linux.go` | USB unbind/rebind for `/api/capture/reset` (Linux; other platforms get a stub) |
 | `audio.go` | Audio capture and WebSocket broadcast |
 | `httpsource.go` | MJPEG ingest from another Roadie's `/raw-stream` |
 | `mdns.go` | Bonjour/mDNS service registration |

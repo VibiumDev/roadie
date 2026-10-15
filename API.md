@@ -56,6 +56,19 @@ Only the scheme and host of each target are used; the iframe path is always
 ### `GET /settings`
 Device info and JPEG quality adjustment UI.
 
+### `GET /soundcheck`
+
+A microphone check page. Opens the browser's microphone, converts it to
+16 kHz mono PCM, and streams it to `/audio-in` — the same path `/view`'s mic
+button uses, with a level meter and a status line.
+
+Served by roadie so that it is same-origin with `/audio-in`, which refuses
+connections from other origins. `make test-audio-browser` drives this page;
+it is also useful on its own for checking a microphone by hand.
+
+Optional `?report=<url>` makes the page GET that URL once it is streaming,
+which is how the test knows audio is actually flowing before it listens.
+
 ### `GET /test`
 Interactive HID test page with mouse/touch trackpad, keyboard input, and key combo controls. Supports Mouse mode (pointer + scroll wheel) and Touch mode (multi-touch digitizer with pinch-to-zoom). Trackpad overlays the auto-cropped MJPEG stream and auto-adjusts aspect ratio to match the target's video signal. Coordinates are remapped to account for crop offset so touches align with visible content. Input mode persists via `localStorage` (shared with `/view`). Communicates with the target via WebSocket (`/api/hid/ws`).
 
@@ -104,9 +117,9 @@ WebSocket endpoint for voice input: audio sent here plays out of the HID board's
 
 **Protocol:**
 1. Client streams PCM audio as binary messages: 16 kHz, mono, signed 16-bit little-endian.
-2. Messages should be small (~20 ms / 640 bytes) and sent at real-time pace — the HID board buffers only ~100 ms ahead; bursts beyond that overwrite unplayed audio.
+2. Messages should be small (~20 ms / 640 bytes) and sent at real-time pace. The HID board plays from a 400 ms ring buffer and starts once 100 ms has arrived; a burst longer than the ring overwrites audio that has not been played yet.
 
-The stream on the target stops ~250 ms after the last message arrives. Returns `503` if the HID relay is not connected.
+The stream on the target stops 200 ms after the last message arrives. Returns `503` if the HID relay is not connected.
 
 The viewer's microphone button uses this endpoint. It needs a secure context (https or localhost) for `getUserMedia`, and a browser that supports opening an `AudioContext` at 16 kHz (Chrome, Edge, Safari — not Firefox yet).
 
@@ -119,7 +132,7 @@ Get current settings.
 
 **Response:**
 ```json
-{"quality": 80, "fps": 30, "width": 1920, "height": 1080}
+{"quality": 80, "fps": 30, "width": 1920, "height": 1080, "autocrop": true}
 ```
 
 ### `PUT /api/settings`
@@ -136,6 +149,7 @@ Update settings. All fields are optional — only provided fields are changed. C
 | `fps` | 10-30 | Capture framerate |
 | `width` | | Capture width (must be set with `height`) |
 | `height` | | Capture height (must be set with `width`) |
+| `autocrop` | `true`/`false` | Trim constant black bars from the captured frame. The viewer's settings panel has a checkbox for it |
 
 **Response:**
 ```json
@@ -521,4 +535,7 @@ Ctrl+Alt+Del: press 224, press 226, press 76, release 76, release 226, release 2
 | `--fps` | 30 | Capture framerate |
 | `--quality` | 80 | JPEG quality (30-95) |
 | `--name` | roadie | mDNS service name |
+| `--relay` | (auto-detect) | Relay board serial number substring, for picking between boards |
+| `--platform` | | Target OS: `android`, `ios`, `mac`, `windows`, `linux`. Tunes pointer mapping and the default input mode |
+| `--input` | (viewer decides) | Default pointer mode for viewers: `mouse` or `touch` |
 | `--list-devices` | | List video and audio devices, then exit |

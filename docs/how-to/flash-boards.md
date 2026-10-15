@@ -70,9 +70,18 @@ The `board/install.py` script handles the full provisioning workflow:
 
 | | macOS | Linux |
 |---|---|---|
-| CIRCUITPY mount | `/Volumes/CIRCUITPY` | `/media/$USER/CIRCUITPY` |
+| Volume mount | `/Volumes/<NAME>` | `/media/$USER/<NAME>` |
 | Bootloader mount | `/Volumes/RPI-RP2` | `/media/$USER/RPI-RP2` |
 | Serial port glob | `/dev/tty.usbmodem*` | `/dev/ttyACM*` |
+
+`<NAME>` is `CIRCUITPY` only until the board has been provisioned once:
+`boot.py` renames the volume, so a flashed relay mounts as `ROADIE_RLY` and
+a flashed HID board as `ROADIE_HID`. `board/install.py` looks for all three,
+which is why it finds a board whether it is fresh or already set up.
+
+If you go looking for a `CIRCUITPY` drive on a working board, you will not
+find one. `lsblk -o NAME,LABEL,MOUNTPOINT | grep ROADIE` shows what is
+actually there.
 
 ## After Flashing
 
