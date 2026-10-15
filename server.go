@@ -1781,6 +1781,12 @@ a { color: #6af; }
 /* Combos */
 .combo-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .combo-grid button { padding: 8px 14px; background: #333; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; cursor: pointer; font-family: monospace; }
+.gesture-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.gesture-grid button { padding: 8px 14px; background: #333; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; cursor: pointer; font-family: monospace; }
+.gesture-grid button:disabled { opacity: 0.4; cursor: default; }
+#gesturehint { color: #888; font-size: 13px; line-height: 1.5; }
+#gesturehint code { color: #b0b0b0; }
+#gesturestatus { margin-top: 8px; color: #888; font-family: monospace; font-size: 13px; }
 .combo-grid button:active { background: #555; }
 .custom-combo { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .custom-combo label { cursor: pointer; }
@@ -1811,6 +1817,23 @@ a { color: #6af; }
   <button onmousedown="mouseBtn(2,'press')" onmouseup="mouseBtn(2,'release')">Right</button>
   <button onmousedown="mouseBtn(4,'press')" onmouseup="mouseBtn(4,'release')">Middle</button>
 </div>
+</div>
+
+<div class="section">
+<h2>Gestures</h2>
+<div id="gesturehint">Two contacts, centred on the crosshair. The target has
+to see the board as a multi-touch device. A phone does by itself; a Linux
+host needs <code>make multitouch-on</code>, which costs it the separate
+mouse device until you switch back.</div>
+<div class="gesture-grid">
+  <button onclick="gesture('pinch-in')">Pinch in</button>
+  <button onclick="gesture('pinch-out')">Pinch out</button>
+  <button onclick="gesture('scroll-up')">Two-finger up</button>
+  <button onclick="gesture('scroll-down')">Two-finger down</button>
+  <button onclick="gesture('rotate-cw')">Rotate &#8635;</button>
+  <button onclick="gesture('two-tap')">Two-finger tap</button>
+</div>
+<div id="gesturestatus">&nbsp;</div>
 </div>
 
 <div class="section">
@@ -1983,7 +2006,10 @@ a { color: #6af; }
     return { x: abs.x, y: abs.y, px: px, py: py };
   }
 
+  var lastPx = 0.5, lastPy = 0.5;
+
   function updateCrosshair(px, py, x, y) {
+    lastPx = px; lastPy = py;
     crossH.style.top = (py * 100) + '%';
     crossV.style.left = (px * 100) + '%';
     var label = 'x: ' + x + ', y: ' + y;
@@ -2035,6 +2061,80 @@ a { color: #6af; }
   });
 
   trackpad.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+  // --- Two-finger gestures ---
+  // Each gesture is a path for two contacts, played out as a series of touch
+  // reports. Positions are fractions of the feed, so a gesture keeps its
+  // shape whatever the resolution is, and they are centred on the crosshair
+  // so you can aim one.
+  var gestureBusy = false;
+
+  function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+
+  function contactsAt(ax, ay, bx, by) {
+    var a = remapToAbsolute(clamp01(ax), clamp01(ay));
+    var b = remapToAbsolute(clamp01(bx), clamp01(by));
+    return [{id: 0, tip: true, x: a.x, y: a.y},
+            {id: 1, tip: true, x: b.x, y: b.y}];
+  }
+
+  // path(t) returns [ax, ay, bx, by] for t from 0 to 1.
+  function playGesture(name, path, steps, ms) {
+    if (gestureBusy) return;
+    gestureBusy = true;
+    var buttons = document.querySelectorAll('.gesture-grid button');
+    for (var i = 0; i < buttons.length; i++) { buttons[i].disabled = true; }
+    var status = document.getElementById('gesturestatus');
+    status.textContent = name + ': sending two contacts...';
+
+    function emit(t) {
+      var p = path(t);
+      send({cmd: 'touch', contacts: contactsAt(p[0], p[1], p[2], p[3])});
+    }
+    var step = 0;
+    emit(0);
+    var timer = setInterval(function() {
+      step++;
+      emit(step / steps);
+      if (step < steps) { return; }
+      clearInterval(timer);
+      send({cmd: 'touch', contacts: []});   // an empty list lifts both
+      gestureBusy = false;
+      for (var i = 0; i < buttons.length; i++) { buttons[i].disabled = false; }
+      status.textContent = name + ': sent';
+    }, Math.max(10, ms / steps));
+  }
+
+  function gesture(kind) {
+    var cx = lastPx, cy = lastPy;
+    var near = 0.04, far = 0.20, travel = 0.22, apart = 0.05;
+    if (kind === 'pinch-in' || kind === 'pinch-out') {
+      var from = kind === 'pinch-in' ? far : near;
+      var to = kind === 'pinch-in' ? near : far;
+      playGesture(kind.replace('-', ' '), function(t) {
+        var d = from + (to - from) * t;
+        return [cx - d, cy, cx + d, cy];
+      }, 20, 500);
+    } else if (kind === 'scroll-up' || kind === 'scroll-down') {
+      var dir = kind === 'scroll-up' ? -1 : 1;
+      playGesture('two-finger ' + (dir < 0 ? 'up' : 'down'), function(t) {
+        var dy = dir * travel * (t - 0.5);
+        return [cx - apart, cy + dy, cx + apart, cy + dy];
+      }, 20, 450);
+    } else if (kind === 'rotate-cw') {
+      playGesture('rotate', function(t) {
+        var a = t * Math.PI / 2, r = 0.14;
+        return [cx - r * Math.cos(a), cy - r * Math.sin(a),
+                cx + r * Math.cos(a), cy + r * Math.sin(a)];
+      }, 24, 600);
+    } else if (kind === 'two-tap') {
+      // Down and straight back up: two contacts arrive and leave without
+      // moving, which is what a two-finger tap is.
+      playGesture('two-finger tap', function() {
+        return [cx - 0.06, cy, cx + 0.06, cy];
+      }, 3, 120);
+    }
+  }
 
   // --- Scroll wheel (mouse mode) ---
   trackpad.addEventListener('wheel', function(e) {
