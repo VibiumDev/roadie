@@ -31,16 +31,17 @@ from protocol import AUDIO_LEAD, AUDIO_RATE, pack_audio  # noqa: E402
 # do an octave down, sol. A sequence beats a single tone as a test -- it
 # checks that notes arrive in the right order and that none are dropped,
 # rather than only that some sound got through.
+# Name, frequency, and how long to hold it. The last note is sustained, the
+# way it is in the film.
 MOTIF = (
-    ("D5", 587.33),
-    ("E5", 659.25),
-    ("C5", 523.25),
-    ("C4", 261.63),
-    ("G4", 392.00),
+    ("D5", 587.33, 0.40),
+    ("E5", 659.25, 0.40),
+    ("C5", 523.25, 0.40),
+    ("C4", 261.63, 0.40),
+    ("G4", 392.00, 1.10),
 )
-NOTE_SECS = 0.45
 GAP_SECS = 0.15
-TONE_SECS = len(MOTIF) * (NOTE_SECS + GAP_SECS)
+TONE_SECS = sum(secs for _, _, secs in MOTIF) + len(MOTIF) * GAP_SECS
 FRAME_SAMPLES = 160  # 10 ms at 16 kHz
 WAV_PATH = "/tmp/roadie_audio_test.wav"
 
@@ -50,8 +51,8 @@ def make_tone():
     amp = 12000
     fade = int(AUDIO_RATE * 0.005)  # 5 ms, so note edges don't click
     out = bytearray()
-    for _, hz in MOTIF:
-        n = int(AUDIO_RATE * NOTE_SECS)
+    for _, hz, secs in MOTIF:
+        n = int(AUDIO_RATE * secs)
         for i in range(n):
             level = amp
             if i < fade:
@@ -147,7 +148,9 @@ def main():
     data = serial.Serial(data_port[0], 115200, timeout=2)
     time.sleep(0.3)
 
-    record_secs = int(TONE_SECS + 2)
+    # Round up: truncating here eats the margin, and the note that would be
+    # clipped is the sustained one at the end.
+    record_secs = math.ceil(TONE_SECS + 2)
     print(f"  🎙️  Recording {record_secs}s from ALSA card RoadieHID...")
     rec = subprocess.Popen(
         ["arecord", "-q", "-D", "plughw:RoadieHID", "-f", "S16_LE",
@@ -157,7 +160,7 @@ def main():
     time.sleep(0.8)  # let capture spin up
 
     print(f"  🔊 Streaming {TONE_SECS:.1f}s — "
-          f"{' '.join(n for n, _ in MOTIF)} — in 10 ms frames...")
+          f"{' '.join(n for n, _, _ in MOTIF)} — in 10 ms frames...")
     frame_bytes = FRAME_SAMPLES * 2
     t0 = time.monotonic()
     for i in range(0, len(pcm), frame_bytes):
@@ -182,14 +185,14 @@ def main():
 
     print(f"  📈 Heard {len(heard)} of {len(MOTIF)} notes:")
     ok = len(heard) == len(MOTIF)
-    for i, (name, want) in enumerate(MOTIF):
+    for i, (name, want, secs) in enumerate(MOTIF):
         if i < len(heard):
             got, note_rms = heard[i]
             close = abs(got - want) <= want * 0.06
             ok = ok and close
             print(f"     {'✅' if close else '❌'} {name:<3} "
                   f"expected {want:6.1f} Hz, heard {got:6.1f} Hz "
-                  f"(RMS {note_rms:.0f})")
+                  f"({secs:.2f}s, RMS {note_rms:.0f})")
         else:
             ok = False
             print(f"     ❌ {name:<3} expected {want:6.1f} Hz, not heard")
