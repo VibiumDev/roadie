@@ -9,6 +9,7 @@ the boards accepted a command.
 | `make test-e2e-pi` | the same, driven through roadie's HTTP API into a real browser |
 | `make test-audio` | voice input, all three layers below |
 | `make test-view` | voice input through roadie's own `/view` page, clicked with the real mouse |
+| `make test-multitouch` | two contacts and a pinch (Linux hosts; see [Multi-touch](#multi-touch)) |
 
 `make test` runs the Go unit tests, then all of the above when the boards are
 plugged into this machine.
@@ -189,6 +190,41 @@ a Pi.
 
 Needs `chromedriver` and node (for `npx vibium`); `make setup` installs both.
 `make test` skips this one if they are missing.
+
+## Multi-touch
+
+The board always sends two contacts. Whether a host sees them depends on which
+kernel driver claims it — and one driver claims the whole USB HID interface, so
+on Linux you can have multi-touch **or** a separate mouse device, not both:
+
+| | mouse | touch |
+|---|---|---|
+| `hid-generic` (default) | its own device | one contact |
+| `hid-multitouch` | gone, folded into the touch device | two contacts, real `ABS_MT_*` slots |
+
+That is why roadie's udev rule forces `hid-generic`: the mouse tests need a
+mouse. A phone picks its own driver and needs none of this, so the trade-off is
+a Linux-host concern only.
+
+```bash
+make multitouch-on       # two contacts, no separate mouse
+make multitouch-off      # back to a separate mouse, single touch
+make multitouch-status   # which mode this host is in
+make test-multitouch     # switches, checks, and switches back
+```
+
+`make test-multitouch` checks that two contacts arrive at once, that each lands
+where it was asked to, that they move independently (a pinch separates them),
+and that both lift. It is the one test that cannot run alongside the others —
+it needs the mouse device gone — which is why `make test` leaves it out.
+
+### Trying gestures by hand
+
+`/test` has a **Gestures** section: pinch in and out, two-finger scroll, rotate
+and two-finger tap. Each plays a path for two contacts, centred on wherever the
+crosshair is, so you can aim one at something on the target and watch what it
+does. Switch the host with `make multitouch-on` first if the target is this
+machine.
 
 ## Testing a phone instead
 
