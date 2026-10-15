@@ -103,6 +103,12 @@ func (hc *HIDController) Run() {
 	retryDelay := 2 * time.Second
 	maxRetryDelay := 30 * time.Second
 
+	// How many recoveries have been tried since the relay last answered.
+	// This outlives a reconnect on purpose: each attempt ends by
+	// reconnecting, so a counter scoped to one connection would reset
+	// before it could ever escalate.
+	attempts := 0
+
 	for {
 		select {
 		case <-hc.ctx.Done():
@@ -147,11 +153,11 @@ func (hc *HIDController) Run() {
 		// Monitor the connection. The ping is a round trip: a board that
 		// has stopped running its loop still accepts everything written to
 		// it, so only its answer distinguishes working from wedged.
-		missed, attempts := 0, 0
+		missed := 0
 		for {
 			select {
 			case <-hc.ctx.Done():
-				port.Close()
+				hc.closePort()
 				return
 			case <-time.After(5 * time.Second):
 				hc.mu.Lock()
@@ -161,6 +167,7 @@ func (hc *HIDController) Run() {
 					log.Printf("HID relay disconnected")
 					break
 				}
+
 				if err := hc.pingRoundTrip(2 * time.Second); err != nil {
 					missed++
 					log.Printf("HID relay did not answer (%d/%d): %v",
@@ -188,11 +195,18 @@ func (hc *HIDController) Run() {
 							"restart and a USB reset — unplug and replug it")
 						select {
 						case <-hc.ctx.Done():
-							port.Close()
 							return
 						case <-time.After(relayGiveUpDelay):
 						}
 					}
+					// Close after the recovery, not before. Closing a tty
+					// waits for whatever is queued to reach the device, and
+					// a board that has stopped reading never takes it: the
+					// close then sits there for the kernel's full 30-second
+					// drain timeout. Restarting the board first means it is
+					// reading again by the time we let go, and the close
+					// returns at once.
+					hc.closePort()
 					break
 				}
 				if missed > 0 || attempts > 0 {
@@ -203,6 +217,7 @@ func (hc *HIDController) Run() {
 			}
 			break
 		}
+		hc.closePort()
 
 		// Small delay before reconnect attempt.
 		select {
@@ -213,16 +228,52 @@ func (hc *HIDController) Run() {
 	}
 }
 
-// Shutdown closes the serial port and stops the controller.
-func (hc *HIDController) Shutdown() {
-	hc.cancel()
+// closePort lets go of the serial port and marks the relay disconnected.
+//
+// Every exit from the monitor loop has to come through here. The loop
+// reconnects by opening the port again, so a handle left open is a handle
+// the loop then fails to open itself, reporting the board as busy for ever
+// when the only thing holding it is roadie.
+func (hc *HIDController) closePort() {
 	hc.mu.Lock()
 	if hc.port != nil {
 		hc.port.Close()
 		hc.port = nil
 	}
 	hc.mu.Unlock()
+	hc.status.Store(HIDDisconnected)
 	hc.path.Store("")
+}
+
+// hidShutdownCloseWait is how long shutdown waits for the serial port to
+// close before leaving it to the kernel.
+const hidShutdownCloseWait = time.Second
+
+// Shutdown closes the serial port and stops the controller.
+func (hc *HIDController) Shutdown() {
+	hc.cancel()
+	hc.mu.Lock()
+	port := hc.port
+	hc.port = nil
+	hc.mu.Unlock()
+	hc.path.Store("")
+	if port == nil {
+		return
+	}
+	// Don't let a wedged board hold up the exit. Closing a tty waits for
+	// queued output to reach the device, and a board that has stopped
+	// reading never takes it, so the close sits there for the kernel's
+	// 30-second drain timeout and roadie looks like it is ignoring the
+	// signal. The fd is closed by the kernel when the process goes.
+	closed := make(chan struct{})
+	go func() {
+		port.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(hidShutdownCloseWait):
+	}
 }
 
 // Status returns the current connection status.
