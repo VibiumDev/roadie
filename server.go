@@ -75,6 +75,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/api/hid/audio", s.handleAudioIn)
 	mux.HandleFunc("/test", s.handleTest)
 	mux.HandleFunc("/soundcheck", s.handleSoundcheck)
+	mux.HandleFunc("/gestures", s.handleGestures)
 	mux.HandleFunc("/api/capture/reset", s.handleCaptureReset)
 	mux.HandleFunc("/api/hid/reset", s.handleHIDReset)
 	mux.HandleFunc("/api/relay/reset", s.handleRelayReset)
@@ -1704,6 +1705,18 @@ func (s *Server) handleAudioIn(w http.ResponseWriter, r *http.Request) {
 // file so the page is same-origin with /api/hid/audio, which refuses cross-origin
 // connections.
 //
+//go:embed board/e2e/gesture-page.html
+var gesturePageHTML []byte
+
+// handleGestures serves a page that shows what a multi-touch gesture did --
+// pinch to scale, twist to rotate -- so a gesture can be checked by eye as
+// well as by the test that drives the same file.
+func (s *Server) handleGestures(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(gesturePageHTML)
+}
+
 //go:embed board/e2e/mic-page.html
 var soundcheckPage []byte
 

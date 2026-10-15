@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>roadie gestures</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; touch-action: none; }
+  html, body { height: 100%; }
+  body {
+    background: #11141c; color: #c8d0e0; font-family: ui-monospace, monospace;
+    display: flex; flex-direction: column; overflow: hidden; user-select: none;
+  }
+  #stage { flex: 1; display: grid; place-items: center; position: relative; }
+  #guitar {
+    display: block; will-change: transform;
+    transform: translate(0px, 0px) scale(1) rotate(0deg);
+    transform-origin: center center;
+  }
+  #readout {
+    padding: 10px 14px; background: #0b0e14; border-top: 1px solid #222a3a;
+    display: flex; gap: 22px; flex-wrap: wrap; font-size: 14px;
+  }
+  #readout b { color: #7ee2a8; font-weight: normal; }
+  .dot {
+    position: absolute; width: 36px; height: 36px; margin: -18px 0 0 -18px;
+    border-radius: 50%; background: #b89cff55; border: 1px solid #b89cffaa;
+    pointer-events: none; display: none;
+  }
+  #hint { position: absolute; top: 12px; color: #55607a; font-size: 13px; }
+</style>
+
+<div id="stage">
+  <div id="hint">pinch to zoom &middot; twist to rotate &middot; drag to move</div>
+  <!-- Drawn rather than an emoji: the system emoji font is bitmap only
+       (CBDT/CBLC), so a pinch to 2x turns it to mush. This stays sharp at
+       any scale, which is the whole point of the page. -->
+  <svg id="guitar" viewBox="0 0 120 320" width="150" height="400"
+       xmlns="http://www.w3.org/2000/svg" aria-label="guitar">
+    <!-- body: shoulders, waist, then a wider lower bout -->
+    <path d="M60 164
+             C36 165 22 178 21 196
+             C20 210 31 219 32 231
+             C33 245 15 251 14 272
+             C13 293 34 306 60 306
+             C86 306 107 293 106 272
+             C105 251 87 245 88 231
+             C89 219 100 210 99 196
+             C98 178 84 165 60 164 Z"
+          fill="#c0531f" stroke="#7c3310" stroke-width="2.5"
+          stroke-linejoin="round"/>
+    <!-- a little light off the upper bout -->
+    <path d="M60 164 C42 166 30 176 25 190 C34 178 46 173 60 172 Z"
+          fill="#e08042" opacity="0.6"/>
+    <!-- pickups, bridge, knobs -->
+    <rect x="40" y="188" width="40" height="10" rx="2.5" fill="#1f2430"/>
+    <rect x="40" y="212" width="40" height="10" rx="2.5" fill="#1f2430"/>
+    <rect x="44" y="248" width="32" height="8" rx="2" fill="#9aa3b2"/>
+    <circle cx="84" cy="272" r="4.6" fill="#2b3240"/>
+    <circle cx="84" cy="287" r="4.6" fill="#2b3240"/>
+    <!-- neck and fretboard -->
+    <rect x="49" y="60" width="22" height="112" fill="#8a5a2b"/>
+    <rect x="50.5" y="60" width="19" height="108" fill="#3c2512"/>
+    <g stroke="#b9c0cc" stroke-width="1.2">
+      <line x1="50.5" y1="78" x2="69.5" y2="78"/>
+      <line x1="50.5" y1="96" x2="69.5" y2="96"/>
+      <line x1="50.5" y1="114" x2="69.5" y2="114"/>
+      <line x1="50.5" y1="132" x2="69.5" y2="132"/>
+      <line x1="50.5" y1="150" x2="69.5" y2="150"/>
+    </g>
+    <!-- headstock -->
+    <path d="M47 58 L73 58 L76 18 C76 12 72 9 66 9 L54 9 C48 9 44 12 44 18 Z"
+          fill="#8a5a2b" stroke="#5f3c1b" stroke-width="1.5"/>
+    <g fill="#c9d1dc">
+      <circle cx="41" cy="20" r="3.2"/><circle cx="41" cy="31" r="3.2"/>
+      <circle cx="41" cy="42" r="3.2"/><circle cx="79" cy="20" r="3.2"/>
+      <circle cx="79" cy="31" r="3.2"/><circle cx="79" cy="42" r="3.2"/>
+    </g>
+    <rect x="47" y="56" width="26" height="4" rx="1" fill="#e8ecf2"/>
+    <!-- strings -->
+    <g stroke="#e8ecf2" stroke-width="0.9" opacity="0.9">
+      <line x1="53" y1="58" x2="46" y2="252"/>
+      <line x1="55.8" y1="58" x2="51.6" y2="252"/>
+      <line x1="58.6" y1="58" x2="57.2" y2="252"/>
+      <line x1="61.4" y1="58" x2="62.8" y2="252"/>
+      <line x1="64.2" y1="58" x2="68.4" y2="252"/>
+      <line x1="67" y1="58" x2="74" y2="252"/>
+    </g>
+  </svg>
+  <div class="dot" id="d0"></div>
+  <div class="dot" id="d1"></div>
+</div>
+<div id="readout">
+  <span>contacts <b id="n">0</b></span>
+  <span>scale <b id="s">1.00</b></span>
+  <span>rotation <b id="r">0</b>&deg;</span>
+  <span>moved <b id="m">0,0</b></span>
+  <span id="peakwrap">most at once <b id="peak">0</b></span>
+</div>
+
+<script>
+// Shows what a multi-touch gesture does, and reports it back so a test can
+// check the gesture was understood rather than only that events arrived.
+//
+// Opens standalone too: without a collector the reports fail quietly, so
+// this doubles as something to poke at by hand.
+const guitar = document.getElementById('guitar');
+const dots = [document.getElementById('d0'), document.getElementById('d1')];
+const out = {
+  n: document.getElementById('n'), s: document.getElementById('s'),
+  r: document.getElementById('r'), m: document.getElementById('m'),
+  peak: document.getElementById('peak'),
+};
+
+let scale = 1, rotation = 0, tx = 0, ty = 0, peak = 0, seq = 0;
+let base = null;   // gesture start: distance, angle, scale, rotation, centre
+
+function report(kind, data) {
+  data.kind = kind;
+  data.seq = seq++;
+  fetch('/report', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data),
+    keepalive: true,
+  }).catch(() => {});
+}
+
+function show(touches) {
+  out.n.textContent = touches.length;
+  out.s.textContent = scale.toFixed(2);
+  out.r.textContent = Math.round(rotation);
+  out.m.textContent = Math.round(tx) + ',' + Math.round(ty);
+  out.peak.textContent = peak;
+  for (let i = 0; i < 2; i++) {
+    const t = touches[i];
+    dots[i].style.display = t ? 'block' : 'none';
+    if (t) {
+      dots[i].style.left = t.clientX + 'px';
+      dots[i].style.top = t.clientY + 'px';
+    }
+  }
+}
+
+function pairOf(touches) {
+  const [a, b] = touches;
+  return {
+    dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+    angle: Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX) * 180 / Math.PI,
+    cx: (a.clientX + b.clientX) / 2, cy: (a.clientY + b.clientY) / 2,
+  };
+}
+
+function onTouch(e) {
+  const touches = Array.from(e.touches);
+  peak = Math.max(peak, touches.length);
+
+  if (touches.length >= 2) {
+    const now = pairOf(touches);
+    if (!base || base.n < 2) {
+      base = {n: 2, dist: now.dist, angle: now.angle, scale: scale,
+              rotation: rotation, cx: now.cx, cy: now.cy, tx: tx, ty: ty};
+    } else {
+      // Pinch sets the scale, twist sets the rotation, and the midpoint
+      // moving carries the whole thing along.
+      if (base.dist > 0) {
+        scale = Math.max(0.2, Math.min(8, base.scale * (now.dist / base.dist)));
+      }
+      rotation = base.rotation + (now.angle - base.angle);
+      tx = base.tx + (now.cx - base.cx);
+      ty = base.ty + (now.cy - base.cy);
+    }
+  } else if (touches.length === 1) {
+    const t = touches[0];
+    if (!base || base.n !== 1) {
+      base = {n: 1, cx: t.clientX, cy: t.clientY, tx: tx, ty: ty};
+    } else {
+      tx = base.tx + (t.clientX - base.cx);
+      ty = base.ty + (t.clientY - base.cy);
+    }
+  } else {
+    base = null;
+  }
+
+  guitar.style.transform =
+    'translate(' + tx.toFixed(1) + 'px,' + ty.toFixed(1) + 'px) ' +
+    'scale(' + scale.toFixed(3) + ') rotate(' + rotation.toFixed(1) + 'deg)';
+  show(touches);
+
+  report(e.type, {
+    contacts: touches.length, peak: peak,
+    scale: Number(scale.toFixed(3)), rotation: Number(rotation.toFixed(1)),
+    tx: Math.round(tx), ty: Math.round(ty),
+    touches: touches.map(t => ({
+      id: t.identifier,
+      clientX: Math.round(t.clientX), clientY: Math.round(t.clientY),
+    })),
+  });
+  e.preventDefault();
+}
+
+for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+  window.addEventListener(type, onTouch, {passive: false});
+}
+
+function announce() {
+  report('ready', {
+    screenW: screen.width, screenH: screen.height,
+    innerW: window.innerWidth, innerH: window.innerHeight,
+    dpr: window.devicePixelRatio,
+    maxTouchPoints: navigator.maxTouchPoints,
+  });
+}
+if (document.readyState === 'complete') announce();
+else window.addEventListener('load', announce);
+</script>
