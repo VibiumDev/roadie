@@ -5,7 +5,7 @@ BINARY = roadie
 #   make flash-hid CP_VERSION=latest
 CP_VERSION ?= 10.3.1
 
-.PHONY: build test setup uninstall flash-relay flash-hid flash-relay-quick flash-hid-quick sync sync-hid sync-relay status set-vnc-password start-vnc-server stop-vnc-server vnc-status test-hid test-hid-quick test-audio test-audio-api test-audio-browser test-e2e-pi test-e2e-android test-e2e-iphone test-e2e-pc clean
+.PHONY: build test setup uninstall flash-relay flash-hid flash-relay-quick flash-hid-quick sync sync-hid sync-relay status set-vnc-password start-vnc-server stop-vnc-server vnc-status test-hid test-hid-quick test-audio test-audio-serial test-audio-api test-audio-browser test-e2e-pi test-e2e-android test-e2e-iphone test-e2e-pc clean
 
 build:
 	go build -o $(BINARY) .
@@ -74,7 +74,10 @@ sync-hid:
 # and from a real browser's microphone (Chromium plays the tune into a fake
 # mic). All three end the same way: recorded back off the HID board's USB
 # microphone and checked note by note.
-test-audio:
+# Plain "make test-audio" runs all three; the suffixed ones pick a layer.
+test-audio: test-audio-serial test-audio-api test-audio-browser
+
+test-audio-serial:
 	python3 board/test_audio.py --via serial
 
 test-audio-api:

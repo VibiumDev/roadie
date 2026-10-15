@@ -7,9 +7,7 @@ the boards accepted a command.
 |---------|--------|
 | `make test-hid` | keyboard, mouse, click, scroll, touch — read back from `/dev/input` |
 | `make test-e2e-pi` | the same, driven through roadie's HTTP API into a real browser |
-| `make test-audio` | voice input: five notes to the relay, out the HID board's USB mic |
-| `make test-audio-api` | the same, sent through roadie's `/audio-in` WebSocket |
-| `make test-audio-browser` | the same, from a real browser's microphone |
+| `make test-audio` | voice input, all three layers below |
 
 Run `make setup` once first. The HID board must be plugged into this machine,
 so the input it injects comes back here.
@@ -131,11 +129,16 @@ It is view-only — a stray click would steal focus and break a run.
 
 The same five notes are sent three ways, so a failure says which layer broke:
 
+`make test-audio` runs all three. To pick one:
+
 | | sends via | covers |
 |---|---|---|
-| `make test-audio` | the relay's serial port | the boards and the UART protocol |
+| `make test-audio-serial` | the relay's serial port | the boards and the UART protocol |
 | `make test-audio-api` | roadie's `/audio-in` WebSocket | the above, plus roadie's audio code |
 | `make test-audio-browser` | a real browser's microphone | the above, plus `getUserMedia` and the page's PCM conversion |
+
+Each writes its own capture (`/tmp/roadie_audio_serial.wav` and so on), so
+they can be compared rather than overwriting each other.
 
 All three end the same way: recorded back off the HID board's USB microphone
 and checked note by note. The browser one feeds Chromium a wav file in place
