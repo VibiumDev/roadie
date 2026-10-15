@@ -25,38 +25,20 @@ Roadie uses one device to set up or control another. It grabs video from an HDMI
 
 ```mermaid
 flowchart TB
-    B["🌐 Browser<br/>or automation script"]
+    B["Browser<br/>HTTP · WebSocket"]
+    S["Go server (roadie)<br/>Host: Pi, Mac, Linux"]
+    R["Relay board — QT Py<br/>JSON → binary"]
+    H["HID board — QT Py<br/>binary → USB HID"]
+    D["HDMI capture dongle"]
+    T["Target device<br/>Mac, PC, Android, iOS"]
 
-    subgraph FOH["🎚️ Front of house · Pi, Mac, Linux"]
-        S["🎸 roadie<br/>Go server"]
-    end
-
-    subgraph PEDAL["🎛️ Pedalboard · 2× QT Py RP2040"]
-        R["📥 Relay<br/>JSON → binary"]
-        H["📤 HID<br/>binary → USB"]
-    end
-
-    subgraph STAGE["🎤 Stage"]
-        T["📱 Target<br/>Mac, PC, Android, iOS"]
-        D["🎥 HDMI capture"]
-    end
-
-    B <== "HTTP · WebSocket" ==> S
-    S -- "USB serial" --> R
+    B <--> S
+    S -- "USB serial · JSON" --> R
     R -- "UART" --> H
-    H -- "keyboard · mouse · touch" --> T
-    H -. "microphone" .-> T
-    T -- "HDMI" --> D
-    D == "video + audio" ==> S
-
-    classDef srv fill:#7c3aed,stroke:#4c1d95,color:#fff
-    classDef brd fill:#f59e0b,stroke:#b45309,color:#1c1917
-    classDef tgt fill:#0f172a,stroke:#020617,color:#fff
-    classDef ext fill:#0ea5e9,stroke:#075985,color:#fff
-    class S srv
-    class R,H brd
-    class T tgt
-    class B,D ext
+    H -- "USB HID: keyboard, mouse, touch" --> T
+    H -- "USB audio: microphone" --> T
+    T -- "HDMI out" --> D
+    D -- "USB: video + audio" --> S
 ```
 
 ### Why not VNC/KVM/MDM?
