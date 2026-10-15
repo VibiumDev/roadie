@@ -288,6 +288,20 @@ class Runner:
         self.data.flush()
         return line
 
+    def release_everything(self):
+        """Let go of any button or contact, whatever happened.
+
+        A run that stops between a press and its release leaves the button
+        held as far as the host is concerned -- a context menu that will not
+        close, a drag that will not end -- and nothing in the test would put
+        it right.
+        """
+        try:
+            self.send(cmd="mouse_release", buttons=7)  # left | right | middle
+            self.send(cmd="touch", contacts=[])
+        except Exception:
+            pass  # already closing down; nothing useful to do here
+
     def record(self, name, passed, detail):
         self.results.append((name, passed, detail))
         mark = "✅" if passed else "❌"
@@ -346,7 +360,21 @@ class Runner:
     def leg_mouse_click(self):
         self.capture.drain()
         self.send(cmd="mouse_click", buttons=1)
-        time.sleep(self.settle)
+
+        # Wait for both halves rather than sleeping a fixed time: under load
+        # the release can land after the window closes, which read as a
+        # release with no press.
+        def both_seen(events):
+            states = {e[3] for e in events
+                      if e[0] == "mouse" and e[1] == EV_KEY
+                      and e[2] == BTN_LEFT}
+            return {0, 1} <= states
+
+        deadline = time.monotonic() + self.settle + 3
+        while time.monotonic() < deadline:
+            if both_seen(self.capture.snapshot()):
+                break
+            time.sleep(0.05)
         events = self.capture.snapshot()
         downs = [e for e in events
                  if e[0] == "mouse" and e[1] == EV_KEY
@@ -512,6 +540,7 @@ def main():
             runner.leg_multitouch((8192, 16384), (24576, 16384),
                                   touch_path=inputs.get("touch"))
     finally:
+        runner.release_everything()
         if hrepl:
             tail = hrepl.read(hrepl.in_waiting or 1).decode(errors="replace").strip()
             if tail:

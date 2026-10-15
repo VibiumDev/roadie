@@ -449,6 +449,14 @@ class Suite:
         return (round(hx / HID_MAX * (self.screen_w - 1)),
                 round(hy / HID_MAX * (self.screen_h - 1)))
 
+    def release_everything(self):
+        """Let go of any button or contact, whatever happened."""
+        try:
+            self.hid("mouse/click", {"buttons": 7, "action": "release"})
+            self.hid("touch", {"contacts": []})
+        except Exception:
+            pass
+
     def record(self, name, passed, detail):
         self.results.append((name, passed, detail))
         print(f"  {'✅' if passed else '❌'} {name}: {detail}")
@@ -752,6 +760,7 @@ def main():
         if "multitouch" not in args.skip:
             suite.leg_multitouch()
     finally:
+        suite.release_everything()
         if browser and args.keep_open:
             warn(f"Leaving the browser open. Kill it with: "
                  f"pkill -f {browser.profile}")

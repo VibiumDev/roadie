@@ -130,6 +130,11 @@ def show_target_input():
             "not enumerated — the HID board needs a re-plug after flashing")
 
     if found_any:
+        stuck = held_buttons()
+        if stuck:
+            row("stuck", WARN,
+                f"{', '.join(stuck)} still held — run 'make test-hid' to "
+                "clear it")
         print("     (event numbers change on re-plug; the stable names live")
         print("      under /dev/input/by-id/)")
 
@@ -137,6 +142,33 @@ def show_target_input():
 # ---------------------------------------------------------------------------
 # What comes back from the target
 # ---------------------------------------------------------------------------
+
+def held_buttons():
+    """Anything the HID board is currently holding down."""
+    # EVIOCGKEY(len) = _IOR('E', 0x18, len): a bitmask of what is held.
+    import fcntl
+    names = {0x110: "left button", 0x111: "right button",
+             0x112: "middle button", 0x14a: "touch contact"}
+    held = []
+    for path in sorted(glob.glob(
+            "/dev/input/by-id/usb-Adafruit_Roadie-HID_*event*")):
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        except OSError:
+            continue
+        buf = bytearray(96)
+        try:
+            fcntl.ioctl(fd, (2 << 30) | (len(buf) << 16) | (ord('E') << 8)
+                        | 0x18, buf, True)
+        except OSError:
+            continue
+        finally:
+            os.close(fd)
+        for code, name in names.items():
+            if buf[code // 8] >> (code % 8) & 1 and name not in held:
+                held.append(name)
+    return held
+
 
 def show_target_output():
     heading("From the target")
