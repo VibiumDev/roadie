@@ -230,7 +230,8 @@ count, scale and rotation printed underneath. It is the same page
 ## Testing a phone instead
 
 Move the HID board to the phone, leave the relay here, and the test page runs
-on the phone:
+on the phone. [Connect a Phone](connect-a-phone.md) covers the hub, the wiring
+and the iOS settings:
 
 ```bash
 make test-e2e-android    # opens the page with the keyboard, then tests it
@@ -243,18 +244,9 @@ so the viewer maps pointers the way that device expects if you open `/view`
 during the run.
 
 On iPhone the touch checks are skipped: iOS does not register an external
-touch digitizer, so touch sent there goes nowhere.
-
-The mouse does work, but **only with AssistiveTouch turned on**:
-
-```
-Settings → Accessibility → Touch → AssistiveTouch → on
-```
-
-Without it there is no pointer at all and roadie's mouse does nothing, which
-looks like a dead board. With it, a grey circular pointer follows the mouse.
-Each button can be reassigned under `Devices → <device> → <button>` if the
-default is not what you want.
+touch digitizer, so touch sent there goes nowhere. The mouse needs
+AssistiveTouch turned on, or nothing responds at all — see
+[Connect a Phone](connect-a-phone.md#iphone) for the settings and the wiring.
 
 They open the page themselves, using the keyboard roadie already
 is to the phone — no second channel onto the device, and the thing being tested

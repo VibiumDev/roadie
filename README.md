@@ -15,7 +15,7 @@ Automate Roadie with [Vibium](https://github.com/VibiumDev/vibium) or any browse
 ## Use Cases
 
 - **Device provisioning**: automate OS setup assistants with an AI agent before SSH or VNC exist on the target
-- **Mobile device testing**: drive phones and tablets from a browser without touching them
+- **Mobile device testing**: drive phones and tablets from a browser without touching them ([wiring and iOS setup](docs/how-to/connect-a-phone.md))
 - **Remote tech support**: view and control someone's device from another room or across the network 
 - **General IP-KVM**: same idea as PiKVM or TinyPilot, but with multi-touch support and a ~$86 BOM
 
@@ -125,6 +125,7 @@ To drive more than one device from the same host, see
 | [Board Reference](docs/reference/boards.md) | Hardware specs, wiring, USB identifiers, LED behavior |
 | [Architecture](docs/explanation/architecture.md) | System design, pipeline, and design decisions |
 | [Flash Boards](docs/how-to/flash-boards.md) | Flashing, re-flashing, and syncing board code |
+| [Connect a Phone](docs/how-to/connect-a-phone.md) | Wiring a phone through a hub, and the iOS AssistiveTouch settings a mouse needs |
 | [Testing](docs/how-to/testing.md) | Checking keyboard, mouse, touch, and voice input against real hardware |
 | [Running Multiple Targets](docs/how-to/multiple-targets.md) | Driving several devices from one host, and viewing them together |
 | [Troubleshooting](docs/how-to/troubleshooting.md) | Common problems and fixes |
