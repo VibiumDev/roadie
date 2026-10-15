@@ -28,6 +28,7 @@ import json
 import os
 import select
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -518,6 +519,17 @@ def main():
     # Which ports and devices were found is worth one line each. The paths
     # themselves are long, change on every re-plug, and only matter when
     # something is missing -- so they wait for --dump.
+    if not inputs["mouse"]:
+        # The likeliest cause by far, and the failures it produces otherwise
+        # ("no absolute motion seen") point nowhere near it.
+        mt = subprocess.run(["sh", "-c",
+                             "ls -l /sys/bus/hid/devices/*/driver 2>/dev/null"],
+                            capture_output=True, text=True).stdout
+        if "hid-multitouch" in mt:
+            sys.exit("\n  ❌ This host is in multi-touch mode, so there is no "
+                     "separate mouse device.\n     Run 'make multitouch-off' "
+                     "first, or 'make test-multitouch' to test that mode.")
+
     ports = {"relay data": data_port, "relay repl": relay_repl,
              "hid repl": hid_repl}
     check("ports", describe(ports))
