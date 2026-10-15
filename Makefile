@@ -8,7 +8,7 @@ BINARY = roadie
 #   make flash-hid CP_VERSION=latest
 CP_VERSION ?= 10.3.1
 
-.PHONY: help build test test-unit clean setup uninstall flash-hid flash-relay flash-hid-quick flash-relay-quick sync sync-hid sync-relay test-hid test-hid-quick test-e2e-pi test-audio test-audio-serial test-audio-api test-audio-browser test-view test-e2e-android test-e2e-iphone test-e2e-pc set-vnc-password start-vnc-server stop-vnc-server vnc-status status unstick
+.PHONY: help build test test-unit clean setup uninstall flash-hid flash-relay flash-hid-quick flash-relay-quick sync sync-hid sync-relay test-hid test-hid-quick test-e2e-pi test-audio test-audio-serial test-audio-api test-audio-browser test-view multitouch-on multitouch-off multitouch-status test-multitouch test-e2e-android test-e2e-iphone test-e2e-pc set-vnc-password start-vnc-server stop-vnc-server vnc-status status unstick
 
 # Every target carries a "## description"; help prints them by section.
 help:  ## Show this help
@@ -180,6 +180,26 @@ test-view:  ## Voice input through roadie's own /view page, clicked for real
 
 # One look at everything roadie talks to: boards, the input it can drive,
 # what comes back from the target, and this machine's audio and displays.
+
+##@ Multi-touch (Linux hosts only)
+
+# The board always sends two contacts. What decides whether the host sees
+# them is which kernel driver claims it, and one driver claims the whole
+# USB HID interface -- so multi-touch and a separate mouse device cannot
+# both be had at once. A phone target chooses for itself and needs none of
+# this.
+
+multitouch-on:  ## Let this host see two contacts (loses the mouse device)
+	@board/multitouch.sh on
+
+multitouch-off:  ## Back to a separate mouse and single-touch
+	@board/multitouch.sh off
+
+multitouch-status:  ## Which mode this host is in
+	@board/multitouch.sh status
+
+test-multitouch:  ## Two contacts and gestures, checked at /dev/input
+	@board/e2e/ensure-display.sh python3 board/test_multitouch.py
 
 ##@ Test against another device
 
