@@ -895,7 +895,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       }
     });
 
-    var feedPressed = false;
+    var feedPressed = false, feedButton = 0;
     // The feed prevents default on mousedown to stop drag-selection, which
     // also suppresses the focus a click would normally give this document.
     // Standalone that goes unnoticed, because the page already holds focus.
@@ -914,6 +914,10 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       feedPressed = true;
       if (inputMode === 'mouse') {
         var btn = e.button === 2 ? 2 : e.button === 1 ? 4 : 1;
+        // Release what actually went down. A secondary click can have its
+        // mouseup taken by the context menu, and releasing whatever that
+        // event reports then leaves the target holding the button.
+        feedButton = btn;
         hidSend({cmd:'mouse_press', buttons:btn});
       } else {
         var p = posFromFeed(e);
@@ -926,8 +930,8 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       if (!feedPressed) return;
       feedPressed = false;
       if (inputMode === 'mouse') {
-        var btn = e.button === 2 ? 2 : e.button === 1 ? 4 : 1;
-        hidSend({cmd:'mouse_release', buttons:btn});
+        hidSend({cmd:'mouse_release', buttons:feedButton || 1});
+        feedButton = 0;
       } else {
         var p = posFromFeed(e);
         hidSend({cmd:'touch', contacts:[{id:0, tip:false, x:p.x, y:p.y}]});
@@ -2072,12 +2076,16 @@ mouse device until you switch back.</div>
     }
   });
 
-  var trackpadPressed = false;
+  var trackpadPressed = false, trackpadButton = 0;
   trackpad.addEventListener('mousedown', function(e) {
     e.preventDefault();
     trackpadPressed = true;
     if (inputMode === 'mouse') {
       var btn = e.button === 2 ? 2 : e.button === 1 ? 4 : 1;
+      // Release what actually went down. A secondary click can have its
+      // mouseup taken by the context menu, and releasing whatever that
+      // event reports then leaves the target holding the button.
+      trackpadButton = btn;
       send({cmd:'mouse_press', buttons:btn});
     } else {
       var p = posFromEvent(e);
@@ -2090,8 +2098,8 @@ mouse device until you switch back.</div>
     if (!trackpadPressed) return;
     trackpadPressed = false;
     if (inputMode === 'mouse') {
-      var btn = e.button === 2 ? 2 : e.button === 1 ? 4 : 1;
-      send({cmd:'mouse_release', buttons:btn});
+      send({cmd:'mouse_release', buttons:trackpadButton || 1});
+      trackpadButton = 0;
     } else {
       var p = posFromEvent(e);
       send({cmd:'touch', contacts:[{id:0, tip:false, x:p.x, y:p.y}]});
