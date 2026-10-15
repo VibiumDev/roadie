@@ -34,11 +34,11 @@ flowchart TB
 
     B <--> S
     S -- "USB serial · JSON" --> R
+    S ---|"USB: video + audio"| D
     R -- "UART" --> H
     H -- "USB HID: keyboard, mouse, touch" --> T
     H -- "USB audio: microphone" --> T
-    T -- "HDMI out" --> D
-    D -- "USB: video + audio" --> S
+    D ---|"HDMI"| T
 ```
 
 ### Why not VNC/KVM/MDM?
