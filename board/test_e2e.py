@@ -38,6 +38,8 @@ keystrokes to prepare the test that is meant to detect it.
 """
 
 import argparse
+import atexit
+import glob
 import json
 import os
 import shutil
@@ -138,8 +140,9 @@ class Collector:
 
     def stop(self):
         if self.server:
-            self.server.shutdown()
-            self.server.server_close()
+            server, self.server = self.server, None
+            server.shutdown()
+            server.server_close()
 
     def drain(self):
         with self._lock:
@@ -271,8 +274,10 @@ class Roadie:
                 self.proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+        self.proc = None
         if self.log:
             self.log.close()
+            self.log = None
 
 
 # ---------------------------------------------------------------------------
@@ -315,10 +320,28 @@ def detect_browser(override=None):
     fail("No usable browser found (looked for chromium and firefox)")
 
 
+def reap_old_profiles(prefix, max_age=3600):
+    """Delete throwaway browser profiles left behind by killed runs.
+
+    Cleanup only happens on a normal exit, and --keep-open skips it on
+    purpose, so these accumulate -- a Chromium profile is about a megabyte.
+    Only ones an hour old are removed, so a concurrent run's profile is
+    never pulled out from under it.
+    """
+    now = time.time()
+    for path in glob.glob(f"/tmp/{prefix}*"):
+        try:
+            if now - os.path.getmtime(path) > max_age:
+                shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            pass
+
+
 class Browser:
     def __init__(self, binary, url, display, xauthority):
         self.binary = binary
         self.url = url
+        reap_old_profiles("roadie-e2e-profile-")
         self.profile = tempfile.mkdtemp(prefix="roadie-e2e-profile-")
         self.proc = None
         self.env = dict(os.environ, DISPLAY=display)
@@ -635,6 +658,22 @@ def main():
     info(f"Collector listening on {url}")
 
     roadie = Roadie(args.roadie)
+    started = {}
+
+    def emergency_cleanup():
+        """Tear down on any exit path, including one nobody planned for.
+
+        A roadie left running holds the relay's serial port, so every later
+        test fails with "device or resource busy" -- a long way from the
+        actual fault, and on a different day.
+        """
+        browser = started.get("browser")
+        if browser is not None and not args.keep_open:
+            browser.stop()
+        roadie.stop()
+        collector.stop()
+
+    atexit.register(emergency_cleanup)
     base = roadie.ensure()
 
     status = {}
@@ -654,6 +693,7 @@ def main():
     if local:
         browser = Browser(detect_browser(args.browser), url,
                           args.display, args.xauthority)
+        started["browser"] = browser
         browser.launch()
     elif args.target == "android":
         open_on_android(url)
