@@ -60,6 +60,18 @@ WAV_PATHS = {
 }
 WAV_PATH = WAV_PATHS["serial"]  # replaced at startup by --via
 
+VERBOSE = False
+
+
+def detail(*args):
+    """Print running commentary, which --verbose turns on.
+
+    A passing test only needs to say so. Anything that failed prints in
+    full regardless, since that is when the detail is worth having.
+    """
+    if VERBOSE:
+        print(*args)
+
 
 def make_tone():
     """The motif as S16LE mono PCM, notes separated by short silences."""
@@ -124,11 +136,11 @@ def analyze(path):
         chunk = samples[off:off + hop]
         levels.append(math.sqrt(sum(s * s for s in chunk) / len(chunk)))
     if not levels:
-        return 0.0, []
+        return 0.0, [], []
 
     peak = max(levels)
     if peak <= 0:
-        return 0.0, []
+        return 0.0, [], []
 
     # Group runs of loud hops into notes, ignoring anything too short to be
     # one (the brief unsteady moment between two notes, say).
@@ -146,9 +158,25 @@ def analyze(path):
                 rms = math.sqrt(sum(s * s for s in seg) / max(1, len(seg)))
                 # Autocorrelation over a slice is enough and keeps it quick.
                 middle = seg[:int(rate * 0.2)] if len(seg) > rate * 0.2 else seg
-                notes.append((_pitch(middle, rate), rms))
+                notes.append((_pitch(middle, rate), rms,
+                              a / rate, b / rate))
             start = None
-    return peak, notes
+
+    # A dropout splits one note into two pieces at the same pitch. Join them
+    # back up, but keep the lost time: the tune did arrive, and separately
+    # it had a gap in it, and those are two different things to report.
+    joined, dropouts = [], []
+    for note in notes:
+        hz, rms, began, ended = note
+        if joined:
+            prev_hz, prev_rms, prev_began, prev_ended = joined[-1]
+            gap = began - prev_ended
+            if gap < 0.5 and abs(hz - prev_hz) <= max(20.0, hz * 0.06):
+                dropouts.append(gap)
+                joined[-1] = (prev_hz, max(rms, prev_rms), prev_began, ended)
+                continue
+        joined.append(note)
+    return peak, [(hz, rms) for hz, rms, _, _ in joined], dropouts
 
 
 class AudioSocket:
@@ -216,12 +244,14 @@ def playback_hint():
         player = f"pw-play {WAV_PATH}"
     else:
         player = f"aplay {WAV_PATH}"
-    print(f"  🔊 Play it:  {player}")
     if os.environ.get("SSH_CONNECTION"):
         user = os.environ.get("USER", "pi")
         host = os.uname().nodename
-        print("     You're over ssh, so that plays on the Pi, not where you")
-        print(f"     are. To listen locally:  scp {user}@{host}:{WAV_PATH} .")
+        detail("     You're over ssh, so playing it here would come out of"
+               " the Pi.")
+        print(f"     listen:  scp {user}@{host}:{WAV_PATH} .")
+    else:
+        print(f"     listen:  {player}")
 
 
 def pace(index, t0):
@@ -329,7 +359,7 @@ def stream_browser(pcm, base, notes, record_secs):
     reap_old_profiles("roadie-mic-profile-")
     reap_old_profiles("roadie-mic-")
     profile = tempfile.mkdtemp(prefix="roadie-mic-profile-")
-    print(f"  🔊 Browser microphone plays {TONE_SECS:.1f}s — {notes}")
+    detail(f"  🔊 Browser microphone plays {TONE_SECS:.1f}s — {notes}")
     proc = subprocess.Popen(
         [browser, "--kiosk", f"--user-data-dir={profile}",
          "--no-first-run", "--no-default-browser-check", "--noerrdialogs",
@@ -347,7 +377,7 @@ def stream_browser(pcm, base, notes, record_secs):
     )
     rec = None
     try:
-        print("  ⏳ Waiting for the browser to open its microphone...")
+        detail("  ⏳ Waiting for the browser to open its microphone...")
         deadline = time.monotonic() + 45
         while time.monotonic() < deadline and not events:
             time.sleep(0.2)
@@ -371,7 +401,7 @@ def stream_browser(pcm, base, notes, record_secs):
 
 def record(record_secs):
     """Start capturing from the HID board's microphone."""
-    print(f"  🎙️  Recording {record_secs}s from ALSA card RoadieHID...")
+    detail(f"  🎙️  Recording {record_secs}s from ALSA card RoadieHID...")
     rec = subprocess.Popen(
         ["arecord", "-q", "-D", "plughw:RoadieHID", "-f", "S16_LE",
          "-r", str(AUDIO_RATE), "-c", "1",
@@ -389,7 +419,12 @@ def main():
                         help="which layer to send the audio through")
     parser.add_argument("--roadie", default="http://127.0.0.1:8080",
                         help="base URL of a running roadie (api/browser)")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="show each step and every note, not just the result")
     args = parser.parse_args()
+
+    global VERBOSE
+    VERBOSE = args.verbose
 
     global WAV_PATH
     WAV_PATH = WAV_PATHS[args.via]
@@ -404,22 +439,22 @@ def main():
     if args.via in ("api", "browser"):
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from test_e2e import Roadie
-        roadie = Roadie(args.roadie)
+        roadie = Roadie(args.roadie, quiet=not VERBOSE)
         base = roadie.ensure()
 
     try:
         if args.via == "serial":
-            print(f"  🎯 Path: this script → relay serial → UART → HID → mic")
+            detail(f"  🎯 Path: this script → relay serial → UART → HID → mic")
             rec = record(record_secs)
-            print(f"  🔊 Streaming {TONE_SECS:.1f}s — {notes} — in 10 ms frames...")
+            detail(f"  🔊 Streaming {TONE_SECS:.1f}s — {notes} — in 10 ms frames...")
             stream_serial(pcm)
         elif args.via == "api":
-            print(f"  🎯 Path: this script → roadie /audio-in → relay → HID → mic")
+            detail(f"  🎯 Path: this script → roadie /audio-in → relay → HID → mic")
             rec = record(record_secs)
-            print(f"  🔊 Streaming {TONE_SECS:.1f}s — {notes} — in 10 ms frames...")
+            detail(f"  🔊 Streaming {TONE_SECS:.1f}s — {notes} — in 10 ms frames...")
             stream_api(pcm, base)
         else:
-            print(f"  🎯 Path: browser mic → roadie /audio-in → relay → HID → mic")
+            detail(f"  🎯 Path: browser mic → roadie /audio-in → relay → HID → mic")
             # It records itself, once the browser is actually streaming.
             if stream_browser(pcm, base, notes, record_secs) is None:
                 sys.exit(1)
@@ -430,7 +465,7 @@ def main():
         if roadie:
             roadie.stop()
 
-    peak, heard = analyze(WAV_PATH)
+    peak, heard, dropouts = analyze(WAV_PATH)
 
     if peak < 500:
         print("  ❌ No signal captured — audio path is not working.")
@@ -439,26 +474,40 @@ def main():
         playback_hint()
         sys.exit(1)
 
-    print(f"  📈 Heard {len(heard)} of {len(MOTIF)} notes:")
     ok = len(heard) == len(MOTIF)
+    rows = []
     for i, (name, want, secs) in enumerate(MOTIF):
         if i < len(heard):
             got, note_rms = heard[i]
             close = abs(got - want) <= want * 0.06
             ok = ok and close
-            print(f"     {'✅' if close else '❌'} {name:<3} "
-                  f"expected {want:6.1f} Hz, heard {got:6.1f} Hz "
-                  f"({secs:.2f}s, RMS {note_rms:.0f})")
+            rows.append(f"     {'✅' if close else '❌'} {name:<3} "
+                        f"expected {want:6.1f} Hz, heard {got:6.1f} Hz "
+                        f"({secs:.2f}s, RMS {note_rms:.0f})")
         else:
             ok = False
-            print(f"     ❌ {name:<3} expected {want:6.1f} Hz, not heard")
+            rows.append(f"     ❌ {name:<3} expected {want:6.1f} Hz, not heard")
+
+    if not ok or VERBOSE:
+        print(f"  📈 Heard {len(heard)} of {len(MOTIF)} notes:")
+        for row in rows:
+            print(row)
+
+    # Report gaps whether or not they were enough to fail: a tune that
+    # arrived with a hole in it is worth knowing about.
+    lost = sum(dropouts)
+    if dropouts:
+        print(f"  ⚠️  {len(dropouts)} dropout(s) mid-tune, {lost * 1000:.0f} ms "
+              f"lost — the audio had gaps in it")
+    if lost > 0.5:
+        ok = False
+        print("  ❌ Too much audio was lost to call the path healthy.")
 
     if not ok:
         print("  ❌ The motif did not arrive intact.")
         playback_hint()
         sys.exit(1)
-    print(f"  ✅ All {len(MOTIF)} notes came through in order. "
-          f"Capture: {WAV_PATH}")
+    print(f"  ✅ {args.via:<8} {len(MOTIF)}/{len(MOTIF)} notes   {WAV_PATH}")
     playback_hint()
 
 

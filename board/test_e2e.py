@@ -232,18 +232,26 @@ def free_port():
 class Roadie:
     """Use an already-running roadie, or start one just for this test."""
 
-    def __init__(self, base=None):
+    def __init__(self, base=None, quiet=False):
         self.base = base
         self.proc = None
         self.log = None
+        # Starting a server is a means to an end for some callers, and not
+        # worth three lines of commentary each time they do it.
+        self.quiet = quiet
+
+    def _say(self, fn, message):
+        if not self.quiet:
+            fn(message)
 
     def ensure(self):
         if self.base and roadie_alive(self.base):
-            info(f"Using the roadie already serving at {self.base}")
+            self._say(info, f"Using the roadie already serving at {self.base}")
             return self.base
 
         if self.base:
-            warn(f"Nothing answering at {self.base} — starting our own roadie")
+            self._say(warn,
+                      f"Nothing answering at {self.base} — starting our own roadie")
 
         binary = REPO_ROOT / "roadie"
         if not binary.exists():
@@ -252,7 +260,7 @@ class Roadie:
         port = free_port()
         self.base = f"http://127.0.0.1:{port}"
         self.log = open("/tmp/roadie-e2e.log", "w")
-        print(f"  🚀 Starting {binary} --port {port}")
+        self._say(print, f"  🚀 Starting {binary} --port {port}")
         self.proc = subprocess.Popen(
             [str(binary), "--port", str(port)],
             cwd=str(REPO_ROOT), stdout=self.log, stderr=subprocess.STDOUT,
@@ -262,7 +270,7 @@ class Roadie:
             if self.proc.poll() is not None:
                 fail("roadie exited during startup — see /tmp/roadie-e2e.log")
             if roadie_alive(self.base):
-                info(f"roadie is serving at {self.base}")
+                self._say(info, f"roadie is serving at {self.base}")
                 return self.base
             time.sleep(0.5)
         fail("roadie did not become healthy — see /tmp/roadie-e2e.log")

@@ -10,14 +10,12 @@
   #state { font-size:1.4rem; }
   #level { width:60%; height:18px; background:#1b2030; border:1px solid #2d3650; }
   #bar { height:100%; width:0; background:#7effb2; transition:width .05s; }
-  #log { font-size:.8rem; color:#5c6a8a; }
 </style>
 </head>
 <body>
 <h1>🎸 roadie voice input</h1>
 <div id="state">starting…</div>
 <div id="level"><div id="bar"></div></div>
-<div id="log"></div>
 <script>
 // Captures the microphone and streams it to roadie's /audio-in as 16-bit
 // PCM, the same shape the viewer's mic button sends. Under test the
@@ -27,7 +25,6 @@ const target = params.get('roadie');     // e.g. 127.0.0.1:8080
 const RATE = 16000;
 const stateEl = document.getElementById('state');
 const barEl = document.getElementById('bar');
-const logEl = document.getElementById('log');
 
 function report(what, extra) {
   fetch('/report', {
@@ -37,7 +34,7 @@ function report(what, extra) {
   }).catch(() => {});
 }
 
-function say(text) { stateEl.textContent = text; logEl.textContent = text; }
+function say(text) { stateEl.textContent = text; }
 
 (async () => {
   try {

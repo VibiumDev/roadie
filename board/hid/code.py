@@ -64,14 +64,20 @@ recv_buf = bytearray(MSG_SIZE)
 # position. The writer starts half a ring ahead; the stream stops (and the
 # ring is zeroed) once frames stop arriving, before the reader can run past
 # the audio it was given and replay it.
-RING_BYTES = 2 * 3200  # 200 ms of 16 kHz S16 mono
-# The writer runs this far ahead of the reader, so this much real audio is
-# queued at any moment. Playback has to stop within it: wait longer and the
-# reader runs past what it was given, wraps, and replays the tail -- audible
-# as a blip after the last note.
-LEAD_BYTES = RING_BYTES // 2
-LEAD_SECS = LEAD_BYTES / 2 / AUDIO_RATE
-QUIET_SECS = LEAD_SECS * 0.8
+RING_BYTES = 2 * 6400  # 400 ms of 16 kHz S16 mono
+# How much real audio is queued ahead of the reader at any moment.
+LEAD_BYTES = 2 * 1600  # 100 ms
+# How long to wait before deciding the stream has ended. It has to outlast
+# the gaps a real sender leaves: audio arriving over a WebSocket is not
+# paced as evenly as audio written straight to the serial port, and a
+# threshold tighter than that jitter makes playback stop and restart
+# mid-tune -- heard as a break and then a fragment.
+QUIET_SECS = 0.2
+# Silence held ahead of the writer. If the reader ever runs past what it was
+# given it meets this instead of whatever the ring held last time round, so
+# an overrun is quiet rather than a replayed scrap of earlier audio. Keeping
+# it filled costs one frame's worth of zeroing per frame, not a whole sweep.
+GUARD_BYTES = 2 * 3200  # 200 ms
 ring = bytearray(RING_BYTES)
 ring_mv = memoryview(ring)
 ring_sample = audiocore.RawSample(
@@ -82,6 +88,17 @@ last_frame_t = 0.0
 
 print("roadie hid board ready (uart + hid)")
 neopixel_write.neopixel_write(pixel_pin, GREEN)
+
+
+def _zero_ring(at, count):
+    """Blank count bytes at an offset, wrapping round the end."""
+    end = at + count
+    if end <= RING_BYTES:
+        ring_mv[at:end] = b"\x00" * count
+    else:
+        first = RING_BYTES - at
+        ring_mv[at:] = b"\x00" * first
+        ring_mv[:end - RING_BYTES] = b"\x00" * (count - first)
 
 
 def feed_audio(payload):
@@ -103,6 +120,9 @@ def feed_audio(payload):
         ring_mv[wpos:] = payload[:k]
         ring_mv[:end - RING_BYTES] = payload[k:]
     wpos = end % RING_BYTES
+    # Keep the silence ahead of the writer topped up: the writer moved on by
+    # n, so n bytes at the far edge of the guard need blanking again.
+    _zero_ring((wpos + GUARD_BYTES) % RING_BYTES, n)
     last_frame_t = time.monotonic()
 
 
