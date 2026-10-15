@@ -859,13 +859,16 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     }
 
     // --- Rate-limited HID sending ---
+    // Only the latest position is sent, on a timer. 33ms keeps the pointer
+    // up with the video; the chain measures ~2ms a move and sustains 60 a
+    // second, so this is not close to its limit.
     var pendingX = -1, pendingY = -1, mouseDirty = false;
     setInterval(function() {
       if (mouseDirty) {
         hidSend({cmd:'mouse_move', x:pendingX, y:pendingY});
         mouseDirty = false;
       }
-    }, 100);
+    }, 33);
 
     var pendingContacts = [], touchDirty = false;
     setInterval(function() {
@@ -2016,7 +2019,7 @@ mouse device until you switch back.</div>
       }
       mouseDirty = false;
     }
-  }, 100);
+  }, 33);
 
   // Touch mode state
   var touchDirty = false;
