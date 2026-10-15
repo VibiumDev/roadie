@@ -76,12 +76,12 @@ from testout import section as step  # noqa: E402
 # ---------------------------------------------------------------------------
 
 class Collector:
-    def __init__(self):
+    def __init__(self, page=None):
         self.events = []
         self.ready = threading.Event()
         self.ready_info = {}
         self._lock = threading.Lock()
-        self._html = PAGE.read_bytes()
+        self._html = (page or PAGE).read_bytes()
         self.server = None
         self.port = None
 
