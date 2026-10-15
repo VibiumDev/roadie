@@ -1349,6 +1349,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if s.SourceType != "" {
 		resp["source_type"] = s.SourceType
 	}
+	if host := readHostStats(); host != nil {
+		resp["host"] = host
+	}
 	if s.Buf != nil {
 		resp["quality"] = s.Buf.Quality()
 	}
