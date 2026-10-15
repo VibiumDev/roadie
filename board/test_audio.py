@@ -27,44 +27,93 @@ import serial
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "shared"))
 from protocol import AUDIO_LEAD, AUDIO_RATE, pack_audio  # noqa: E402
 
-TONE_HZ = 1000
-TONE_SECS = 2.5
+# The five-note motif from Close Encounters of the Third Kind: re, mi, do,
+# do an octave down, sol. A sequence beats a single tone as a test -- it
+# checks that notes arrive in the right order and that none are dropped,
+# rather than only that some sound got through.
+MOTIF = (
+    ("D5", 587.33),
+    ("E5", 659.25),
+    ("C5", 523.25),
+    ("C4", 261.63),
+    ("G4", 392.00),
+)
+NOTE_SECS = 0.45
+GAP_SECS = 0.15
+TONE_SECS = len(MOTIF) * (NOTE_SECS + GAP_SECS)
 FRAME_SAMPLES = 160  # 10 ms at 16 kHz
 WAV_PATH = "/tmp/roadie_audio_test.wav"
 
 
 def make_tone():
-    """Full tone as S16LE mono PCM."""
-    n = int(AUDIO_RATE * TONE_SECS)
+    """The motif as S16LE mono PCM, notes separated by short silences."""
     amp = 12000
-    return b"".join(
-        struct.pack("<h", int(amp * math.sin(2 * math.pi * TONE_HZ * i / AUDIO_RATE)))
-        for i in range(n)
-    )
+    fade = int(AUDIO_RATE * 0.005)  # 5 ms, so note edges don't click
+    out = bytearray()
+    for _, hz in MOTIF:
+        n = int(AUDIO_RATE * NOTE_SECS)
+        for i in range(n):
+            level = amp
+            if i < fade:
+                level = amp * i / fade
+            elif i > n - fade:
+                level = amp * (n - i) / fade
+            out += struct.pack(
+                "<h", int(level * math.sin(2 * math.pi * hz * i / AUDIO_RATE)))
+        out += b"\x00\x00" * int(AUDIO_RATE * GAP_SECS)
+    return bytes(out)
+
+
+def _pitch(chunk, rate):
+    """Frequency of a chunk, from its zero-crossing rate."""
+    if len(chunk) < 2:
+        return 0.0
+    crossings = sum(1 for a, b in zip(chunk, chunk[1:]) if (a < 0) != (b < 0))
+    return crossings * rate / (2.0 * len(chunk))
 
 
 def analyze(path):
-    """Return (rms, dominant_hz) of the loudest 1s window in the wav."""
+    """Return (peak_rms, [(hz, rms), ...]) for the notes heard in the wav.
+
+    Notes are found by energy rather than by assuming where they start: the
+    recording begins before the stream does, so their position shifts.
+    """
     with wave.open(path) as w:
         raw = w.readframes(w.getnframes())
         rate = w.getframerate()
         nch = w.getnchannels()
     samples = struct.unpack("<%dh" % (len(raw) // 2), raw)[::nch]
 
-    win = rate  # 1 second
-    best_rms, best_off = 0.0, 0
-    for off in range(0, max(1, len(samples) - win), rate // 4):
-        chunk = samples[off:off + win]
-        rms = math.sqrt(sum(s * s for s in chunk) / len(chunk))
-        if rms > best_rms:
-            best_rms, best_off = rms, off
+    hop = max(1, int(rate * 0.02))  # 20 ms
+    levels = []
+    for off in range(0, len(samples) - hop, hop):
+        chunk = samples[off:off + hop]
+        levels.append(math.sqrt(sum(s * s for s in chunk) / len(chunk)))
+    if not levels:
+        return 0.0, []
 
-    chunk = samples[best_off:best_off + win]
-    crossings = sum(
-        1 for a, b in zip(chunk, chunk[1:]) if (a < 0) != (b < 0)
-    )
-    hz = crossings * rate / (2.0 * len(chunk))
-    return best_rms, hz
+    peak = max(levels)
+    if peak <= 0:
+        return 0.0, []
+
+    # Group runs of loud hops into notes, ignoring anything too short to be
+    # one (a click between notes, say).
+    threshold = peak * 0.25
+    min_hops = max(1, int(0.15 / 0.02))
+    notes, start = [], None
+    for i, level in enumerate(levels + [0.0]):
+        if level >= threshold and start is None:
+            start = i
+        elif level < threshold and start is not None:
+            if i - start >= min_hops:
+                a, b = start * hop, i * hop
+                # Trim the edges, where the fades blur the pitch.
+                pad = (b - a) // 5
+                seg = samples[a + pad:b - pad]
+                rms = math.sqrt(sum(s * s for s in seg) / max(1, len(seg)))
+                notes.append((_pitch(seg, rate), rms))
+            start = None
+    return peak, notes
 
 
 def playback_hint():
@@ -73,7 +122,14 @@ def playback_hint():
     aplay plays on whichever machine runs it, so over ssh the sound comes
     out of the Pi -- easy to mistake for an empty recording.
     """
-    print(f"  🔊 Play it:  aplay {WAV_PATH}")
+    if subprocess.run(["pgrep", "-x", "pipewire"],
+                      capture_output=True).returncode == 0:
+        # aplay goes straight to ALSA, which on PipeWire cannot reach a
+        # Bluetooth speaker; pw-play follows the default output.
+        player = f"pw-play {WAV_PATH}"
+    else:
+        player = f"aplay {WAV_PATH}"
+    print(f"  🔊 Play it:  {player}")
     if os.environ.get("SSH_CONNECTION"):
         user = os.environ.get("USER", "pi")
         host = os.uname().nodename
@@ -91,15 +147,17 @@ def main():
     data = serial.Serial(data_port[0], 115200, timeout=2)
     time.sleep(0.3)
 
-    print(f"  🎙️  Recording {TONE_SECS + 1.5:.0f}s from ALSA card RoadieHID...")
+    record_secs = int(TONE_SECS + 2)
+    print(f"  🎙️  Recording {record_secs}s from ALSA card RoadieHID...")
     rec = subprocess.Popen(
         ["arecord", "-q", "-D", "plughw:RoadieHID", "-f", "S16_LE",
          "-r", str(AUDIO_RATE), "-c", "1",
-         "-d", str(int(TONE_SECS + 2)), WAV_PATH],
+         "-d", str(record_secs), WAV_PATH],
     )
     time.sleep(0.8)  # let capture spin up
 
-    print(f"  🔊 Streaming {TONE_SECS}s of {TONE_HZ} Hz tone in 10 ms frames...")
+    print(f"  🔊 Streaming {TONE_SECS:.1f}s — "
+          f"{' '.join(n for n, _ in MOTIF)} — in 10 ms frames...")
     frame_bytes = FRAME_SAMPLES * 2
     t0 = time.monotonic()
     for i in range(0, len(pcm), frame_bytes):
@@ -113,20 +171,35 @@ def main():
     rec.wait()
     data.close()
 
-    rms, hz = analyze(WAV_PATH)
-    print(f"  📈 Loudest 1s window: RMS={rms:.0f}, dominant ≈{hz:.0f} Hz")
+    peak, heard = analyze(WAV_PATH)
 
-    if rms < 500:
+    if peak < 500:
         print("  ❌ No signal captured — audio path is not working.")
         print(f"     The capture is still at {WAV_PATH} if you want to hear")
         print("     what did arrive.")
         playback_hint()
         sys.exit(1)
-    if abs(hz - TONE_HZ) > 60:
-        print(f"  ❌ Signal present but wrong frequency (expected ~{TONE_HZ} Hz).")
+
+    print(f"  📈 Heard {len(heard)} of {len(MOTIF)} notes:")
+    ok = len(heard) == len(MOTIF)
+    for i, (name, want) in enumerate(MOTIF):
+        if i < len(heard):
+            got, note_rms = heard[i]
+            close = abs(got - want) <= want * 0.06
+            ok = ok and close
+            print(f"     {'✅' if close else '❌'} {name:<3} "
+                  f"expected {want:6.1f} Hz, heard {got:6.1f} Hz "
+                  f"(RMS {note_rms:.0f})")
+        else:
+            ok = False
+            print(f"     ❌ {name:<3} expected {want:6.1f} Hz, not heard")
+
+    if not ok:
+        print("  ❌ The motif did not arrive intact.")
         playback_hint()
         sys.exit(1)
-    print(f"  ✅ Tone came through the full path. Capture: {WAV_PATH}")
+    print(f"  ✅ All {len(MOTIF)} notes came through in order. "
+          f"Capture: {WAV_PATH}")
     playback_hint()
 
 

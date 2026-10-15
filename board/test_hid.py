@@ -53,6 +53,29 @@ EV_SYN, EV_KEY, EV_REL, EV_ABS = 0x00, 0x01, 0x02, 0x03
 # terminal, say — because the HID board is a real keyboard to this machine.
 EVIOCGRAB = (1 << 30) | (4 << 16) | (ord('E') << 8) | 0x90
 
+# EVIOCGABS(code) = _IOR('E', 0x40 + code, struct input_absinfo).
+# The kernel only emits an absolute axis when its value *changes*, so sending
+# the same coordinates twice produces a button event and no position events
+# at all. Reading the axis directly gives the current position regardless.
+def EVIOCGABS(code):
+    return (2 << 30) | (24 << 16) | (ord('E') << 8) | (0x40 + code)
+
+
+def current_abs(path, code):
+    """Current value of an absolute axis, or None if it can't be read."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        buf = bytearray(24)
+        fcntl.ioctl(fd, EVIOCGABS(code), buf, True)
+        return struct.unpack("iiiiii", bytes(buf))[0]
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
 ABS_X, ABS_Y = 0x00, 0x01
 ABS_MT_SLOT = 0x2F
 ABS_MT_POSITION_X, ABS_MT_POSITION_Y = 0x35, 0x36
@@ -372,7 +395,7 @@ class Runner:
             self.record("multitouch", False,
                         f"sent 2 contacts but the Pi tracked only {peak}")
 
-    def leg_touch(self, x, y):
+    def leg_touch(self, x, y, path=None):
         self.capture.drain()
         self.send(cmd="touch", contacts=[{"id": 0, "tip": True, "x": x, "y": y}])
         time.sleep(self.settle)
@@ -385,6 +408,12 @@ class Runner:
                        {ABS_X, ABS_Y, ABS_MT_POSITION_X, ABS_MT_POSITION_Y})
         gx = pos.get(ABS_MT_POSITION_X, pos.get(ABS_X))
         gy = pos.get(ABS_MT_POSITION_Y, pos.get(ABS_Y))
+        # Repeating a coordinate emits no position events, because nothing
+        # changed. Ask the device where it is instead of concluding it moved
+        # nowhere.
+        if (gx is None or gy is None) and path:
+            gx = current_abs(path, ABS_X) if gx is None else gx
+            gy = current_abs(path, ABS_Y) if gy is None else gy
         if touched and gx is not None and gy is not None:
             tol = max(64, int(0.02 * 32767))
             if abs(gx - x) <= tol and abs(gy - y) <= tol:
@@ -478,7 +507,7 @@ def main():
         if "scroll" not in args.skip:
             runner.leg_mouse_scroll(5)
         if "touch" not in args.skip:
-            runner.leg_touch(8192, 16384)
+            runner.leg_touch(8192, 16384, path=inputs.get("touch"))
         if "multitouch" not in args.skip:
             runner.leg_multitouch((8192, 16384), (24576, 16384),
                                   touch_path=inputs.get("touch"))

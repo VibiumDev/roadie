@@ -7,7 +7,7 @@ the boards accepted a command.
 |---------|--------|
 | `make test-hid` | keyboard, mouse, click, scroll, touch — read back from `/dev/input` |
 | `make test-e2e-pi` | the same, driven through roadie's HTTP API into a real browser |
-| `make test-audio` | voice input: a tone through the relay, out the HID board's USB mic |
+| `make test-audio` | voice input: five notes through the relay, out the HID board's USB mic |
 
 Run `make setup` once first. The HID board must be plugged into this machine,
 so the input it injects comes back here.
