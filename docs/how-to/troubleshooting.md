@@ -133,6 +133,29 @@ curl -X POST http://localhost:8080/api/hid/reset    # reset HID board
 curl -X POST http://localhost:8080/api/relay/reset   # reset relay board
 ```
 
+**The relay stops responding on its own**
+Roadie notices and fixes this without being asked. It pings the relay every
+five seconds and waits for the answer, because a board that has stopped
+running its loop still accepts everything written to it. After three
+unanswered pings it restarts the board's program over its REPL, which takes
+about five seconds:
+
+```
+HID relay did not answer (3/3): no answer within 2s
+HID relay is not answering; restarting its program
+HID relay connected: /dev/serial/by-id/usb-Adafruit_Roadie-Relay_...-if02
+HID relay is answering again
+```
+
+If that fails it re-enumerates the board over USB, and if that fails too it
+says so once a minute:
+
+```
+HID relay is still not answering after a restart and a USB reset — unplug and replug it
+```
+
+That last message means it needs hands. Nothing else does.
+
 **"permission denied" on capture reset**
 Run `make setup` to install the udev rule that grants access to USB unbind/rebind. You may need to unplug/replug the capture dongle once after installing the rule.
 
