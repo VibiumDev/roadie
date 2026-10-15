@@ -186,6 +186,75 @@ def lan_address():
             return "127.0.0.1"
 
 
+# USB HID keycodes, from the table in API.md.
+KEY = {"b": 5, "h": 11, "l": 15, "s": 22, "enter": 40, "space": 44,
+       "escape": 41, "ctrl": 224, "gui": 227}
+
+
+def hid_key(base, keycode, action):
+    http_json(f"{base}/api/hid/key", {"keycode": keycode, "action": action})
+
+
+def hid_combo(base, *names):
+    """Hold the modifiers, tap the key, let go in reverse order."""
+    codes = [KEY[n] for n in names]
+    for code in codes:
+        hid_key(base, code, "press")
+    for code in reversed(codes):
+        hid_key(base, code, "release")
+    time.sleep(0.4)
+
+
+def open_with_keyboard(base, url, target):
+    """Drive the target's own keyboard to open the page.
+
+    roadie is a keyboard to the target, so it can do this itself rather
+    than needing a second channel onto the device. That matters most on
+    Android, where the obvious channel is adb -- and adb over USB is not
+    available anyway, because the phone's port is busy being a USB host for
+    the HID board. It also means the thing under test is the thing doing
+    the work.
+
+    Both of these are the shortcuts a hardware keyboard gets on a phone.
+    They are best-effort: if the page does not report in, the caller falls
+    back to asking for it to be opened by hand.
+    """
+    if target == "android":
+        note("asking the phone to open the page (Meta+B, then the URL)")
+        hid_combo(base, "gui", "h")        # home, for a known starting point
+        time.sleep(1.0)
+        hid_combo(base, "gui", "b")        # the browser shortcut
+        time.sleep(3.0)
+        hid_combo(base, "ctrl", "l")       # focus the address bar
+        time.sleep(0.8)
+    else:
+        note("asking the phone to open the page (Spotlight, then Safari)")
+        hid_combo(base, "gui", "h")        # home
+        time.sleep(1.0)
+        hid_combo(base, "gui", "space")    # Spotlight
+        time.sleep(1.2)
+        http_json(f"{base}/api/hid/type", {"text": "safari"})
+        time.sleep(1.2)
+        hid_key(base, KEY["enter"], "click")
+        time.sleep(3.0)
+        hid_combo(base, "gui", "l")        # focus the address bar
+        time.sleep(0.8)
+
+    http_json(f"{base}/api/hid/type", {"text": url})
+    time.sleep(0.5)
+    hid_key(base, KEY["enter"], "click")
+
+
+def ask_by_hand(url, target):
+    where = {"iphone": "Safari", "android": "Chrome"}.get(target, "a browser")
+    print()
+    print(f"  👉 Open this in {where} on the {target}:")
+    print()
+    print(f"       {url}")
+    print()
+    print("     (the test starts by itself once the page reports in)")
+
+
 def open_on_android(url):
     """Ask the phone to open the URL via ADB over WiFi."""
     if not shutil.which("adb"):
@@ -651,6 +720,9 @@ def main():
                         help="allowed coordinate error in screen pixels")
     parser.add_argument("--settle", type=float, default=0.6,
                         help="seconds to wait for events after each command")
+    parser.add_argument("--open", choices=("keyboard", "adb"), default="keyboard",
+                        help="how to get the page open on a phone: with the "
+                             "HID keyboard roadie already is, or over adb")
     parser.add_argument("--ready-timeout", type=float, default=60,
                         help="seconds to wait for the page to load")
     parser.add_argument("--skip", action="append", default=[], choices=LEGS,
@@ -714,19 +786,26 @@ def main():
                           args.display, args.xauthority)
         started["browser"] = browser
         browser.launch()
-    elif args.target == "android":
-        open_on_android(url)
+    elif args.target in ("android", "iphone"):
+        if args.open == "adb":
+            open_on_android(url)
+        else:
+            open_with_keyboard(base, url, args.target)
     else:
-        where = "Safari" if args.target == "iphone" else "a browser"
-        print()
-        print(f"  👉 Open this in {where} on the {args.target}:")
-        print()
-        print(f"       {url}")
-        print()
-        print("     (the test starts by itself once the page reports in)")
+        ask_by_hand(url, args.target)
 
     note(f"waiting up to {args.ready_timeout:.0f}s for the page")
     if not collector.ready.wait(args.ready_timeout):
+        # The keyboard shortcuts are best-effort: launchers differ, a phone
+        # may be locked, and a browser may not be where the shortcut points.
+        # Ask rather than give up -- the harness is already standing.
+        if args.target in ("android", "iphone") and args.open != "adb":
+            print()
+            print("  ⌨️  The shortcuts did not get there. Hand finish, maybe:")
+            ask_by_hand(url, args.target)
+            collector.ready.wait(args.ready_timeout)
+
+    if not collector.ready.is_set():
         if browser:
             browser.stop()
         roadie.stop()

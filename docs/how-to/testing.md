@@ -252,17 +252,33 @@ Move the HID board to the phone, leave the relay here, and the test page runs
 on the phone:
 
 ```bash
-make test-e2e-android    # opens the page over ADB
-make test-e2e-iphone     # prints a URL to open in Safari
+make test-e2e-android    # opens the page with the keyboard, then tests it
+make test-e2e-iphone     # the same, through Spotlight and Safari
 make test-e2e-pc         # prints a URL for another computer
 ```
 
-Android needs ADB over WiFi, because the phone's USB port is busy hosting the
-HID board:
+The phone targets open the page themselves, using the keyboard roadie already
+is to the phone — no second channel onto the device, and the thing being tested
+does the work:
+
+| | Android | iPhone |
+|---|---|---|
+| home | `Meta`+`H` | `Cmd`+`H` |
+| open the browser | `Meta`+`B` | `Cmd`+`Space`, type `safari`, `Enter` |
+| focus the address bar | `Ctrl`+`L` | `Cmd`+`L` |
+| then | type the URL, `Enter` | type the URL, `Enter` |
+
+Shortcuts vary by launcher and the phone has to be unlocked, so this is
+best-effort: if the page has not reported in by the timeout, the test prints the
+URL and waits for you to open it by hand rather than failing.
+
+`--open adb` uses `adb shell am start` instead. That needs ADB over WiFi, since
+the phone's USB port is busy hosting the HID board:
 
 ```bash
 adb tcpip 5555           # once, with the phone on USB
 adb connect <phone-ip>:5555
+python3 board/test_e2e.py --target android --open adb
 ```
 
 ## Useful flags

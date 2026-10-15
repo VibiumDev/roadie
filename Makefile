@@ -203,7 +203,7 @@ test-multitouch:  ## Two contacts and gestures, checked at /dev/input
 
 ##@ Test against another device
 
-test-e2e-android:  ## The whole stack into Chrome on an Android phone
+test-e2e-android:  ## The whole stack into Chrome on an Android phone (opens it by keyboard)
 	python3 board/test_e2e.py --target android
 
 test-e2e-iphone:  ## The whole stack into Safari on an iPhone
