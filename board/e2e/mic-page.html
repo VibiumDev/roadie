@@ -55,12 +55,29 @@ function say(text) { stateEl.textContent = text; logEl.textContent = text; }
 
     const ctx = new AudioContext({sampleRate: RATE});
     const src = ctx.createMediaStreamSource(stream);
-    // ScriptProcessor is deprecated but needs no module loading, which keeps
-    // this page a single file with nothing to serve alongside it.
-    const node = ctx.createScriptProcessor(1024, 1, 1);
+
+    // An AudioWorklet, matching what the viewer's mic button uses. Handing
+    // over 128 samples at a time keeps the flow even; sending in larger
+    // bursts (a ScriptProcessor's 1024, say) arrives faster than the HID
+    // board's ring buffer drains and the audio comes out broken up.
+    const workletCode = [
+      'class PCMSender extends AudioWorkletProcessor {',
+      '  process(inputs) {',
+      '    const ch = inputs[0][0];',
+      '    if (ch) this.port.postMessage(ch.slice(0));',
+      '    return true;',
+      '  }',
+      '}',
+      "registerProcessor('pcm-sender', PCMSender);",
+    ].join('\n');
+    const url = URL.createObjectURL(
+      new Blob([workletCode], {type: 'application/javascript'}));
+    await ctx.audioWorklet.addModule(url);
+
+    const node = new AudioWorkletNode(ctx, 'pcm-sender');
     let sent = 0;
-    node.onaudioprocess = (e) => {
-      const input = e.inputBuffer.getChannelData(0);
+    node.port.onmessage = (e) => {
+      const input = e.data;
       const pcm = new Int16Array(input.length);
       let peak = 0;
       for (let i = 0; i < input.length; i++) {
@@ -76,7 +93,6 @@ function say(text) { stateEl.textContent = text; logEl.textContent = text; }
       }
     };
     src.connect(node);
-    node.connect(ctx.destination);
   } catch (err) {
     say('failed: ' + err);
     report('error', {message: String(err)});

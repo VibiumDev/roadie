@@ -46,12 +46,19 @@ MOTIF = (
     ("E5", 659.25, 0.40),
     ("C5", 523.25, 0.40),
     ("C4", 261.63, 0.40),
-    ("G4", 392.00, 1.10),
+    ("G4", 392.00, 1.70),
 )
 GAP_SECS = 0.15
 TONE_SECS = sum(secs for _, _, secs in MOTIF) + len(MOTIF) * GAP_SECS
 FRAME_SAMPLES = 160  # 10 ms at 16 kHz
-WAV_PATH = "/tmp/roadie_audio_test.wav"
+# One capture per path, so a browser run cannot overwrite the serial one and
+# the two can be listened to side by side.
+WAV_PATHS = {
+    "serial": "/tmp/roadie_audio_serial.wav",
+    "api": "/tmp/roadie_audio_api.wav",
+    "browser": "/tmp/roadie_audio_browser.wav",
+}
+WAV_PATH = WAV_PATHS["serial"]  # replaced at startup by --via
 
 
 def make_tone():
@@ -73,30 +80,30 @@ def make_tone():
     return bytes(out)
 
 
-def _zero_crossing_hz(chunk, rate):
-    if len(chunk) < 2:
-        return 0.0
-    crossings = sum(1 for a, b in zip(chunk, chunk[1:]) if (a < 0) != (b < 0))
-    return crossings * rate / (2.0 * len(chunk))
+def _pitch(chunk, rate, lo=150.0, hi=900.0):
+    """Fundamental of a chunk, by autocorrelation.
 
-
-def _pitch(chunk, rate):
-    """Frequency of a note, as the median over short sub-windows.
-
-    A single measurement across the whole note is easily dragged off by its
-    edges, and how cleanly a note starts and stops varies by path -- a
-    browser hands over audio in chunks of its own, so the boundaries land
-    where they land. Most sub-windows sit inside the note and agree; the
-    median ignores the few that straddle an edge.
+    Counting zero crossings is cheaper but reads low whenever a window
+    catches part of the quiet either side of a note, and the edges of a note
+    are not crisp on every path -- a browser hands audio over in chunks of
+    its own. Autocorrelation looks for the repeat period instead, which is
+    the same whether or not the window is trimmed neatly.
     """
-    sub = int(rate * 0.03)  # 30 ms
-    if len(chunk) < sub * 3:
-        return _zero_crossing_hz(chunk, rate)
-    readings = sorted(
-        _zero_crossing_hz(chunk[off:off + sub], rate)
-        for off in range(0, len(chunk) - sub, sub)
-    )
-    return readings[len(readings) // 2]
+    n = len(chunk)
+    if n < 64:
+        return 0.0
+    mean = sum(chunk) / n
+    x = [s - mean for s in chunk]
+    best_lag, best = 0, 0.0
+    for lag in range(int(rate / hi), int(rate / lo) + 1):
+        if lag >= n:
+            break
+        total = 0.0
+        for i in range(n - lag):
+            total += x[i] * x[i + lag]
+        if total > best:
+            best, best_lag = total, lag
+    return rate / best_lag if best_lag else 0.0
 
 
 def analyze(path):
@@ -124,7 +131,7 @@ def analyze(path):
         return 0.0, []
 
     # Group runs of loud hops into notes, ignoring anything too short to be
-    # one (a click between notes, say).
+    # one (the brief unsteady moment between two notes, say).
     threshold = peak * 0.25
     min_hops = max(1, int(0.15 / 0.02))
     notes, start = [], None
@@ -134,11 +141,12 @@ def analyze(path):
         elif level < threshold and start is not None:
             if i - start >= min_hops:
                 a, b = start * hop, i * hop
-                # Trim the edges, where the fades blur the pitch.
-                pad = (b - a) // 5
+                pad = (b - a) // 5  # keep clear of the edges
                 seg = samples[a + pad:b - pad]
                 rms = math.sqrt(sum(s * s for s in seg) / max(1, len(seg)))
-                notes.append((_pitch(seg, rate), rms))
+                # Autocorrelation over a slice is enough and keeps it quick.
+                middle = seg[:int(rate * 0.2)] if len(seg) > rate * 0.2 else seg
+                notes.append((_pitch(middle, rate), rms))
             start = None
     return peak, notes
 
@@ -317,6 +325,9 @@ def stream_browser(pcm, base, notes, record_secs):
         print("  ❌ chromium not found (needed to drive a real microphone)")
         sys.exit(1)
 
+    from test_e2e import reap_old_profiles
+    reap_old_profiles("roadie-mic-profile-")
+    reap_old_profiles("roadie-mic-")
     profile = tempfile.mkdtemp(prefix="roadie-mic-profile-")
     print(f"  🔊 Browser microphone plays {TONE_SECS:.1f}s — {notes}")
     proc = subprocess.Popen(
@@ -379,6 +390,9 @@ def main():
     parser.add_argument("--roadie", default="http://127.0.0.1:8080",
                         help="base URL of a running roadie (api/browser)")
     args = parser.parse_args()
+
+    global WAV_PATH
+    WAV_PATH = WAV_PATHS[args.via]
 
     pcm = make_tone()
     # Round up: truncating here eats the margin, and the note that would be
