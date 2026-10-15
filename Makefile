@@ -36,6 +36,9 @@ test:  ## Unit tests, plus the hardware tests if the boards are connected
 		printf '%s\n' "$$out" | sed 's/^/  /'; \
 		printf "\n  ❌ unit tests failed\n\n"; exit 1; \
 	fi
+	@# Every sub-make below ends in "|| exit 1". Without it a failing test
+	@# did not stop this compound line, the recipe took its status from the
+	@# last printf, and the run ended by announcing that everything passed.
 	@# The hardware tests need both boards, with the HID board plugged into
 	@# this machine so the input it injects comes back here. Where that is
 	@# not the case -- a laptop, a CI runner -- say so and stop, rather than
@@ -43,10 +46,10 @@ test:  ## Unit tests, plus the hardware tests if the boards are connected
 	@if ls /dev/serial/by-id/usb-Adafruit_Roadie-Relay_*-if02 >/dev/null 2>&1 \
 		&& ls /dev/input/by-id/usb-Adafruit_Roadie-HID_*-event-kbd >/dev/null 2>&1; then \
 		printf "  🔌 %-18s running the hardware tests too\n" "boards detected"; \
-		$(MAKE) --no-print-directory test-hid test-e2e-pi test-audio; \
+		$(MAKE) --no-print-directory test-hid test-e2e-pi test-audio || exit 1; \
 		if command -v chromedriver >/dev/null 2>&1 \
 			&& { command -v vibium >/dev/null 2>&1 || command -v npx >/dev/null 2>&1; }; then \
-			$(MAKE) --no-print-directory test-view; \
+			$(MAKE) --no-print-directory test-view || exit 1; \
 		else \
 			printf "\n▶ test-view\n  ⏭️  %-18s needs chromedriver and node; run 'make setup'\n" "skipped"; \
 		fi; \
