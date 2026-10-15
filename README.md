@@ -135,6 +135,7 @@ To drive more than one device from the same host, see
 
 ```bash
 make                  # build binary
+make status           # what's connected: boards, input, audio, displays
 make test             # Go tests
 make test-hid         # do the boards inject correct input?
 make test-e2e-pi      # full stack into a browser on this machine

@@ -12,6 +12,16 @@ the boards accepted a command.
 Run `make setup` once first. The HID board must be plugged into this machine,
 so the input it injects comes back here.
 
+To see what's connected before running anything:
+
+```bash
+make status
+```
+
+That lists both boards and their firmware, the keyboard/mouse/touch/mic the
+HID board presents, whether a capture dongle is attached, and this machine's
+own speakers, microphone and displays.
+
 None of them need a monitor: `make test-hid` uses no display at all, and
 `make test-e2e-pi` creates its own.
 

@@ -67,6 +67,20 @@ def analyze(path):
     return best_rms, hz
 
 
+def playback_hint():
+    """Say how to listen to the capture, including from another machine.
+
+    aplay plays on whichever machine runs it, so over ssh the sound comes
+    out of the Pi -- easy to mistake for an empty recording.
+    """
+    print(f"  🔊 Play it:  aplay {WAV_PATH}")
+    if os.environ.get("SSH_CONNECTION"):
+        user = os.environ.get("USER", "pi")
+        host = os.uname().nodename
+        print("     You're over ssh, so that plays on the Pi, not where you")
+        print(f"     are. To listen locally:  scp {user}@{host}:{WAV_PATH} .")
+
+
 def main():
     data_port = glob.glob("/dev/serial/by-id/usb-Adafruit_Roadie-Relay_*-if02")
     if not data_port:
@@ -104,11 +118,16 @@ def main():
 
     if rms < 500:
         print("  ❌ No signal captured — audio path is not working.")
+        print(f"     The capture is still at {WAV_PATH} if you want to hear")
+        print("     what did arrive.")
+        playback_hint()
         sys.exit(1)
     if abs(hz - TONE_HZ) > 60:
         print(f"  ❌ Signal present but wrong frequency (expected ~{TONE_HZ} Hz).")
+        playback_hint()
         sys.exit(1)
     print(f"  ✅ Tone came through the full path. Capture: {WAV_PATH}")
+    playback_hint()
 
 
 if __name__ == "__main__":
