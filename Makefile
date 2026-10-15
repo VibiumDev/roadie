@@ -8,7 +8,7 @@ BINARY = roadie
 #   make flash-hid CP_VERSION=latest
 CP_VERSION ?= 10.3.1
 
-.PHONY: help build test clean setup uninstall flash-hid flash-relay flash-hid-quick flash-relay-quick sync sync-hid sync-relay test-hid test-hid-quick test-e2e-pi test-audio test-audio-serial test-audio-api test-audio-browser test-e2e-android test-e2e-iphone test-e2e-pc set-vnc-password start-vnc-server stop-vnc-server vnc-status status unstick
+.PHONY: help build test test-unit clean setup uninstall flash-hid flash-relay flash-hid-quick flash-relay-quick sync sync-hid sync-relay test-hid test-hid-quick test-e2e-pi test-audio test-audio-serial test-audio-api test-audio-browser test-e2e-android test-e2e-iphone test-e2e-pc set-vnc-password start-vnc-server stop-vnc-server vnc-status status unstick
 
 # Every target carries a "## description"; help prints them by section.
 help:  ## Show this help
@@ -23,7 +23,24 @@ help:  ## Show this help
 build:  ## Build the roadie binary
 	go build -o $(BINARY) .
 
-test:  ## Run the Go unit tests
+test:  ## Unit tests, plus the hardware tests if the boards are connected
+	@$(MAKE) --no-print-directory test-unit
+	@# The hardware tests need both boards, with the HID board plugged into
+	@# this machine so the input it injects comes back here. Where that is
+	@# not the case -- a laptop, a CI runner -- say so and stop, rather than
+	@# failing in a way that looks like a fault.
+	@if ls /dev/serial/by-id/usb-Adafruit_Roadie-Relay_*-if02 >/dev/null 2>&1 \
+		&& ls /dev/input/by-id/usb-Adafruit_Roadie-HID_*-event-kbd >/dev/null 2>&1; then \
+		echo ""; echo "  🔌 Boards are here — running the hardware tests too"; echo ""; \
+		$(MAKE) --no-print-directory test-hid test-e2e-pi test-audio; \
+	else \
+		echo ""; \
+		echo "  ⏭️  Skipping the hardware tests: no boards on this machine."; \
+		echo "     They need the relay plugged in and the HID board plugged"; \
+		echo "     into this machine. See 'make status'."; \
+	fi
+
+test-unit:  ## Run only the Go unit tests
 	go test -v ./...
 
 clean:  ## Remove the built binary

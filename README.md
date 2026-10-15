@@ -135,8 +135,10 @@ To drive more than one device from the same host, see
 
 ```bash
 make                  # build binary
+make help             # list every target
 make status           # what's connected: boards, input, audio, displays
-make test             # Go tests
+make test             # unit tests, plus the hardware tests if the boards are here
+make test-unit        # only the Go unit tests
 make test-hid         # do the boards inject correct input?
 make test-e2e-pi      # full stack into a browser on this machine
 make start-vnc-server # watch runs on a Pi with no monitor
