@@ -382,21 +382,25 @@ func CaptureCandidates() []string {
 func ListDevices() []string {
 	devices := mediadevices.EnumerateDevices()
 	var names []string
+	seen := make(map[string]bool)
 	for _, d := range devices {
-		if d.Kind == mediadevices.VideoInput {
-			// Look up the friendly name from the driver.
-			drivers := driver.GetManager().Query(func(drv driver.Driver) bool {
-				return drv.Info().Label == d.Label
-			})
-			if len(drivers) > 0 {
-				name := drivers[0].Info().Name
-				if name != "" {
-					names = append(names, name)
-					continue
-				}
-			}
-			names = append(names, d.Label)
+		if d.Kind != mediadevices.VideoInput {
+			continue
 		}
+		// Look up the friendly name from the driver.
+		info := driver.Info{Label: d.Label}
+		drivers := driver.GetManager().Query(func(drv driver.Driver) bool {
+			return drv.Info().Label == d.Label
+		})
+		if len(drivers) > 0 {
+			info = drivers[0].Info()
+		}
+		name, ok := cameraName(info)
+		if !ok || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
 	}
 	return names
 }
