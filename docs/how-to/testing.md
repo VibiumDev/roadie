@@ -238,7 +238,15 @@ make test-e2e-iphone     # the same, through Spotlight and Safari
 make test-e2e-pc         # prints a URL for another computer
 ```
 
-The phone targets open the page themselves, using the keyboard roadie already
+The phone targets start roadie with `--platform android` or `--platform ios`,
+so the viewer maps pointers the way that device expects if you open `/view`
+during the run.
+
+On iPhone the touch checks are skipped: iOS registers a mouse through
+AssistiveTouch but not an external touch digitizer, so touch sent there goes
+nowhere.
+
+They open the page themselves, using the keyboard roadie already
 is to the phone — no second channel onto the device, and the thing being tested
 does the work:
 

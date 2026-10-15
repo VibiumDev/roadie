@@ -290,8 +290,9 @@ def free_port():
 class Roadie:
     """Use an already-running roadie, or start one just for this test."""
 
-    def __init__(self, base=None, quiet=False):
+    def __init__(self, base=None, quiet=False, platform=None):
         self.base = base
+        self.platform = platform
         self.proc = None
         self.log = None
         # Starting a server is a means to an end for some callers, and not
@@ -319,8 +320,11 @@ class Roadie:
         port = free_port()
         self.base = f"http://127.0.0.1:{port}"
         self.log = open("/tmp/roadie-e2e.log", "w")
+        argv = [str(binary), "--port", str(port)]
+        if self.platform:
+            argv += ["--platform", self.platform]
         self.proc = subprocess.Popen(
-            [str(binary), "--port", str(port)],
+            argv,
             cwd=str(REPO_ROOT), stdout=self.log, stderr=subprocess.STDOUT,
         )
 
@@ -748,7 +752,8 @@ def main():
         url = f"http://{lan_address()}:{port}/"
     check("collector", url)
 
-    roadie = Roadie(args.roadie)
+    platform = {"android": "android", "iphone": "ios"}.get(args.target)
+    roadie = Roadie(args.roadie, platform=platform)
     started = {}
 
     def emergency_cleanup():
@@ -837,9 +842,17 @@ def main():
             suite.leg_keyboard(args.text)
         if "scroll" not in args.skip:
             suite.leg_scroll()
-        if "touch" not in args.skip:
+        # iOS registers a mouse (through AssistiveTouch) but not an external
+        # touch digitizer, so touch there goes nowhere. Skipping says that,
+        # where running it would just look like a fault.
+        ios = args.target == "iphone"
+        if "touch" not in args.skip and not ios:
             suite.leg_touch(HID_MAX // 4, HID_MAX * 3 // 4)
-        if "multitouch" not in args.skip:
+        elif ios:
+            suite.record("touch", True,
+                         "skipped — iOS does not register an external touch "
+                         "digitizer, only a mouse via AssistiveTouch")
+        if "multitouch" not in args.skip and not ios:
             suite.leg_multitouch()
     finally:
         suite.release_everything()
