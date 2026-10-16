@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/pion/mediadevices"
 	"github.com/pion/mediadevices/pkg/driver"
+	"github.com/pion/mediadevices/pkg/driver/availability"
 	"github.com/pion/mediadevices/pkg/driver/camera"
 	"github.com/pion/mediadevices/pkg/driver/microphone"
 	"github.com/pion/mediadevices/pkg/prop"
@@ -629,7 +631,14 @@ func isMajorCropChange(activeCrop, newRect, fullBounds image.Rectangle) bool {
 // automatically registers/unregisters camera drivers on hotplug.
 // On Linux this is a no-op; the CaptureManager re-scans devices each loop iteration instead.
 func InitObserver() error {
-	return camera.StartObserver()
+	err := camera.StartObserver()
+	// Only macOS implements the observer. Everywhere else the library
+	// says so with a sentinel, which is an answer rather than a failure:
+	// warning about it on every Linux start reads like something broke.
+	if errors.Is(err, availability.ErrUnimplemented) {
+		return nil
+	}
+	return err
 }
 
 // StartCapture opens the device matching dev and runs a goroutine that
