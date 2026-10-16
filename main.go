@@ -4,14 +4,57 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 )
+
+// deviceHint shortens a capture device name to the part worth typing.
+// Driver names carry their own bus path -- "UGREEN 15389: UGREEN
+// 15389;usb-0000:01:00.0-1" -- and only the leading name is useful as a
+// --video substring.
+func deviceHint(name string) string {
+	if i := strings.IndexAny(name, ":;"); i > 0 {
+		name = name[:i]
+	}
+	return strings.TrimSpace(name)
+}
+
+// suggestCommand prints a command line for what is actually plugged in.
+// Listing the devices only answers half the question; the other half is
+// what to type, and these names are too long to retype by hand.
+func suggestCommand(w io.Writer, cands []string, relays []RelayInfo) {
+	if len(cands) == 0 {
+		fmt.Fprintln(w, "No capture device found. Plug in an HDMI-to-USB dongle.")
+		return
+	}
+	many := len(cands) > 1 || len(relays) > 1
+	if many {
+		fmt.Fprintln(w, "More than one device is connected, so each target needs its own")
+		fmt.Fprintln(w, "flags. Run one roadie per target:")
+	} else {
+		fmt.Fprintln(w, "Suggested command:")
+	}
+	for i, c := range cands {
+		line := "  ./roadie"
+		if many {
+			line += fmt.Sprintf(" --name target%d --port %d", i+1, 8080+i)
+		}
+		line += fmt.Sprintf(" --video %q", deviceHint(c))
+		if many && i < len(relays) {
+			line += " --relay " + relays[i].Serial
+		}
+		fmt.Fprintln(w, line+" --platform <android|ios|mac|windows|linux>")
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Sound follows the video device unless --audio says otherwise.")
+}
 
 func main() {
 	device := flag.String("video", "", "video capture device name substring (auto-detect if empty)")
@@ -53,11 +96,7 @@ func main() {
 			fmt.Printf("  - %s\n", r)
 		}
 		fmt.Println()
-		fmt.Println("Tip: use --video <substring> to select a capture device,")
-		fmt.Println("     --audio <substring> for sound (defaults to the video name),")
-		fmt.Println("     and --relay <serial substring> to select a relay board.")
-		fmt.Println("     Run one roadie per target device, each with its own")
-		fmt.Println("     --video, --relay, --port, and --name.")
+		suggestCommand(os.Stdout, CaptureCandidates(), relays)
 		return
 	}
 

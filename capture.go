@@ -381,6 +381,13 @@ func CaptureCandidates() []string {
 		if !ok {
 			continue
 		}
+		// Built-in camera pipelines sit on the platform bus, not USB: a
+		// Pi reports "bcm2835-isp;platform:bcm2835-isp" whether or not a
+		// dongle is attached. Offering it as a capture device produces a
+		// multiple-devices warning on a host that has exactly one.
+		if strings.Contains(name, ";platform:") {
+			continue
+		}
 		lower := strings.ToLower(name)
 		skip := false
 		for _, kw := range skipKeywords {
