@@ -845,10 +845,22 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 	return done, nil
 }
 
+// audioFilter is the filter to select the audio device with.
+func (cm *CaptureManager) audioFilter() string {
+	if cm.AudioFilter != "" {
+		return cm.AudioFilter
+	}
+	return cm.Filter
+}
+
 // CaptureManager manages the lifecycle of capture devices, handling
 // automatic detection, connection, and reconnection.
 type CaptureManager struct {
-	Filter         string
+	Filter string
+	// AudioFilter selects the audio device. Empty falls back to Filter,
+	// which is right for the common case: a capture dongle shows up under
+	// one name for video and another that starts the same way for audio.
+	AudioFilter    string
 	Buf            *FrameBuffer
 	AudioBroadcast *AudioBroadcaster
 
@@ -862,10 +874,11 @@ type CaptureManager struct {
 }
 
 // NewCaptureManager creates a new CaptureManager.
-func NewCaptureManager(filter string, buf *FrameBuffer, ab *AudioBroadcaster) *CaptureManager {
+func NewCaptureManager(filter, audioFilter string, buf *FrameBuffer, ab *AudioBroadcaster) *CaptureManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &CaptureManager{
 		Filter:          filter,
+		AudioFilter:     audioFilter,
 		Buf:             buf,
 		AudioBroadcast:  ab,
 		ctx:             ctx,
@@ -945,7 +958,7 @@ func (cm *CaptureManager) Run() {
 		var audioDone <-chan struct{}
 		var audioCancel context.CancelFunc
 		if cm.AudioBroadcast != nil {
-			audioDev, found := DetectAudioDevice(cm.Filter)
+			audioDev, found := DetectAudioDevice(cm.audioFilter())
 			if found {
 				audioCtx, ac := context.WithCancel(captureCtx)
 				audioCancel = ac

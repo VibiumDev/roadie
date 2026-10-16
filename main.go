@@ -14,7 +14,8 @@ import (
 )
 
 func main() {
-	device := flag.String("device", "", "video capture device name substring (auto-detect if empty)")
+	device := flag.String("video", "", "video capture device name substring (auto-detect if empty)")
+	audioDevice := flag.String("audio", "", "audio capture device name substring (defaults to --video)")
 	relay := flag.String("relay", "", "relay board serial number substring (auto-detect if empty)")
 	source := flag.String("source", "", "HTTP MJPEG source URL (e.g. http://host:8080/raw-stream)")
 	listDevices := flag.Bool("list-devices", false, "list all video and audio devices, then exit")
@@ -52,15 +53,16 @@ func main() {
 			fmt.Printf("  - %s\n", r)
 		}
 		fmt.Println()
-		fmt.Println("Tip: use --device <substring> to select a capture device,")
+		fmt.Println("Tip: use --video <substring> to select a capture device,")
+		fmt.Println("     --audio <substring> for sound (defaults to the video name),")
 		fmt.Println("     and --relay <serial substring> to select a relay board.")
 		fmt.Println("     Run one roadie per target device, each with its own")
-		fmt.Println("     --device, --relay, --port, and --name.")
+		fmt.Println("     --video, --relay, --port, and --name.")
 		return
 	}
 
 	if *source != "" && *device != "" {
-		log.Fatal("--source and --device are mutually exclusive")
+		log.Fatal("--source and --video are mutually exclusive")
 	}
 
 	if *inputMode != "" && *inputMode != "mouse" && *inputMode != "touch" {
@@ -102,7 +104,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "⚠️  Device observer failed: %v\n", err)
 		}
 
-		cm = NewCaptureManager(*device, buf, ab)
+		cm = NewCaptureManager(*device, *audioDevice, buf, ab)
 		shutdownFunc = cm.Shutdown
 
 		// Try an initial detect for the startup banner, but don't exit on failure.
@@ -117,7 +119,7 @@ func main() {
 			fmt.Printf("📺 Found %q capture device\n", dev.Name)
 			fmt.Printf("🎬 Capturing at %dx%d @ %dfps\n", *width, *height, *fps)
 			if cands := CaptureCandidates(); len(cands) > 1 && *device == "" {
-				fmt.Fprintf(os.Stderr, "\n⚠️  %d capture devices connected — use --device to pick one:\n", len(cands))
+				fmt.Fprintf(os.Stderr, "\n⚠️  %d capture devices connected — use --video to pick one:\n", len(cands))
 				for _, c := range cands {
 					fmt.Fprintf(os.Stderr, "   %s\n", c)
 				}

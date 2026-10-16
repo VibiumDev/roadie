@@ -531,8 +531,9 @@ Ctrl+Alt+Del: press 224, press 226, press 76, release 76, release 226, release 2
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--device` | (auto-detect) | Video device name substring |
-| `--source` | | HTTP MJPEG source URL (mutually exclusive with --device) |
+| `--video` | (auto-detect) | Video device name substring |
+| `--audio` | (`--video`) | Audio device name substring |
+| `--source` | | HTTP MJPEG source URL (mutually exclusive with --video) |
 | `--port` | (auto, from 8080) | HTTP server port |
 | `--width` | 1920 | Capture width |
 | `--height` | 1080 | Capture height |

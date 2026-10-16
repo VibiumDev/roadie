@@ -114,7 +114,7 @@ board would interleave input. See [Multiple Targets](#multiple-targets).
 
 A `Server` owns exactly one capture source and one relay board, so driving several
 targets from one host means running one `roadie` process per target — each pinned
-with `--device`, `--relay`, `--port`, and `--name`. See
+with `--video`, `--relay`, `--port`, and `--name`. See
 [Running Multiple Targets](../how-to/multiple-targets.md) for the how-to.
 
 This keeps the blast radius small: a wedged capture dongle, a board reset, or a

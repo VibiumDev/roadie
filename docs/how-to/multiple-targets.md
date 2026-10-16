@@ -22,13 +22,13 @@ Relay boards:
   - A1B2C3D4E5F60002 (/dev/serial/by-id/usb-Adafruit_Roadie-Relay_A1B2C3D4E5F60002-if02)
 ```
 
-Then give each instance one dongle and one board. `--device` matches a substring
+Then give each instance one dongle and one board. `--video` matches a substring
 of the video device name; `--relay` matches a substring of the relay board's USB
 serial number (or of its port path):
 
 ```bash
-./roadie --name android --port 8080 --device "Capture A" --relay A1B2C3D4E5F60001 --platform android &
-./roadie --name iphone  --port 8081 --device "Capture B" --relay A1B2C3D4E5F60002 --platform ios &
+./roadie --name android --port 8080 --video "Capture A" --relay A1B2C3D4E5F60001 --platform android &
+./roadie --name iphone  --port 8081 --video "Capture B" --relay A1B2C3D4E5F60002 --platform ios &
 ```
 
 `--platform` tells Roadie what it is driving: `android`, `ios` (also `iphone`
@@ -104,9 +104,9 @@ driving that page drives all of them — no aggregating server needed. Point
 - **`--relay` is required once two boards are attached.** With several connected
   and no selector, picking one arbitrarily would let two instances write to the
   same board, so Roadie reports the ambiguity and waits instead.
-- **`--device` is strongly recommended.** Auto-detect picks the first external
+- **`--video` is strongly recommended.** Auto-detect picks the first external
   capture device it finds, which is not stable across reboots. Roadie warns at
-  startup when several dongles are attached and no `--device` was given.
+  startup when several dongles are attached and no `--video` was given.
 - **`POST /api/capture/reset` is scoped** to the dongle that instance is
   capturing from, so it won't disturb the other instance.
 - **Give each instance its own `--name`.** Both would otherwise advertise
