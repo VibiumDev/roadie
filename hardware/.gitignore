@@ -1,0 +1,11 @@
+# Generated output — regenerate from the KiCad sources, attach to releases.
+*-backups/
+fp-info-cache
+gerbers/
+*.gbr
+*.drl
+*.net
+*.step
+*.wrl
+*.pdf
+*.csv
