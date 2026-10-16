@@ -383,11 +383,7 @@ func CaptureCandidates() []string {
 		if !ok {
 			continue
 		}
-		// Built-in camera pipelines sit on the platform bus, not USB: a
-		// Pi reports "bcm2835-isp;platform:bcm2835-isp" whether or not a
-		// dongle is attached. Offering it as a capture device produces a
-		// multiple-devices warning on a host that has exactly one.
-		if strings.Contains(name, ";platform:") {
+		if onChipVideo(name) {
 			continue
 		}
 		lower := strings.ToLower(name)
@@ -405,6 +401,16 @@ func CaptureCandidates() []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+// onChipVideo reports whether a video device is a block on the host's own
+// silicon rather than something to capture from. A Pi enumerates its ISP
+// and its H.264 codec as video devices -- "bcm2835-isp;platform:bcm2835-isp"
+// -- whether or not any camera exists. They take frames in and hand frames
+// back, so no one can ever stream a target from them, and listing them
+// only invites the question of what they are.
+func onChipVideo(name string) bool {
+	return strings.Contains(name, ";platform:")
 }
 
 // ListDevices returns a list of all video device names for diagnostic output.
@@ -425,7 +431,7 @@ func ListDevices() []string {
 			info = drivers[0].Info()
 		}
 		name, ok := cameraName(info)
-		if !ok || seen[name] {
+		if !ok || seen[name] || onChipVideo(name) {
 			continue
 		}
 		seen[name] = true
