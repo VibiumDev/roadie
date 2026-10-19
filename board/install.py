@@ -172,14 +172,17 @@ def fail(msg):
 def find_cp_volume(board=None):
     """Find a mounted CircuitPython volume.
 
-    If board is specified, prefer that board's named volume.
-    Falls back to any known volume name.
+    If board is specified, only that board's named volume or a fresh
+    CIRCUITPY qualifies -- never the other board's volume. Falling back to
+    it is how a relay flash once wiped the HID board (#23).
     """
     base = PLATFORM["volume_base"]
     if board and board in BOARDS:
-        path = os.path.join(base, BOARDS[board]["volume"])
-        if os.path.isdir(path):
-            return path
+        for name in (BOARDS[board]["volume"], "CIRCUITPY"):
+            path = os.path.join(base, name)
+            if os.path.isdir(path):
+                return path
+        return None
     for name in VOLUME_NAMES:
         path = os.path.join(base, name)
         if os.path.isdir(path):
@@ -244,9 +247,11 @@ def find_board_serial(board):
     product = BOARDS.get(board, {}).get("product")
     if pattern and product:
         matches = sorted(glob.glob(pattern.format(product=product)))
-        if matches:
-            return matches[0]
-        return None
+        if len(matches) > 1:
+            fail(f"More than one board calls itself {product} "
+                 f"({', '.join(matches)}). One was provisioned with the "
+                 "other's files; unplug it and flash the remaining one.")
+        return matches[0] if matches else None
 
     # Platforms without by-id paths (macOS): fall back, but refuse to guess
     # when more than one candidate is present.
@@ -260,6 +265,50 @@ def find_board_serial(board):
         )
         return None
     return ports[0] if ports else None
+
+
+def volume_uid(volume):
+    """The chip UID CircuitPython wrote to boot_out.txt, or None."""
+    try:
+        with open(os.path.join(volume, "boot_out.txt")) as f:
+            m = re.search(r"^UID:([0-9A-F]+)", f.read(), re.M)
+    except OSError:
+        return None
+    return m.group(1) if m else None
+
+
+def product_uids(product):
+    """UIDs of the plugged-in boards with this USB product name.
+
+    The by-id path ends in the USB serial number, which CircuitPython sets
+    to the chip UID. None on platforms without by-id paths.
+    """
+    pattern = PLATFORM.get("serial_by_id")
+    if not pattern:
+        return None
+    prefix = pattern.format(product=product).split("*")[0]
+    return {p[len(prefix):].split("-if")[0]
+            for p in glob.glob(pattern.format(product=product))}
+
+
+def check_identity(board, volume):
+    """Refuse to write to a volume unless it belongs to this board.
+
+    The drive must not be another roadie board's, and when this board is
+    on USB under its own name, the drive's UID must match it.
+    """
+    uid = volume_uid(volume)
+    mine = product_uids(BOARDS[board]["product"])
+    if mine is None or uid is None:
+        return  # this platform can't tell boards apart; nothing to check
+    for other, info_ in BOARDS.items():
+        if other != board and uid in product_uids(info_["product"]):
+            fail(f"{volume} is the {other} board (UID {uid}), not the "
+                 f"{board} board. Refusing to write to it.")
+    if mine and uid not in mine:
+        fail(f"{volume} has UID {uid}, but the {board} board on USB is "
+             f"{', '.join(sorted(mine))}. Refusing to write to it.")
+    info(f"{volume} is the {board} board (UID {uid})")
 
 
 def send_repl_command(port, command):
@@ -507,6 +556,7 @@ def install_board(board, circup_bin):
         fail(f"Board directory not found: {board_dir}")
     if not volume_cp:
         fail("No CircuitPython volume mounted")
+    check_identity(board, volume_cp)
 
     clean_circuitpy(volume_cp)
 
@@ -557,6 +607,7 @@ def sync_board(board):
     volume_cp = find_cp_volume(board)
     if not volume_cp:
         fail(f"Board '{board}' is not mounted. Plug it in first.")
+    check_identity(board, volume_cp)
 
     board_dir = SCRIPT_DIR / board
     if not board_dir.exists():
