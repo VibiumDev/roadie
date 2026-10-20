@@ -172,7 +172,9 @@ server at all, so roadie's logs stay empty and it looks like a network fault.
 System Settings → Privacy & Security → Local Network → enable the browser
 ```
 
-Then quit the browser fully (`Cmd+Q`, not just the window) and reopen it.
+If it's already on, turn it off and on again: after a browser update the
+setting can look on without working. Then quit the browser fully (`Cmd+Q`,
+not just the window) and reopen it.
 
 What distinguishes this from an actual network problem: `route get <pi-ip>`
 succeeds and names an interface, `ping` works, and another browser loads the

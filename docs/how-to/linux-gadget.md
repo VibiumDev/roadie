@@ -133,8 +133,8 @@ ROADIE_ARGS="--hid-backend linux-gadget --platform android --port 8080"
 For an iPhone, change `--platform android` to `--platform ios` (mouse input,
 coordinates mapped to the phone's screen), then
 `sudo systemctl restart roadie`; the phone is not re-enumerated. An iPhone
-also needs AssistiveTouch on: see
-[Connect a Phone → iPhone](connect-a-phone.md#iphone).
+also needs AssistiveTouch on, with the settings in
+[Connect a Phone → iPhone](connect-a-phone.md#recommended-settings).
 
 The installer writes this file only when it doesn't exist, so it can be
 written first to start out on an iPhone:
