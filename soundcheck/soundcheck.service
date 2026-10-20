@@ -1,0 +1,19 @@
+# Serves the soundcheck page on port 8000, for exe.dev's HTTPS proxy to
+# put in front of it. See README.md.
+[Unit]
+Description=Roadie soundcheck page
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/soundcheck -addr :8000
+Restart=always
+# It needs nothing but its own binary: run it as nobody in particular, on a
+# read-only system.
+DynamicUser=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

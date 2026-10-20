@@ -30,6 +30,10 @@ own speakers, microphone and displays.
 None of them need a monitor: `make test-hid` uses no display at all, and
 `make test-e2e-pi` creates its own.
 
+The linux-gadget backend (no boards) has its own tests, including one that
+runs the gadget through this Pi's own USB host stack with no phone attached:
+see [Drive a Phone from a Pi 4 → Testing](linux-gadget.md#testing).
+
 ## What the browser test actually does
 
 ![The test page at the end of a run](../screenshots/e2e-test-page.png)
@@ -247,6 +251,22 @@ On iPhone the touch checks are skipped: iOS does not register an external
 touch digitizer, so touch sent there goes nowhere. The mouse needs
 AssistiveTouch turned on, or nothing responds at all — see
 [Connect a Phone](connect-a-phone.md#iphone) for the settings and the wiring.
+In place of the wheel, a drag check traces the Vibium mark with the button
+held, which is how iOS scrolls and swipes; the page has to see every stroke
+through to the end.
+
+The iPhone run ends with a soundcheck both ways. For the speaker, the test
+page plays five notes and roadie listens on `/audio`. Safari only gives the
+microphone to an HTTPS page, so for the microphone the test sends Safari to
+[soundcheck.vibium.dev](https://soundcheck.vibium.dev) (`soundcheck/index.html`,
+a static page): **Mic** records while roadie plays the notes into the phone,
+then plays back what it heard, which roadie listens for. Set that site's
+microphone to **Allow** once (Safari, **aA** → **Website Settings**), or the
+test taps Allow on Safari's prompt. `--soundcheck URL` uses another copy.
+
+The phone loads the test page from this machine, so it needs Wi-Fi on the
+same network. With the [Linux gadget](linux-gadget.md), the phone's USB
+Ethernet can't reach this Pi except for DHCP and DNS, by design.
 
 They open the page themselves, using the keyboard roadie already
 is to the phone — no second channel onto the device, and the thing being tested
@@ -256,12 +276,28 @@ does the work:
 |---|---|---|
 | home | `Meta`+`H` | `Cmd`+`H` |
 | open the browser | `Meta`+`B` | `Cmd`+`Space`, type `safari`, `Enter` |
-| focus the address bar | `Ctrl`+`L` | `Cmd`+`L` |
+| focus the address bar | `Ctrl`+`L` | `Escape`, `Cmd`+`L` |
 | then | type the URL, `Enter` | type the URL, `Enter` |
 
 Shortcuts vary by launcher and the phone has to be unlocked, so this is
 best-effort: if the page has not reported in by the timeout, the test prints the
-URL and waits for you to open it by hand rather than failing.
+URL and waits for you to open it by hand rather than failing. (`Escape` first on
+iPhone: a text field still focused on the page Safari comes back to keeps
+`Cmd`+`L` from the address bar.)
+
+### A run to show people
+
+`--hud` runs the same checks under a sci-fi heads-up display, paced to be
+watched: a boot sequence, target locks where the pointer presses, keys
+materialising as they are typed, the Vibium mark traced in neon, and a
+verdict at the end. Record the phone's screen, or `/view` from another
+machine:
+
+```bash
+make demo-iphone                                         # the iPhone, with the HUD
+python3 board/test_e2e.py --target android --hud         # any target takes it
+python3 board/test_e2e.py --target iphone --hud --text "Your line here"
+```
 
 `--open adb` uses `adb shell am start` instead. That needs ADB over WiFi, since
 the phone's USB port is busy hosting the HID board:

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<!--
+  Roadie soundcheck: https://soundcheck.vibium.dev
+
+  A phone's two audio paths, checked by ear -- a person's, or Roadie's.
+  Speaker plays five notes. Mic records the microphone for a few seconds and
+  then plays back what it heard. Roadie listens to the phone's audio output,
+  so it can check both from that one stream: it plays the notes into the
+  phone's microphone while this page records, then hears them come back.
+
+  It is a static page with no server and nothing sent anywhere: it has to be
+  served over HTTPS only because browsers give the microphone to secure
+  pages alone. Deploy this one file.
+
+  ?seconds=N sets how long Mic records (default 8).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Roadie Soundcheck</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #0b0f14; --panel: #131a22; --line: #253041; --text: #e8eef6;
+    --dim: #8a97a8; --accent: #ff7a1a; --accent2: #e8343a; --ok: #3ddc97;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; touch-action: manipulation; }
+  html, body { height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-user-select: none; user-select: none; overflow: hidden; }
+  body { display: flex; flex-direction: column; }
+  header { padding: 14px 18px 8px; display: flex; align-items: baseline; gap: 10px; }
+  header h1 { font-size: 20px; letter-spacing: .02em; }
+  header span { color: var(--dim); font-size: 13px; }
+  main { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 6px 14px 14px; min-height: 0; }
+  button {
+    flex: 1; border: 1px solid var(--line); border-radius: 18px; background: var(--panel);
+    color: var(--text); font: inherit; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 8px; cursor: pointer;
+    transition: border-color .2s, background .2s;
+  }
+  button b { font-size: 30px; font-weight: 700; letter-spacing: .02em; }
+  button small { color: var(--dim); font-size: 14px; max-width: 80%; text-align: center; line-height: 1.4; }
+  button .icon { font-size: 42px; line-height: 1; }
+  button.busy { border-color: var(--accent); background: #1c1611; }
+  button.busy b { color: var(--accent); }
+  button:disabled { opacity: .45; }
+  #status { padding: 0 18px; min-height: 22px; color: var(--dim); font-size: 14px; }
+  #status.ok { color: var(--ok); }
+  #status.bad { color: var(--accent2); }
+  canvas { display: block; width: 100%; height: 34px; }
+  footer { padding: 6px 18px 14px; color: var(--dim); font-size: 12px; }
+</style>
+</head>
+<body>
+<header><h1>Roadie Soundcheck</h1><span>speaker &middot; microphone</span></header>
+<main>
+  <button id="speaker">
+    <span class="icon">&#9835;</span><b>Speaker</b>
+    <small>Plays five notes</small>
+  </button>
+  <button id="mic">
+    <span class="icon">&#9679;</span><b>Mic</b>
+    <small id="mic-hint">Records the microphone, then plays it back</small>
+  </button>
+</main>
+<p id="status">Tap a test.</p>
+<canvas id="level" width="600" height="34"></canvas>
+<footer>Nothing leaves this page. Made for Roadie by Vibium.</footer>
+<script>
+'use strict';
+// The motif Roadie's audio tests use (board/test_audio.py): note, Hz, seconds.
+const MOTIF = [['D5', 587.33, 0.40], ['E5', 659.25, 0.40], ['C5', 523.25, 0.40],
+               ['C4', 261.63, 0.40], ['G4', 392.00, 1.70]];
+const GAP = 0.15;
+const SECONDS = Math.max(2, Math.min(30, Number(new URLSearchParams(location.search).get('seconds')) || 8));
+
+const $ = (id) => document.getElementById(id);
+const statusEl = $('status');
+const speakerBtn = $('speaker');
+const micBtn = $('mic');
+$('mic-hint').textContent = `Records the microphone for ${SECONDS} s, then plays it back`;
+
+let ctx = null;
+function audio() {
+  ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+  ctx.resume();
+  return ctx;
+}
+function session(type) {
+  // Plays with the ringer switch on silent; records when asked (Safari).
+  try { if (navigator.audioSession) navigator.audioSession.type = type; } catch (e) {}
+}
+function say(text, cls = '') { statusEl.textContent = text; statusEl.className = cls; }
+function busy(btn, on) {
+  btn.classList.toggle('busy', on);
+  speakerBtn.disabled = micBtn.disabled = on;
+}
+
+// --- level meter -------------------------------------------------------------
+const meter = $('level').getContext('2d');
+function level(v) {
+  const w = meter.canvas.width, h = meter.canvas.height;
+  meter.clearRect(0, 0, w, h);
+  const g = meter.createLinearGradient(0, 0, w, 0);
+  g.addColorStop(0, '#e8343a');
+  g.addColorStop(1, '#ff8000');
+  meter.fillStyle = g;
+  meter.fillRect(18, 8, Math.min(1, v * 4) * (w - 36), h - 16);
+}
+
+// --- speaker -------------------------------------------------------------------
+function playMotif() {
+  session('playback');
+  const c = audio();
+  let t = c.currentTime + 0.25;
+  for (const [, hz, secs] of MOTIF) {
+    const osc = c.createOscillator();
+    const gain = c.createGain();
+    osc.frequency.value = hz;
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.5, t + 0.005);
+    gain.gain.setValueAtTime(0.5, t + secs - 0.005);
+    gain.gain.linearRampToValueAtTime(0, t + secs);
+    osc.connect(gain).connect(c.destination);
+    osc.start(t);
+    osc.stop(t + secs + 0.01);
+    t += secs + GAP;
+  }
+  return (t - c.currentTime) * 1000;
+}
+
+speakerBtn.addEventListener('click', () => {
+  busy(speakerBtn, true);
+  say('Playing five notes…');
+  const ms = playMotif();
+  setTimeout(() => { busy(speakerBtn, false); say('Played the five notes.', 'ok'); }, ms + 200);
+});
+
+// --- microphone ----------------------------------------------------------------
+micBtn.addEventListener('click', async () => {
+  busy(micBtn, true);
+  const c = audio();  // unlocked by this tap, for the playback later
+  let stream;
+  try {
+    session('play-and-record');
+    say('Asking for the microphone…');
+    // Raw: echo cancellation, noise suppression and gain control would all
+    // reshape a pure tone.
+    stream = await navigator.mediaDevices.getUserMedia({audio: {
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false}});
+  } catch (e) {
+    busy(micBtn, false);
+    say(window.isSecureContext ? `No microphone: ${e.message || e.name}`
+                               : 'No microphone: this page has to be opened over HTTPS', 'bad');
+    return;
+  }
+  await c.resume();
+  const source = c.createMediaStreamSource(stream);
+  const tap = c.createScriptProcessor(4096, 1, 1);
+  const chunks = [];
+  tap.onaudioprocess = (e) => {
+    const data = e.inputBuffer.getChannelData(0);
+    chunks.push(new Float32Array(data));
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 8) sum += data[i] * data[i];
+    level(Math.sqrt(sum / (data.length / 8)));
+  };
+  source.connect(tap);
+  tap.connect(c.destination);  // silent, but a processor only runs when connected
+
+  const started = performance.now();
+  const tick = setInterval(() => {
+    const left = Math.max(0, SECONDS - (performance.now() - started) / 1000);
+    say(`Recording… ${left.toFixed(1)} s`);
+  }, 100);
+  await new Promise((r) => setTimeout(r, SECONDS * 1000));
+  clearInterval(tick);
+  tap.disconnect();
+  source.disconnect();
+  stream.getTracks().forEach((t) => t.stop());
+  level(0);
+
+  // Play back what was heard, louder if it was quiet. Out of the speaker,
+  // not the earpiece, where iOS puts sound while it records.
+  session('playback');
+  await c.resume();
+  const total = chunks.reduce((n, a) => n + a.length, 0);
+  const buf = c.createBuffer(1, Math.max(1, total), c.sampleRate);
+  const out = buf.getChannelData(0);
+  let off = 0, peak = 0;
+  for (const a of chunks) { out.set(a, off); off += a.length; }
+  for (let i = 0; i < out.length; i++) peak = Math.max(peak, Math.abs(out[i]));
+  if (peak > 0.001 && peak < 0.8) {
+    const k = 0.8 / peak;
+    for (let i = 0; i < out.length; i++) out[i] *= k;
+  }
+  if (peak <= 0.001) {
+    busy(micBtn, false);
+    say('Recorded silence: nothing reached the microphone.', 'bad');
+    return;
+  }
+  say(`Playing back ${(total / c.sampleRate).toFixed(1)} s…`);
+  const play = c.createBufferSource();
+  play.buffer = buf;
+  play.connect(c.destination);
+  play.onended = () => { busy(micBtn, false); say('Played back what the microphone heard.', 'ok'); };
+  play.start();
+});
+</script>
+</body>
+</html>

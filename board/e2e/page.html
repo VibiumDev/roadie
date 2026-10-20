@@ -29,6 +29,10 @@
   #log {
     width: 300px; overflow-y: auto; padding: 4px 6px;
     background: #0c0f16; border-left: 1px solid #2d3650; line-height: 1.5;
+    /* Lines are dropped as new ones come in. A touch that began on one
+       would go on being delivered to it after it is gone, never reaching
+       the page's listeners; this way touches land on something that stays. */
+    pointer-events: none;
   }
   #log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .k { color: #ffd479; } .m { color: #7fd1ff; }
@@ -77,6 +81,14 @@ const bannerEl = document.getElementById('banner');
 let typed = '';
 let seq = 0;
 
+// On iOS a tap whose touchstart or touchend is cancelled never gives the
+// page keyboard focus, so typed keys go nowhere. So until the page has
+// focus, those two are left alone there. Not for longer: left alone, Safari
+// zooms on a quick second tap and scrolls the log under a drag, and the
+// drag stops reaching the page.
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
+  || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+
 function paint(cls, text) {
   const d = document.createElement('div');
   d.className = cls;
@@ -115,8 +127,8 @@ setInterval(refreshFocus, 500);
 window.addEventListener('keydown', (e) => {
   bannerEl.style.display = 'none';
   // Printable keys have single-character .key values; everything else is
-  // a named key like "Enter" or "Shift".
-  if (e.key.length === 1) {
+  // a named key like "Enter" or "Shift". With Cmd or Ctrl it's a shortcut.
+  if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
     typed += e.key;
   } else if (e.key === 'Backspace') {
     typed = typed.slice(0, -1);
@@ -124,7 +136,10 @@ window.addEventListener('keydown', (e) => {
   typedEl.textContent = typed;
   paint('k', `keydown ${JSON.stringify(e.key)} code=${e.code}`);
   report('keydown', {key: e.key, code: e.code, typed: typed});
-  e.preventDefault();
+  // Shortcuts go through: cancelled here, Cmd+H and Cmd+Space on an iPhone
+  // never reach the system while the page has the keyboard.
+  const modifier = ['Meta', 'Control', 'Alt'].includes(e.key);
+  if (!modifier && !e.metaKey && !e.ctrlKey && !e.altKey) e.preventDefault();
 });
 
 // --- mouse ----------------------------------------------------------------
@@ -191,9 +206,79 @@ for (const type of ['touchstart', 'touchmove', 'touchend']) {
     }));
     paint('t', `${type} n=${pts.length} ${chg.map(p => p.clientX + ',' + p.clientY).join(' ')}`);
     report(type, {touches: pts, changedTouches: chg});
-    e.preventDefault();
+    if (type === 'touchmove' || !IOS || document.hasFocus()) e.preventDefault();
   }, {passive: false});
 }
+
+// --- soundcheck -------------------------------------------------------------
+// Holding the pointer still for a second arms the soundcheck; the next quick
+// tap plays the five-note motif the audio tests use (board/test_audio.py), so
+// the harness can listen for it coming out of the target. A page may only make
+// sound in answer to a tap -- Safari doesn't count a long press as one.
+const MOTIF = [['D5', 587.33, 0.40], ['E5', 659.25, 0.40], ['C5', 523.25, 0.40],
+               ['C4', 261.63, 0.40], ['G4', 392.00, 1.70]];
+const MOTIF_GAP = 0.15;
+let hold = null;
+let armed = false;
+let audioCtx = null;
+window.addEventListener('pointerdown', (e) => {
+  hold = {t: e.timeStamp, x: e.clientX, y: e.clientY, moved: false};
+}, true);
+window.addEventListener('pointermove', (e) => {
+  if (hold && Math.hypot(e.clientX - hold.x, e.clientY - hold.y) > 10) hold.moved = true;
+}, true);
+window.addEventListener('pointerup', (e) => {
+  const still = hold && !hold.moved;
+  const held = still ? e.timeStamp - hold.t : 0;
+  hold = null;
+  if (held >= 700) {
+    armed = true;
+    paint('w', 'soundcheck armed: tap to play');
+    report('armed', {});
+  } else if (armed && still) {
+    armed = false;
+    playMotif();
+  }
+}, true);
+// Safari counts only the touch's own end as permission to play.
+window.addEventListener('touchend', () => {
+  if (audioCtx && audioCtx.state !== 'running') audioCtx.resume();
+}, true);
+
+function playMotif() {
+  try {
+    // Plays with the ringer switch on silent, as a video would.
+    if (navigator.audioSession) navigator.audioSession.type = 'playback';
+  } catch (err) { /* older Safari */ }
+  audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+  audioCtx.resume();
+  const lead = 0.25;
+  let t = audioCtx.currentTime + lead;
+  const notes = [];
+  for (const [name, hz, secs] of MOTIF) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.value = hz;
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.5, t + 0.005);  // no clicks at the edges
+    gain.gain.setValueAtTime(0.5, t + secs - 0.005);
+    gain.gain.linearRampToValueAtTime(0, t + secs);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + secs + 0.01);
+    notes.push({name, hz, secs, at: t - audioCtx.currentTime});
+    t += secs + MOTIF_GAP;
+  }
+  paint('w', `motif playing (${audioCtx.state}, ${audioCtx.sampleRate} Hz)`);
+  report('motif', {state: audioCtx.state, sampleRate: audioCtx.sampleRate});
+  window.dispatchEvent(new CustomEvent('roadie:motif', {detail: {notes}}));
+}
+
+// Whether the page is on screen: the harness checks it got Safari back after
+// sending it to the soundcheck page.
+document.addEventListener('visibilitychange', () => {
+  report('visible', {visible: document.visibilityState === 'visible'});
+});
 
 // --- announce readiness ---------------------------------------------------
 function announce() {

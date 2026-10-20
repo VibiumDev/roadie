@@ -155,6 +155,7 @@ make test-e2e-pi      # full stack into a browser on this machine
 make start-vnc-server # watch runs on a Pi with no monitor
 make test-e2e-android # full stack into Chrome on an Android phone
 make test-e2e-iphone  # full stack into Safari on an iPhone
+make demo-iphone      # the same, as a sci-fi HUD for a screen recording
 make clean            # remove binary
 ```
 

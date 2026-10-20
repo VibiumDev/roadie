@@ -8,7 +8,7 @@ BINARY = roadie
 #   make flash-hid CP_VERSION=latest
 CP_VERSION ?= 10.3.1
 
-.PHONY: help build test test-unit clean setup uninstall flash-hid flash-relay flash-hid-quick flash-relay-quick sync sync-hid sync-relay test-hid test-hid-quick test-e2e-pi test-audio test-audio-serial test-audio-api test-audio-browser test-view multitouch-on multitouch-off multitouch-status test-multitouch test-e2e-android test-e2e-iphone test-e2e-pc set-vnc-password start-vnc-server stop-vnc-server vnc-status status unstick gadget-install gadget-uninstall gadget-status test-gadget test-gadget-install test-gadget-loopback test-phone-net
+.PHONY: help build test test-unit clean setup uninstall flash-hid flash-relay flash-hid-quick flash-relay-quick sync sync-hid sync-relay test-hid test-hid-quick test-e2e-pi test-audio test-audio-serial test-audio-api test-audio-browser test-view multitouch-on multitouch-off multitouch-status test-multitouch test-e2e-android test-e2e-iphone test-e2e-pc demo-iphone set-vnc-password start-vnc-server stop-vnc-server vnc-status status unstick gadget-install gadget-uninstall gadget-status test-gadget test-gadget-install test-gadget-loopback test-phone-net
 
 # Every target carries a "## description"; help prints them by section.
 help:  ## Show this help
@@ -248,6 +248,12 @@ test-e2e-iphone:  ## The whole stack into Safari on an iPhone
 
 test-e2e-pc:  ## The whole stack into a browser on another computer
 	python3 board/test_e2e.py --target pc
+
+# The same checks, shown as a sci-fi HUD and paced for a screen recording.
+# Any target takes --hud: python3 board/test_e2e.py --target android --hud
+
+demo-iphone:  ## test-e2e-iphone as a sci-fi HUD, paced for recording
+	python3 board/test_e2e.py --target iphone --hud
 
 ##@ Watch a run
 

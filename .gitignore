@@ -31,3 +31,6 @@ scrap.txt
 # macOS
 .DS_Store
 roadie.log
+
+# The soundcheck server, built for deploying (soundcheck/README.md)
+soundcheck/soundcheck
