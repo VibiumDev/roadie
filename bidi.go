@@ -50,8 +50,11 @@ type bidiSession struct {
 	id          string
 	heldKeys    []int
 	heldButtons int
-	touchState  [2]*TouchContact
-	pointerPos  map[string]*bidiPointerPos // keyed by source ID
+	// shiftFor marks keys whose character needed a Shift this session
+	// pressed for it (":" is Shift+";"), so keyUp lets go of that too.
+	shiftFor   map[int]bool
+	touchState [2]*TouchContact
+	pointerPos map[string]*bidiPointerPos // keyed by source ID
 }
 
 // bidiSessionMu guards the active session on the Server.
@@ -468,9 +471,24 @@ func (s *Server) executeBiDiAction(sess *bidiSession, srcType, ptrType, srcID st
 		if !ok {
 			return fmt.Errorf("unsupported key: %q", action.Value)
 		}
+		// A character typed with Shift (":", "?", "A") gets one, unless
+		// the client is already holding it.
 		bidiSessionMu.Lock()
+		addShift := bidiKeyNeedsShift(action.Value) && !shiftHeld(sess.heldKeys)
+		if addShift {
+			if sess.shiftFor == nil {
+				sess.shiftFor = map[int]bool{}
+			}
+			sess.shiftFor[keycode] = true
+			sess.heldKeys = append(sess.heldKeys, shiftKeycode)
+		}
 		sess.heldKeys = append(sess.heldKeys, keycode)
 		bidiSessionMu.Unlock()
+		if addShift {
+			if err := s.HID.KeyPress(shiftKeycode); err != nil {
+				return err
+			}
+		}
 		return s.HID.KeyPress(keycode)
 
 	case "keyUp":
@@ -479,14 +497,20 @@ func (s *Server) executeBiDiAction(sess *bidiSession, srcType, ptrType, srcID st
 			return fmt.Errorf("unsupported key: %q", action.Value)
 		}
 		bidiSessionMu.Lock()
-		for i, k := range sess.heldKeys {
-			if k == keycode {
-				sess.heldKeys = append(sess.heldKeys[:i], sess.heldKeys[i+1:]...)
-				break
-			}
+		sess.heldKeys = removeKey(sess.heldKeys, keycode)
+		addedShift := sess.shiftFor[keycode]
+		if addedShift {
+			delete(sess.shiftFor, keycode)
+			sess.heldKeys = removeKey(sess.heldKeys, shiftKeycode)
 		}
 		bidiSessionMu.Unlock()
-		return s.HID.KeyRelease(keycode)
+		if err := s.HID.KeyRelease(keycode); err != nil {
+			return err
+		}
+		if addedShift {
+			return s.HID.KeyRelease(shiftKeycode)
+		}
+		return nil
 
 	default:
 		return fmt.Errorf("unsupported action type: %s", action.Type)
@@ -564,6 +588,7 @@ func (s *Server) releaseAllInput(sess *bidiSession) {
 	keys := make([]int, len(sess.heldKeys))
 	copy(keys, sess.heldKeys)
 	sess.heldKeys = nil
+	sess.shiftFor = nil
 	buttons := sess.heldButtons
 	sess.heldButtons = 0
 	var touches [2]*TouchContact
@@ -610,14 +635,24 @@ func (s *Server) bidiToHID(pixelX, pixelY float64) (int, int) {
 		crop = image.Rect(0, 0, int(captureW), int(captureH))
 	}
 
-	// BiDi coords are relative to the cropped viewport.
-	// Scale pixel position within the crop to full capture coords.
-	fullX := float64(crop.Min.X) + pixelX*float64(crop.Dx())/float64(crop.Dx())
-	fullY := float64(crop.Min.Y) + pixelY*float64(crop.Dy())/float64(crop.Dy())
-	// Simplifies to: fullX = crop.Min.X + pixelX, fullY = crop.Min.Y + pixelY
+	// BiDi coords are relative to the cropped viewport: where that point
+	// is in the full capture.
+	fullX := float64(crop.Min.X) + pixelX
+	fullY := float64(crop.Min.Y) + pixelY
 
-	hidX := int(math.Round(fullX / captureW * 32767))
-	hidY := int(math.Round(fullY / captureH * 32767))
+	// The range spans what the target's absolute pointer spans. For a
+	// target addressing its own display (iOS; see Platform.PointerSpace)
+	// that is its picture, not the whole frame -- mapped across the frame,
+	// every tap on an iPhone landed squeezed toward the middle of its screen.
+	area := image.Rect(0, 0, int(captureW), int(captureH))
+	if s.Platform.PointerSpace() == "screen" {
+		area = s.Source.ContentRect()
+		if area.Empty() {
+			area = crop
+		}
+	}
+	hidX := int(math.Round((fullX - float64(area.Min.X)) / float64(area.Dx()) * 32767))
+	hidY := int(math.Round((fullY - float64(area.Min.Y)) / float64(area.Dy()) * 32767))
 
 	return clampInt(hidX, 0, 32767), clampInt(hidY, 0, 32767)
 }
@@ -686,31 +721,48 @@ func bidiKeyToHID(value string) (int, bool) {
 	if code, ok := bidiSpecialKeys[value]; ok {
 		return code, true
 	}
-	// Printable ASCII single character.
-	if utf8.RuneCountInString(value) == 1 {
-		r := []rune(value)[0]
-		if code, ok := bidiPrintableKeys[r]; ok {
-			return code, true
-		}
+	// A printable character: its key on a US keyboard, the table the HID
+	// backends type with.
+	if c, ok := printableKey(value); ok {
+		return int(usASCII[c] & 0x7f), true
 	}
 	return 0, false
 }
 
-// Printable character to HID keycode (lowercase; shift handling is done via modifier keys).
-var bidiPrintableKeys = map[rune]int{
-	'a': 4, 'b': 5, 'c': 6, 'd': 7, 'e': 8, 'f': 9, 'g': 10, 'h': 11,
-	'i': 12, 'j': 13, 'k': 14, 'l': 15, 'm': 16, 'n': 17, 'o': 18, 'p': 19,
-	'q': 20, 'r': 21, 's': 22, 't': 23, 'u': 24, 'v': 25, 'w': 26, 'x': 27,
-	'y': 28, 'z': 29,
-	'A': 4, 'B': 5, 'C': 6, 'D': 7, 'E': 8, 'F': 9, 'G': 10, 'H': 11,
-	'I': 12, 'J': 13, 'K': 14, 'L': 15, 'M': 16, 'N': 17, 'O': 18, 'P': 19,
-	'Q': 20, 'R': 21, 'S': 22, 'T': 23, 'U': 24, 'V': 25, 'W': 26, 'X': 27,
-	'Y': 28, 'Z': 29,
-	'1': 30, '2': 31, '3': 32, '4': 33, '5': 34,
-	'6': 35, '7': 36, '8': 37, '9': 38, '0': 39,
-	' ': 44,
-	'-': 45, '=': 46, '[': 47, ']': 48, '\\': 49,
-	';': 51, '\'': 52, '`': 53, ',': 54, '.': 55, '/': 56,
+// bidiKeyNeedsShift is whether a character is typed with Shift on a US
+// keyboard: capitals, and the symbols above the digits and punctuation.
+func bidiKeyNeedsShift(value string) bool {
+	c, ok := printableKey(value)
+	return ok && usASCII[c]&0x80 != 0
+}
+
+func printableKey(value string) (byte, bool) {
+	if utf8.RuneCountInString(value) != 1 {
+		return 0, false
+	}
+	r := []rune(value)[0]
+	if r < 0x20 || r >= 0x7f || usASCII[r] == 0 {
+		return 0, false
+	}
+	return byte(r), true
+}
+
+func shiftHeld(keys []int) bool {
+	for _, k := range keys {
+		if k == 0xE1 || k == 0xE5 { // left or right Shift
+			return true
+		}
+	}
+	return false
+}
+
+func removeKey(keys []int, keycode int) []int {
+	for i, k := range keys {
+		if k == keycode {
+			return append(keys[:i], keys[i+1:]...)
+		}
+	}
+	return keys
 }
 
 // BiDi special key values (Unicode Private Use Area) to HID keycodes.

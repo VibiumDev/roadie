@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"image"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -402,6 +404,40 @@ func TestBiDiCoordinateTranslation(t *testing.T) {
 	}
 }
 
+// An iPhone's absolute pointer spans its own screen, so a BiDi pixel maps
+// within the phone's picture, not across the whole frame around it.
+func TestBiDiToHIDScreenPointerSpace(t *testing.T) {
+	buf := &FrameBuffer{}
+	buf.SetWidth(1920)
+	buf.SetHeight(1080)
+	phone := image.Rect(735, 54, 1184, 1027) // a 449x973 iPhone in the frame
+	tests := []struct {
+		name           string
+		crop           image.Rectangle
+		pixelX, pixelY float64
+		wantX, wantY   int
+	}{
+		{"top-left of the phone", phone, 0, 0, 0, 0},
+		{"bottom-right of the phone", phone, 449, 973, 32767, 32767},
+		{"a button near the top left", phone, 44, 85, 3211, 2863},
+		// A crop tighter than the picture: still placed within the picture.
+		{"tighter crop", image.Rect(735, 76, 1184, 1007), 0, 0, 0, 741},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Server{
+				Source:   &fakeSource{cropRect: tt.crop, contentRect: phone},
+				Buf:      buf,
+				Platform: PlatformIOS,
+			}
+			gotX, gotY := s.bidiToHID(tt.pixelX, tt.pixelY)
+			if abs(gotX-tt.wantX) > 1 || abs(gotY-tt.wantY) > 1 {
+				t.Errorf("got (%d,%d), want (%d,%d)", gotX, gotY, tt.wantX, tt.wantY)
+			}
+		})
+	}
+}
+
 func abs(x int) int {
 	if x < 0 {
 		return -x
@@ -431,6 +467,11 @@ func TestBiDiKeyMapping(t *testing.T) {
 		{"\uE015", 81},  // Arrow Down
 		{"\uE031", 58},  // F1
 		{"\uE03C", 69},  // F12
+		{":", 51},       // Shift+;
+		{"?", 56},       // Shift+/
+		{"!", 30},       // Shift+1
+		{"@", 31},       // Shift+2
+		{"_", 45},       // Shift+-
 	}
 
 	for _, tt := range tests {
@@ -448,6 +489,80 @@ func TestBiDiKeyMapping(t *testing.T) {
 	_, ok := bidiKeyToHID("\uEFFF")
 	if ok {
 		t.Error("expected unknown key to return false")
+	}
+}
+
+func TestBiDiKeyNeedsShift(t *testing.T) {
+	for value, want := range map[string]bool{
+		"a": false, "A": true, ":": true, ";": false, "/": false, "?": true,
+		"1": false, "!": true, " ": false, "\uE007": false, "\uE008": false,
+	} {
+		if got := bidiKeyNeedsShift(value); got != want {
+			t.Errorf("bidiKeyNeedsShift(%q) = %v, want %v", value, got, want)
+		}
+	}
+}
+
+// keyHID records key presses and releases; the rest of HIDBackend is inert.
+type keyHID struct{ log []string }
+
+func (k *keyHID) Run()                       {}
+func (k *keyHID) Shutdown()                  {}
+func (k *keyHID) Backend() string            { return "test" }
+func (k *keyHID) Status() HIDStatus          { return HIDConnected }
+func (k *keyHID) BoardResponding() bool      { return true }
+func (k *keyHID) Port() string               { return "" }
+func (k *keyHID) Serial() string             { return "" }
+func (k *keyHID) Type(string) error          { return nil }
+func (k *keyHID) MouseMove(int, int) error   { return nil }
+func (k *keyHID) MouseClick(int) error       { return nil }
+func (k *keyHID) MousePress(int) error       { return nil }
+func (k *keyHID) MouseRelease(int) error     { return nil }
+func (k *keyHID) MouseScroll(int) error      { return nil }
+func (k *keyHID) Touch([]TouchContact) error { return nil }
+func (k *keyHID) SendAudio([]byte) error     { return nil }
+func (k *keyHID) ResetHID() error            { return nil }
+func (k *keyHID) ResetRelay() error          { return nil }
+func (k *keyHID) KeyPress(c int) error       { k.log = append(k.log, fmt.Sprintf("+%d", c)); return nil }
+func (k *keyHID) KeyRelease(c int) error     { k.log = append(k.log, fmt.Sprintf("-%d", c)); return nil }
+
+// A character typed with Shift gets one around it; one the client already
+// holds is left to the client.
+func TestBiDiShiftedCharacters(t *testing.T) {
+	press := func(s *Server, sess *bidiSession, typ, v string) {
+		t.Helper()
+		if err := s.executeBiDiAction(sess, "key", "", "kbd", bidiAction{Type: typ, Value: v}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	hid := &keyHID{}
+	s := &Server{HID: hid}
+	sess := &bidiSession{}
+	press(s, sess, "keyDown", ":")
+	press(s, sess, "keyUp", ":")
+	if got, want := strings.Join(hid.log, " "), "+225 +51 -51 -225"; got != want {
+		t.Errorf("\":\": %s, want %s", got, want)
+	}
+	if len(sess.heldKeys) != 0 {
+		t.Errorf("still held: %v", sess.heldKeys)
+	}
+
+	hid.log = nil
+	press(s, sess, "keyDown", "\uE008") // the client holds Shift itself
+	press(s, sess, "keyDown", "A")
+	press(s, sess, "keyUp", "A")
+	press(s, sess, "keyUp", "\uE008")
+	if got, want := strings.Join(hid.log, " "), "+225 +4 -4 -225"; got != want {
+		t.Errorf("Shift+A: %s, want %s", got, want)
+	}
+
+	// Let go of everything mid-character: the added Shift goes too.
+	hid.log = nil
+	press(s, sess, "keyDown", "?")
+	s.releaseAllInput(sess)
+	if got, want := strings.Join(hid.log, " "), "+225 +56 -56 -225"; got != want {
+		t.Errorf("release all: %s, want %s", got, want)
 	}
 }
 
