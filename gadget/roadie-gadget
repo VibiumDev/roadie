@@ -1,0 +1,668 @@
+#!/bin/bash
+# roadie-gadget: Roadie's composite USB gadget, built with the kernel's
+# configfs gadget framework.
+#
+#   roadie-gadget up        create and bind the gadget (idempotent)
+#   roadie-gadget down      unbind and remove it
+#   roadie-gadget reset     make the phone see an unplug/replug (recovery)
+#   roadie-gadget rebind    the same by unbinding the controller (fallback)
+#   roadie-gadget status    what is configured and what is attached
+#   roadie-gadget check     the same as pass/fail checks; non-zero on failure
+#   roadie-gadget devices   function -> device node mapping, key=value
+#
+# The gadget's lifecycle is independent of the roadie server: systemd runs
+# "up" at boot, roadie only opens the device nodes this creates, and
+# restarting roadie never re-enumerates USB.
+#
+# Settings: /etc/roadie/gadget.conf (see gadget.conf next to this script).
+# ROADIE_GADGET_CONF points somewhere else, which the loopback test uses.
+
+set -euo pipefail
+
+readonly CONFIGFS=/sys/kernel/config/usb_gadget
+readonly NAME=roadie
+readonly G="$CONFIGFS/$NAME"
+readonly RUN_DIR=/run/roadie-gadget
+readonly SCRIPT_VERSION=1
+CONF="${ROADIE_GADGET_CONF:-/etc/roadie/gadget.conf}"
+LIB_DIR="${ROADIE_LIB_DIR:-$(dirname "$(readlink -f "$0")")}"
+
+# ---- defaults (override in gadget.conf) ----------------------------------
+
+# Linux Foundation "Multifunction Composite Gadget", the ID the kernel's own
+# g_multi uses. It says what this is and imitates no product. A fleet should
+# use its own allocation.
+USB_VENDOR_ID=0x1d6b
+USB_PRODUCT_ID=0x0104
+USB_MANUFACTURER="Vibium"
+USB_PRODUCT="Roadie"
+USB_SERIAL=""                 # empty: the Pi's serial number
+
+HID_KEYBOARD=1
+HID_MOUSE=1
+HID_TOUCH=1
+
+AUDIO=uac2                    # uac2 | uac1 | none
+AUDIO_MIC=1                   # phone sees a USB microphone
+AUDIO_SPEAKER=1               # phone sees a USB speaker; roadie captures it
+AUDIO_RATE=48000
+AUDIO_MIC_CHANNELS=1
+AUDIO_SPEAKER_CHANNELS=2
+
+NET=ecm                       # ecm | ncm | rndis | none
+NET_IFNAME="phone%d"          # kernel pattern; first free number is used
+NET_HOST_MAC=""               # phone side; empty: this Pi's eth0 address
+NET_DEV_MAC=""                # Pi side; empty: host MAC, locally administered
+
+GADGET_GROUP=roadie           # group allowed to drive the gadget
+UDC=""                        # empty: the only USB device controller
+
+# ---- helpers --------------------------------------------------------------
+
+log() { echo "roadie-gadget: $*" >&2; }
+die() { log "error: $*"; exit 1; }
+
+need_root() {
+	[ "$(id -u)" -eq 0 ] || die "must run as root (try: sudo $0 $*)"
+}
+
+load_config() {
+	if [ -f "$CONF" ]; then
+		# shellcheck disable=SC1090
+		. "$CONF"
+	fi
+	case "$AUDIO" in uac1|uac2|none) ;; *) die "AUDIO must be uac1, uac2 or none, not '$AUDIO'";; esac
+	case "$NET" in ecm|ncm|rndis|none) ;; *) die "NET must be ecm, ncm, rndis or none, not '$NET'";; esac
+	case "$NET_IFNAME" in *%d*) ;; *) die "NET_IFNAME must be a pattern containing %d, such as phone%d";; esac
+	for v in HID_KEYBOARD HID_MOUSE HID_TOUCH AUDIO_MIC AUDIO_SPEAKER; do
+		case "${!v}" in 0|1) ;; *) die "$v must be 0 or 1";; esac
+	done
+	for v in AUDIO_MIC_CHANNELS AUDIO_SPEAKER_CHANNELS; do
+		case "${!v}" in 1|2) ;; *) die "$v must be 1 or 2";; esac
+	done
+	case "$AUDIO_RATE" in
+		8000|16000|32000|44100|48000|96000) ;;
+		*) die "AUDIO_RATE must be 8000, 16000, 32000, 44100, 48000 or 96000, not '$AUDIO_RATE'" ;;
+	esac
+	[[ "$USB_VENDOR_ID" =~ ^0x[0-9a-fA-F]{4}$ ]] || die "USB_VENDOR_ID must look like 0x1d6b"
+	[[ "$USB_PRODUCT_ID" =~ ^0x[0-9a-fA-F]{4}$ ]] || die "USB_PRODUCT_ID must look like 0x0104"
+	return 0
+}
+
+# desc_file NAME: path of a HID report descriptor shipped beside this script.
+desc_file() {
+	echo "$LIB_DIR/hid/$1.desc"
+}
+
+# desc_hex FILE: the descriptor's bytes as one hex string. Fails (rather
+# than yielding nothing) on a missing, empty or odd-length file.
+desc_hex() {
+	local hex
+	[ -s "$1" ] || die "missing or empty HID descriptor $1"
+	hex=$(sed 's/#.*//' "$1" | tr -cd '0-9A-Fa-f')
+	[ -n "$hex" ] && [ $(( ${#hex} % 2 )) -eq 0 ] || die "HID descriptor $1 is not whole hex bytes"
+	echo "$hex"
+}
+
+# write_desc FILE DEST: hex bytes (comments after '#') -> binary, one write.
+# Plain assignments, never "local x=$(...)" or an argument: those swallow a
+# failure inside the substitution, and a gadget with an empty descriptor
+# would bind and look healthy.
+write_desc() {
+	local hex esc tmp
+	hex=$(desc_hex "$1")
+	esc=$(echo "$hex" | sed 's/../\\x&/g')
+	tmp=$(mktemp)
+	# shellcheck disable=SC2059
+	printf "$esc" > "$tmp"
+	[ "$(stat -c %s "$tmp")" -eq $(( ${#hex} / 2 )) ] || die "writing descriptor $1 came out the wrong size"
+	cat "$tmp" > "$2"
+	# configfs takes at most a page per write and keeps the last one, so
+	# an oversized descriptor would be stored cut short without an error.
+	# (Compared as hex, not with cmp: configfs reports every attribute as
+	# 4096 bytes long and cmp trusts the size.)
+	if [ "$(od -An -tx1 -v "$2" | tr -d ' \n')" != "${hex,,}" ]; then
+		rm -f "$tmp"
+		die "the kernel did not store descriptor $1 intact (is it over 4 KiB?)"
+	fi
+	rm -f "$tmp"
+}
+
+# set_opt FILE VALUE: write an attribute only if this kernel has it.
+set_opt() {
+	if [ -e "$1" ]; then
+		echo "$2" > "$1"
+	else
+		log "note: this kernel has no $(basename "$1"); left at its default"
+	fi
+}
+
+pi_serial() {
+	local s=""
+	if [ -r /proc/device-tree/serial-number ]; then
+		s=$(tr -d '\0' < /proc/device-tree/serial-number)
+	fi
+	if [ -z "$s" ]; then
+		s=$(awk '/^Serial/ {print $3}' /proc/cpuinfo)
+	fi
+	echo "${s:-0000000000000000}"
+}
+
+# The phone-side MAC has to be universally administered. Android only
+# adopts Ethernet interfaces named eth<N>, and the host's usbnet driver
+# names a point-to-point link usb<N> instead when the address has the
+# locally-administered bit set. This Pi's own eth0 address is unique to the
+# board and never leaves the USB link, because the phone is NATed.
+default_host_mac() {
+	local ifc
+	for ifc in eth0 end0 wlan0; do
+		if [ -r "/sys/class/net/$ifc/address" ]; then
+			cat "/sys/class/net/$ifc/address"
+			return 0
+		fi
+	done
+	die "no eth0 or wlan0 to take a MAC address from; set NET_HOST_MAC in $CONF"
+}
+
+check_mac() {
+	[[ "$1" =~ ^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$ ]] || die "$2 '$1' is not a MAC address"
+	local first=$((16#${1:0:2}))
+	(( (first & 1) == 0 )) || die "$2 '$1' is a multicast address"
+}
+
+local_admin_mac() {
+	local first=$((16#${1:0:2}))
+	printf '%02x%s\n' $(( (first | 2) & 0xfe )) "${1:2}"
+}
+
+find_udc() {
+	if [ -n "$UDC" ]; then
+		[ -e "/sys/class/udc/$UDC" ] || die "UDC '$UDC' (from $CONF) does not exist; have: $(ls /sys/class/udc 2>/dev/null | tr '\n' ' ')"
+		echo "$UDC"
+		return 0
+	fi
+	# The controller can probe a little after this runs at boot.
+	local i udcs
+	for i in $(seq 1 30); do
+		udcs=$(ls /sys/class/udc 2>/dev/null || true)
+		[ -n "$udcs" ] && break
+		sleep 0.5
+	done
+	[ -n "$udcs" ] || die "no USB device controller. On a Pi 4 add
+    dtoverlay=dwc2,dr_mode=peripheral
+under [all] in /boot/firmware/config.txt and reboot (gadget/install does this)"
+	[ "$(echo "$udcs" | wc -l)" -eq 1 ] || die "several USB device controllers ($(echo $udcs)); set UDC= in $CONF"
+	echo "$udcs"
+}
+
+# Nothing else may be using the controller: two gadgets cannot share it, and
+# a legacy g_* module would silently own it.
+check_conflicts() {
+	local udc=$1 other
+	if lsmod | grep -qE '^g_(ether|multi|hid|serial|audio|cdc|mass_storage|webcam|zero|midi|printer|acm_ms)\b'; then
+		die "a legacy gadget module is loaded ($(lsmod | awk '/^g_/ {print $1}' | tr '\n' ' ')); remove it (and any modules-load=... in cmdline.txt) first"
+	fi
+	for other in "$CONFIGFS"/*/UDC; do
+		[ -e "$other" ] || continue
+		[ "$other" = "$G/UDC" ] && continue
+		if [ "$(cat "$other")" = "$udc" ]; then
+			die "gadget $(basename "$(dirname "$other")") already owns $udc; remove it first"
+		fi
+	done
+}
+
+# The effective configuration, the controller, this script and its
+# descriptors. "up" rebuilds the gadget only when this changes, so a restart
+# of the unit with the same settings never re-enumerates the phone -- while
+# an upgraded script does get applied (and says so).
+fingerprint() {
+	{
+		echo "v$SCRIPT_VERSION"
+		echo "$USB_VENDOR_ID $USB_PRODUCT_ID $USB_MANUFACTURER|$USB_PRODUCT|$1"
+		echo "$HID_KEYBOARD $HID_MOUSE $HID_TOUCH"
+		echo "$AUDIO $AUDIO_MIC $AUDIO_SPEAKER $AUDIO_RATE $AUDIO_MIC_CHANNELS $AUDIO_SPEAKER_CHANNELS"
+		echo "$NET $NET_IFNAME $2 $3 $GADGET_GROUP $4"
+		cat "$(readlink -f "$0")" "$LIB_DIR"/hid/*.desc
+	} | sha256sum | cut -c1-16
+}
+
+chmask() { echo $(( (1 << $1) - 1 )); }
+
+# ---- build ----------------------------------------------------------------
+
+mk_hid() {
+	local name=$1 subclass=$2 protocol=$3 len=$4 f="$G/functions/hid.$1" desc
+	desc=$(desc_file "$name")
+	mkdir "$f"
+	echo "$subclass" > "$f/subclass"
+	echo "$protocol" > "$f/protocol"
+	echo "$len" > "$f/report_length"
+	# Input-only devices: no interrupt OUT endpoint. The keyboard's LED
+	# report still arrives, as SET_REPORT on endpoint 0.
+	set_opt "$f/no_out_endpoint" 1
+	write_desc "$desc" "$f/report_desc"
+	ln -s "$f" "$G/configs/c.1/"
+}
+
+mk_audio() {
+	local f="$G/functions/$AUDIO.audio" p=0 c=0
+	[ "$AUDIO_MIC" = 1 ] && p=$(chmask "$AUDIO_MIC_CHANNELS")
+	[ "$AUDIO_SPEAKER" = 1 ] && c=$(chmask "$AUDIO_SPEAKER_CHANNELS")
+	mkdir "$f"
+	# Gadget playback is what the phone records (its microphone); gadget
+	# capture is what the phone plays (its speaker).
+	echo "$p" > "$f/p_chmask"
+	echo "$AUDIO_RATE" > "$f/p_srate"
+	echo 2 > "$f/p_ssize"
+	echo "$c" > "$f/c_chmask"
+	echo "$AUDIO_RATE" > "$f/c_srate"
+	echo 2 > "$f/c_ssize"
+	# Endpoint budget: the DWC2 on a Pi 4 has 7 IN endpoints. Async
+	# feedback and the volume/mute interrupt endpoint would each take
+	# another, so the speaker runs adaptive and the controls are off.
+	if [ "$AUDIO" = uac2 ]; then
+		set_opt "$f/c_sync" adaptive
+	fi
+	set_opt "$f/p_mute_present" 0
+	set_opt "$f/p_volume_present" 0
+	set_opt "$f/c_mute_present" 0
+	set_opt "$f/c_volume_present" 0
+	ln -s "$f" "$G/configs/c.1/"
+}
+
+mk_net() {
+	local f="$G/functions/$NET.phone"
+	mkdir "$f"
+	echo "$2" > "$f/host_addr"
+	echo "$3" > "$f/dev_addr"
+	echo "$NET_IFNAME" > "$f/ifname"
+	ln -s "$f" "$G/configs/c.1/"
+}
+
+build() {
+	local serial=$1 host_mac=$2 dev_mac=$3
+	mkdir "$G"
+	echo "$USB_VENDOR_ID" > "$G/idVendor"
+	echo "$USB_PRODUCT_ID" > "$G/idProduct"
+	echo 0x0100 > "$G/bcdDevice"
+	echo 0x0200 > "$G/bcdUSB"
+	# Composite with interface associations (audio and CDC use IADs).
+	echo 0xEF > "$G/bDeviceClass"
+	echo 0x02 > "$G/bDeviceSubClass"
+	echo 0x01 > "$G/bDeviceProtocol"
+	mkdir "$G/strings/0x409"
+	echo "$USB_MANUFACTURER" > "$G/strings/0x409/manufacturer"
+	echo "$USB_PRODUCT" > "$G/strings/0x409/product"
+	echo "$serial" > "$G/strings/0x409/serialnumber"
+
+	mkdir "$G/configs/c.1"
+	mkdir "$G/configs/c.1/strings/0x409"
+	echo "Roadie" > "$G/configs/c.1/strings/0x409/configuration"
+	# Self-powered with remote wakeup: the Pi has its own supply (the
+	# splitter cuts VBUS from the phone), and wakeup lets input reach a
+	# phone that has suspended the bus.
+	echo 0xE0 > "$G/configs/c.1/bmAttributes"
+	echo 2 > "$G/configs/c.1/MaxPower"
+
+	# Link order is interface order: input first, then audio, then network.
+	[ "$HID_KEYBOARD" = 1 ] && mk_hid keyboard 1 1 8
+	[ "$HID_MOUSE" = 1 ] && mk_hid mouse 0 0 6
+	[ "$HID_TOUCH" = 1 ] && mk_hid touch 0 0 13
+	if [ "$AUDIO" != none ] && { [ "$AUDIO_MIC" = 1 ] || [ "$AUDIO_SPEAKER" = 1 ]; }; then
+		mk_audio
+	fi
+	[ "$NET" != none ] && mk_net "$NET" "$host_mac" "$dev_mac"
+	return 0
+}
+
+teardown() {
+	[ -d "$G" ] || return 0
+	if [ -n "$(cat "$G/UDC" 2>/dev/null)" ]; then
+		echo "" > "$G/UDC" || true
+	fi
+	local l d
+	for l in "$G"/configs/*/*; do
+		[ -L "$l" ] && rm -f "$l"
+	done
+	for d in "$G"/configs/*/strings/*; do
+		[ -d "$d" ] && rmdir "$d"
+	done
+	for d in "$G"/configs/*; do
+		[ -d "$d" ] && rmdir "$d"
+	done
+	for d in "$G"/functions/*; do
+		[ -d "$d" ] && rmdir "$d"
+	done
+	for d in "$G"/strings/*; do
+		[ -d "$d" ] && rmdir "$d"
+	done
+	rmdir "$G"
+	rm -f "$RUN_DIR/fingerprint" "$RUN_DIR/devices"
+}
+
+# ---- device mapping -------------------------------------------------------
+
+# hidg_node FUNCTION: /dev path of a HID function, from its major:minor.
+hidg_node() {
+	local dev name
+	dev=$(cat "$G/functions/$1/dev" 2>/dev/null) || return 1
+	name=$(sed -n 's/^DEVNAME=//p' "/sys/dev/char/$dev/uevent" 2>/dev/null) || return 1
+	[ -n "$name" ] && echo "/dev/$name"
+}
+
+audio_card() {
+	local id
+	case "$AUDIO" in uac2) id=UAC2Gadget ;; uac1) id=UAC1Gadget ;; *) return 1 ;; esac
+	[ -e "/proc/asound/$id" ] && echo "$id"
+}
+
+net_ifname() {
+	local n
+	n=$(tr -d '\0' < "$G/functions/$NET.phone/ifname" 2>/dev/null) || return 1
+	case "$n" in *%d*|"(unnamed net_device)"|"") return 1 ;; esac
+	echo "$n"
+}
+
+devices() {
+	[ -d "$G" ] || return 1
+	echo "udc=$(cat "$G/UDC")"
+	local fn node
+	for fn in keyboard mouse touch; do
+		[ -d "$G/functions/hid.$fn" ] || continue
+		node=$(hidg_node "hid.$fn" || true)
+		echo "$fn=${node:-missing}"
+	done
+	if [ -d "$G/functions/$AUDIO.audio" ]; then
+		echo "audio_card=$(audio_card || echo missing)"
+	fi
+	if [ -d "$G/functions/$NET.phone" ]; then
+		echo "net_ifname=$(net_ifname || echo missing)"
+	fi
+}
+
+# Let the server (group $GADGET_GROUP) write reports and re-enumerate,
+# without running as root. udev sets the same on the hidg nodes; doing it
+# here as well closes the window before udev gets to them.
+grant_access() {
+	local udc=$1 fn node a
+	if ! getent group "$GADGET_GROUP" >/dev/null; then
+		log "warning: group '$GADGET_GROUP' does not exist; only root can use the gadget (gadget/install creates it)"
+		return 0
+	fi
+	for fn in keyboard mouse touch; do
+		[ -d "$G/functions/hid.$fn" ] || continue
+		node=$(hidg_node "hid.$fn" || true)
+		if [ -n "$node" ] && [ -e "$node" ]; then
+			chgrp "$GADGET_GROUP" "$node"
+			chmod 0660 "$node"
+		fi
+	done
+	for a in soft_connect srp; do
+		if [ -e "/sys/class/udc/$udc/$a" ]; then
+			chgrp "$GADGET_GROUP" "/sys/class/udc/$udc/$a"
+			chmod g+w "/sys/class/udc/$udc/$a"
+		fi
+	done
+}
+
+wait_for_nodes() {
+	local i fn ok node
+	command -v udevadm >/dev/null && udevadm settle -t 5 || true
+	for i in $(seq 1 20); do
+		ok=1
+		for fn in keyboard mouse touch; do
+			[ -d "$G/functions/hid.$fn" ] || continue
+			node=$(hidg_node "hid.$fn" || true)
+			[ -n "$node" ] && [ -e "$node" ] || ok=0
+		done
+		[ "$ok" = 1 ] && return 0
+		sleep 0.25
+	done
+	log "warning: HID device nodes did not all appear"
+}
+
+# ---- commands -------------------------------------------------------------
+
+cmd_up() {
+	need_root up
+	load_config
+	modprobe libcomposite
+	mountpoint -q /sys/kernel/config || mount -t configfs none /sys/kernel/config
+	mkdir -p "$RUN_DIR"
+	exec 9>"$RUN_DIR/lock"
+	flock 9
+
+	local udc serial host_mac dev_mac fp
+	udc=$(find_udc)
+	check_conflicts "$udc"
+	serial=${USB_SERIAL:-$(pi_serial)}
+	host_mac=${NET_HOST_MAC:-$(default_host_mac)}
+	check_mac "$host_mac" NET_HOST_MAC
+	dev_mac=${NET_DEV_MAC:-$(local_admin_mac "$host_mac")}
+	check_mac "$dev_mac" NET_DEV_MAC
+	[ "${host_mac,,}" != "${dev_mac,,}" ] || die "NET_HOST_MAC and NET_DEV_MAC must differ"
+	# Every descriptor is readable and well formed before configfs is touched.
+	local fn
+	for fn in keyboard mouse touch; do
+		local enabled="HID_${fn^^}"
+		[ "${!enabled}" = 1 ] || continue
+		desc_hex "$(desc_file "$fn")" >/dev/null || exit 1
+	done
+	fp=$(fingerprint "$serial" "$host_mac" "$dev_mac" "$udc")
+
+	if [ -d "$G" ]; then
+		if [ "$(cat "$RUN_DIR/fingerprint" 2>/dev/null)" = "$fp" ]; then
+			if [ "$(cat "$G/UDC")" != "$udc" ]; then
+				log "gadget exists but is not bound; binding to $udc"
+				echo "$udc" > "$G/UDC" || die "binding to $udc failed; see: dmesg | tail"
+			else
+				log "gadget already up on $udc; nothing to do"
+			fi
+			wait_for_nodes
+			grant_access "$udc"
+			devices > "$RUN_DIR/devices"
+			return 0
+		fi
+		if [ -f "$RUN_DIR/fingerprint" ]; then
+			log "configuration changed; rebuilding the gadget (the phone will see a replug)"
+		else
+			log "found a gadget this script did not finish; rebuilding it"
+		fi
+		teardown
+	fi
+
+	# A failure part-way leaves nothing behind: half a gadget bound to the
+	# controller is worse than none, because it looks alive. An EXIT trap,
+	# because bash does not carry an ERR trap into functions.
+	BUILT=0
+	trap '[ "$BUILT" = 1 ] || { log "setup failed; removing the partial gadget"; teardown || true; }' EXIT
+	build "$serial" "$host_mac" "$dev_mac"
+	if ! echo "$udc" > "$G/UDC"; then
+		log "binding to $udc failed. The usual cause is running out of endpoints:"
+		dmesg | grep -iE 'gadget|dwc2|udc|configfs|f_hid|uac|ecm|ncm' | tail -5 >&2 || true
+		exit 1
+	fi
+	BUILT=1
+	trap - EXIT
+	echo "$fp" > "$RUN_DIR/fingerprint"
+	wait_for_nodes
+	grant_access "$udc"
+	devices > "$RUN_DIR/devices"
+	chmod 0644 "$RUN_DIR/devices"
+	log "gadget up on $udc ($USB_VENDOR_ID:$USB_PRODUCT_ID, serial $serial)"
+	sed 's/^/  /' "$RUN_DIR/devices" >&2
+}
+
+cmd_down() {
+	need_root down
+	load_config
+	mkdir -p "$RUN_DIR"
+	exec 9>"$RUN_DIR/lock"
+	flock 9
+	if [ ! -d "$G" ]; then
+		log "no gadget to remove"
+		return 0
+	fi
+	teardown
+	log "gadget removed"
+}
+
+# Soft disconnect drops the D+ pull-up: the phone sees an unplug, then a
+# replug, and enumerates every function again. Device nodes, the ALSA card
+# and the network interface all survive, so nothing on this side restarts.
+cmd_reset() {
+	load_config
+	[ -d "$G" ] || die "no gadget; run: sudo $0 up"
+	local udc
+	udc=$(cat "$G/UDC")
+	[ -n "$udc" ] || die "gadget is not bound; run: sudo $0 up"
+	if [ -w "/sys/class/udc/$udc/soft_connect" ]; then
+		echo disconnect > "/sys/class/udc/$udc/soft_connect"
+		sleep 1
+		echo connect > "/sys/class/udc/$udc/soft_connect"
+	else
+		need_root reset
+		echo "" > "$G/UDC"
+		sleep 1
+		echo "$udc" > "$G/UDC"
+	fi
+	log "re-enumerated on $udc"
+}
+
+# Unbind and rebind the controller: a harder reset than soft_connect, for a
+# controller whose soft disconnect does not bring the phone back. The HID
+# nodes and the sound card are recreated (roadie reopens them by itself).
+# The network interface survives but moves in sysfs, so systemd restarts
+# roadie-phone-net for it, which takes a second.
+cmd_rebind() {
+	need_root rebind
+	load_config
+	[ -d "$G" ] || die "no gadget; run: sudo $0 up"
+	mkdir -p "$RUN_DIR"
+	exec 9>"$RUN_DIR/lock"
+	flock 9
+	local udc
+	udc=$(cat "$G/UDC")
+	if [ -n "$udc" ]; then
+		echo "" > "$G/UDC"
+		sleep 1
+	else
+		udc=$(find_udc)
+	fi
+	echo "$udc" > "$G/UDC" || die "rebinding to $udc failed; see: dmesg | tail"
+	wait_for_nodes
+	grant_access "$udc"
+	devices > "$RUN_DIR/devices"
+	log "rebound to $udc"
+}
+
+usb_state() {
+	local udc
+	udc=$(cat "$G/UDC" 2>/dev/null) || return 1
+	[ -n "$udc" ] && cat "/sys/class/udc/$udc/state" 2>/dev/null
+}
+
+cmd_status() {
+	load_config
+	if [ ! -d "$G" ]; then
+		echo "gadget: not configured (sudo $0 up)"
+		echo "controllers: $(ls /sys/class/udc 2>/dev/null | tr '\n' ' ')"
+		return 1
+	fi
+	echo "gadget:    $NAME ($(cat "$G/idVendor"):$(cat "$G/idProduct"), serial $(cat "$G/strings/0x409/serialnumber"))"
+	echo "bound to:  $(cat "$G/UDC")"
+	echo "usb state: $(usb_state || echo unknown)   (configured = a phone has enumerated it)"
+	echo "functions: $(cd "$G/configs/c.1" && find . -maxdepth 1 -type l -printf '%f ')"
+	devices | sed 's/^/  /'
+}
+
+# check: what "make test-gadget" and the hardware checklist run.
+cmd_check() {
+	load_config
+	local fails=0 fn len want desc node state enabled_var
+	pass() { printf '  ✅ %s\n' "$*"; }
+	fail() { printf '  ❌ %s\n' "$*"; fails=$((fails + 1)); }
+	info() { printf '  ℹ️  %s\n' "$*"; }
+
+	if [ -n "$(ls /sys/class/udc 2>/dev/null)" ]; then
+		pass "USB device controller: $(ls /sys/class/udc | tr '\n' ' ')"
+	else
+		fail "no USB device controller (dtoverlay=dwc2,dr_mode=peripheral, then reboot)"
+	fi
+	if [ ! -d "$G" ]; then
+		fail "gadget '$NAME' does not exist (sudo systemctl start roadie-gadget)"
+		return 1
+	fi
+	if [ -n "$(cat "$G/UDC")" ]; then pass "bound to $(cat "$G/UDC")"; else fail "gadget is not bound"; fi
+
+	for fn in keyboard:8 mouse:6 touch:13; do
+		want=${fn#*:}; fn=${fn%:*}
+		enabled_var="HID_${fn^^}"
+		[ "${!enabled_var}" = 1 ] || continue
+		if [ ! -d "$G/functions/hid.$fn" ]; then fail "hid.$fn missing"; continue; fi
+		len=$(cat "$G/functions/hid.$fn/report_length")
+		desc=$(desc_hex "$(desc_file "$fn")" | tr 'A-F' 'a-f')
+		if [ "$len" = "$want" ] && [ "$(od -An -tx1 -v "$G/functions/hid.$fn/report_desc" | tr -d ' \n')" = "$desc" ]; then
+			pass "hid.$fn: $len-byte reports, descriptor matches gadget/hid/$fn.desc"
+		else
+			fail "hid.$fn: report_length $len (want $want) or descriptor differs from gadget/hid/$fn.desc"
+		fi
+		node=$(hidg_node "hid.$fn" || true)
+		if [ -n "$node" ] && [ -e "$node" ]; then
+			if [ "$(stat -c %G "$node")" = "$GADGET_GROUP" ] && (( (8#$(stat -c %a "$node") & 8#060) == 8#060 )); then
+				pass "$fn -> $node (group $GADGET_GROUP)"
+			else
+				fail "$fn -> $node is $(stat -c '%U:%G %a' "$node"); want group $GADGET_GROUP, mode 660"
+			fi
+		else
+			fail "$fn has no device node"
+		fi
+	done
+
+	if [ "$AUDIO" != none ]; then
+		local card
+		card=$(audio_card || true)
+		if [ -n "$card" ]; then
+			pass "audio: ALSA card $card ($(cat "$G/functions/$AUDIO.audio/p_srate") Hz mic ch-mask $(cat "$G/functions/$AUDIO.audio/p_chmask"), speaker ch-mask $(cat "$G/functions/$AUDIO.audio/c_chmask"))"
+		else
+			fail "audio: no ALSA card for $AUDIO.audio"
+		fi
+	fi
+
+	if [ "$NET" != none ]; then
+		local ifn
+		ifn=$(net_ifname || true)
+		if [ -n "$ifn" ] && [ -e "/sys/class/net/$ifn" ]; then
+			pass "network: $NET.phone -> $ifn (phone MAC $(tr -d '\0' < "$G/functions/$NET.phone/host_addr"))"
+			if systemctl is-active -q "roadie-phone-net@$ifn" 2>/dev/null; then
+				pass "roadie-phone-net@$ifn is running"
+			else
+				info "roadie-phone-net@$ifn is not running (phone has no DHCP/NAT)"
+			fi
+		else
+			fail "network: no interface for $NET.phone"
+		fi
+	fi
+
+	state=$(usb_state || echo unknown)
+	if [ "$state" = configured ]; then
+		pass "a phone has enumerated the gadget (state: configured)"
+	else
+		info "no phone attached (state: $state)"
+	fi
+	[ "$fails" -eq 0 ]
+}
+
+case "${1:-}" in
+	up) cmd_up ;;
+	down) cmd_down ;;
+	reset) cmd_reset ;;
+	rebind) cmd_rebind ;;
+	status) cmd_status ;;
+	check) cmd_check ;;
+	devices) load_config; devices ;;
+	*)
+		sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+		exit 2
+		;;
+esac

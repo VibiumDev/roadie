@@ -7,6 +7,7 @@ require (
 	github.com/hashicorp/mdns v1.0.6
 	github.com/pion/mediadevices v0.9.4
 	go.bug.st/serial v1.6.4
+	golang.org/x/sys v0.30.0
 )
 
 require (
@@ -37,6 +38,5 @@ require (
 	golang.org/x/mod v0.17.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
 	golang.org/x/sync v0.10.0 // indirect
-	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
 )

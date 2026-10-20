@@ -1,0 +1,173 @@
+#!/bin/bash
+# Install and uninstall into a scratch root, with systemctl, udevadm and the
+# account tools stubbed out, and check what lands where. Touches nothing on
+# this machine; no root needed.
+#
+#   gadget/test_install
+
+set -euo pipefail
+
+REPO=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+T=$(mktemp -d)
+fake_bin=0
+# The fake binary goes even when a check fails: a real install would
+# otherwise copy a no-op into place.
+trap 'rm -rf "$T"; [ "$fake_bin" = 1 ] && rm -f "$REPO/roadie"' EXIT
+ROOT=$T/root
+mkdir -p "$ROOT/boot/firmware" "$T/bin"
+fails=0
+pass() { printf '  ✅ %s\n' "$*"; }
+fail() { printf '  ❌ %s\n' "$*"; fails=$((fails + 1)); }
+
+echo
+echo "▶ test-install  ·  gadget/install, gadget/uninstall and setup/machine-setup, changing nothing"
+
+# A config.txt with the filters Raspberry Pi OS ships, so the block has to
+# land under [all] after them.
+cat > "$ROOT/boot/firmware/config.txt" <<'EOF'
+dtparam=audio=on
+camera_auto_detect=1
+[cm4]
+otg_mode=1
+[cm5]
+dtoverlay=dwc2,dr_mode=host
+[all]
+enable_uart=1
+EOF
+cp "$ROOT/boot/firmware/config.txt" "$T/config.orig"
+echo "console=serial0,115200 root=PARTUUID=x rootwait" > "$ROOT/boot/firmware/cmdline.txt"
+for c in systemctl udevadm usermod groupadd groupdel apt-get; do
+	printf '#!/bin/sh\necho "%s $*" >> "%s/calls"\n' "$c" "$T" > "$T/bin/$c"
+	chmod +x "$T/bin/$c"
+done
+# The installer copies a built binary; any file will do here.
+if [ ! -e "$REPO/roadie" ]; then
+	printf '#!/bin/sh\n' > "$REPO/roadie"
+	chmod +x "$REPO/roadie"
+	fake_bin=1
+fi
+run() { PATH="$T/bin:$PATH" DESTDIR="$ROOT" "$@" > "$T/out" 2>&1 || { cat "$T/out"; return 1; }; }
+
+run "$REPO/gadget/install" --user "$(id -un)"
+for f in usr/local/lib/roadie/roadie-gadget usr/local/lib/roadie/roadie-phone-net \
+	usr/local/lib/roadie/hid/keyboard.desc usr/local/lib/roadie/hid/mouse.desc \
+	usr/local/lib/roadie/hid/touch.desc usr/local/sbin/roadie-mode etc/roadie/gadget.conf etc/roadie/phone-net.conf \
+	etc/udev/rules.d/99-roadie-gadget.rules etc/modules-load.d/roadie-gadget.conf \
+	etc/systemd/system/roadie-gadget.service etc/systemd/system/roadie-phone-net@.service \
+	etc/systemd/system/roadie-phone-net-check.timer etc/systemd/system/roadie.service \
+	etc/default/roadie usr/local/bin/roadie usr/local/share/doc/roadie/linux-gadget.md; do
+	[ -e "$ROOT/$f" ] || fail "missing /$f"
+done
+[ "$(readlink "$ROOT/usr/local/sbin/roadie-gadget")" = /usr/local/lib/roadie/roadie-gadget ] \
+	&& pass "files installed, roadie-gadget linked into /usr/local/sbin" \
+	|| fail "roadie-gadget symlink: $(readlink "$ROOT/usr/local/sbin/roadie-gadget")"
+
+grep -q "^User=$(id -un)$" "$ROOT/etc/systemd/system/roadie.service" \
+	&& pass "roadie.service runs as $(id -un)" || fail "roadie.service User= not filled in"
+if grep -q "enable -q roadie-gadget.service roadie-phone-net@phone0.service roadie-phone-net-check.timer roadie.service" "$T/calls"; then
+	pass "units enabled: gadget, phone network on phone0, check timer, roadie"
+else
+	fail "systemctl calls: $(grep enable "$T/calls")"
+fi
+
+tail -3 "$ROOT/boot/firmware/config.txt" | grep -qx 'dtoverlay=dwc2,dr_mode=peripheral' \
+	&& tail -4 "$ROOT/boot/firmware/config.txt" | grep -qx '\[all\]' \
+	&& pass "config.txt: dwc2 peripheral under [all], after the existing filters" \
+	|| fail "config.txt block: $(tail -5 "$ROOT/boot/firmware/config.txt")"
+ls "$ROOT"/boot/firmware/config.txt.roadie-bak-* >/dev/null 2>&1 \
+	&& pass "config.txt backed up first" || fail "no config.txt backup"
+
+# Again: nothing duplicated, settings the operator changed are kept.
+echo 'AUDIO=uac1' >> "$ROOT/etc/roadie/gadget.conf"
+sleep 1
+run "$REPO/gadget/install" --user "$(id -un)"
+[ "$(grep -c 'dr_mode=peripheral' "$ROOT/boot/firmware/config.txt")" = 1 ] \
+	&& grep -q '^AUDIO=uac1' "$ROOT/etc/roadie/gadget.conf" \
+	&& pass "second run: no duplicate boot block, edited gadget.conf kept" \
+	|| fail "second run changed things it should not have"
+
+run "$REPO/gadget/install" --no-network --no-server
+grep -q "enable -q roadie-gadget.service$" "$T/calls" \
+	&& pass "--no-network --no-server enables only the gadget" \
+	|| fail "--no-network --no-server: $(grep enable "$T/calls" | tail -1)"
+
+run "$REPO/gadget/uninstall"
+cmp -s "$ROOT/boot/firmware/config.txt" "$T/config.orig" \
+	&& pass "uninstall: config.txt byte-identical to before" \
+	|| fail "config.txt differs after uninstall: $(diff "$T/config.orig" "$ROOT/boot/firmware/config.txt")"
+left=$(cd "$ROOT" && find . -type f -o -type l | { grep -v '^./boot/firmware/' || true; } | sort)
+[ "$left" = "$(printf './etc/default/roadie\n./etc/roadie/gadget.conf\n./etc/roadie/phone-net.conf\n./usr/local/bin/roadie')" ] \
+	&& pass "uninstall: only settings and the binary kept" \
+	|| fail "left behind: $left"
+
+run "$REPO/gadget/uninstall" --purge
+left=$(cd "$ROOT" && find . -type f -o -type l | { grep -v '^./boot/firmware/' || true; } | sort)
+[ -z "$left" ] && pass "uninstall --purge: nothing left" || fail "left behind: $left"
+grep -q "groupdel roadie" "$T/calls" || true
+
+# roadie-mode, against an installed root: the arguments it writes and the
+# calls it makes. roadie-gadget is a stub that logs its arguments.
+mkdir -p "$ROOT/etc/systemd/system" "$ROOT/etc/default"
+: > "$ROOT/etc/systemd/system/roadie.service"
+: > "$ROOT/etc/systemd/system/roadie-gadget.service"
+printf 'ROADIE_ARGS="--platform android --hid-backend=linux-gadget --port 8081"\n' > "$ROOT/etc/default/roadie"
+printf '#!/bin/sh\necho "roadie-gadget $*" >> "%s/calls"\n' "$T" > "$T/bin/roadie-gadget"
+chmod +x "$T/bin/roadie-gadget"
+: > "$T/calls"
+mode() { PATH="$T/bin:$PATH" DESTDIR="$ROOT" ROADIE_GADGET_BIN="$T/bin/roadie-gadget" "$REPO/setup/roadie-mode" "$@"; }
+out=$(mode boards 2>&1)
+grep -qx 'ROADIE_ARGS="--hid-backend rp2040 --platform android --port 8081"' "$ROOT/etc/default/roadie" \
+	&& grep -q 'roadie-gadget down' "$T/calls" && grep -q 'disable -q --now roadie-gadget.service' "$T/calls" \
+	&& grep -q 'restart roadie.service' "$T/calls" && grep -q 'mode:    boards' <<<"$out" \
+	&& pass "roadie-mode boards: rp2040 argument, gadget down and off at boot, roadie restarted" \
+	|| fail "roadie-mode boards: $(cat "$ROOT/etc/default/roadie") / $(cat "$T/calls") / $out"
+: > "$T/calls"
+out=$(mode gadget 2>&1)
+grep -qx 'ROADIE_ARGS="--hid-backend linux-gadget --platform android --port 8081"' "$ROOT/etc/default/roadie" \
+	&& grep -q 'enable -q roadie-gadget.service' "$T/calls" && grep -q 'restart roadie-gadget.service' "$T/calls" \
+	&& grep -q 'restart roadie.service' "$T/calls" \
+	&& pass "roadie-mode gadget: linux-gadget argument, gadget enabled and brought up, roadie restarted" \
+	|| fail "roadie-mode gadget: $(cat "$ROOT/etc/default/roadie") / $(cat "$T/calls") / $out"
+rm -f "$ROOT/etc/systemd/system/roadie-gadget.service"
+mode gadget >/dev/null 2>&1 && fail "roadie-mode gadget went ahead with no gadget installed" \
+	|| pass "roadie-mode gadget refuses when the gadget is not installed"
+rm -f "$ROOT/etc/default/roadie" "$ROOT/etc/systemd/system/roadie.service"
+
+# setup/machine-setup, dry run: the steps each mode takes, and bad input.
+ms="$REPO/setup/machine-setup"
+out=$(DESTDIR="$ROOT" bash "$ms" --gadget --dry-run --name t1 2>&1) && \
+	grep -q 'gadget/install --user' <<<"$out" && grep -q 'dnsmasq-base nftables' <<<"$out" && \
+	grep -q 'ROADIE_ARGS="--hid-backend linux-gadget --platform android --name t1 --port 8080"' <<<"$out" && \
+	! grep -q 'flash' <<<"$out" \
+	&& pass "machine-setup --gadget: packages, gadget/install, roadie arguments" \
+	|| fail "machine-setup --gadget dry run: $out"
+out=$(DESTDIR="$ROOT" bash "$ms" --boards --dry-run --platform ios 2>&1) && \
+	grep -q '99-roadie-hid.rules' <<<"$out" && grep -q 'install.py --setup-only' <<<"$out" && \
+	grep -q 'install_service' <<<"$out" && ! grep -q 'gadget/install' <<<"$out" && \
+	grep -q 'roadie-mode /usr/local/sbin/roadie-mode' <<<"$out" && \
+	grep -q 'ROADIE_ARGS="--platform ios' <<<"$out" \
+	&& pass "machine-setup --boards: udev rules, board tooling, roadie.service" \
+	|| fail "machine-setup --boards dry run: $out"
+# A second run in the other mode keeps the arguments but switches the backend.
+mkdir -p "$ROOT/etc/default"
+echo 'ROADIE_ARGS="--hid-backend linux-gadget --platform android --port 8081"' >"$ROOT/etc/default/roadie"
+out=$(DESTDIR="$ROOT" bash "$ms" --boards --dry-run 2>&1) && \
+	grep -q 'Switch /etc/default/roadie to rp2040: ROADIE_ARGS="--hid-backend rp2040 --platform android --port 8081"' <<<"$out" \
+	&& pass "machine-setup --boards over a gadget install: same arguments, rp2040 backend" \
+	|| fail "machine-setup --boards over a gadget install: $out"
+out=$(DESTDIR="$ROOT" bash "$ms" --gadget --dry-run 2>&1) && \
+	grep -q 'Keeping /etc/default/roadie (ROADIE_ARGS="--hid-backend linux-gadget --platform android --port 8081")' <<<"$out" \
+	&& pass "machine-setup --gadget over a gadget install: arguments kept" \
+	|| fail "machine-setup --gadget over a gadget install: $out"
+rm -f "$ROOT/etc/default/roadie"
+if bash "$ms" --dry-run >/dev/null 2>&1 || bash "$ms" --gadget --platform palm --dry-run >/dev/null 2>&1; then
+	fail "machine-setup accepted a missing mode or a bad platform"
+else
+	pass "machine-setup refuses a missing mode or a bad platform"
+fi
+
+if [ "$fails" -gt 0 ]; then
+	printf '\n  ❌ %d install check(s) failed\n' "$fails"
+	exit 1
+fi
+printf '  ✅ install and uninstall do what they say\n'

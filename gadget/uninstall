@@ -1,0 +1,90 @@
+#!/bin/bash
+# Remove what gadget/install set up, without touching the Pi's own network.
+#
+#   sudo gadget/uninstall [--purge] [--keep-boot-config]
+#
+#   --purge             also remove /etc/roadie, /etc/default/roadie, the
+#                       phone's DHCP leases, /usr/local/bin/roadie and the
+#                       roadie group
+#   --keep-boot-config  leave the USB-C controller in peripheral mode
+#
+# The phone loses its keyboard, audio and network at once. After a reboot
+# (needed only if the boot configuration was reverted) the USB-C port is a
+# plain power input again. NetworkManager, eth0, wlan0 and SSH are never
+# touched, so a remote session survives.
+
+set -uo pipefail
+
+PURGE=0
+KEEP_BOOT=0
+D=${DESTDIR:-}   # another root, for gadget/test_install
+BOOT_CONFIG=$D/boot/firmware/config.txt
+BEGIN_MARK="# roadie-gadget: begin"
+END_MARK="# roadie-gadget: end"
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--purge) PURGE=1; shift ;;
+		--keep-boot-config) KEEP_BOOT=1; shift ;;
+		-h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+		*) echo "unknown option $1" >&2; exit 2 ;;
+	esac
+done
+[ "$(id -u)" -eq 0 ] || [ -n "$D" ] || { echo "run with sudo" >&2; exit 1; }
+
+echo "▶ roadie linux-gadget uninstall"
+say() { echo "  $*"; }
+
+units=$(systemctl list-units --all --plain --no-legend 'roadie.service' 'roadie-gadget.service' \
+	'roadie-phone-net@*.service' 'roadie-phone-net-check.*' 2>/dev/null | awk '{print $1}')
+for u in $(systemctl list-unit-files --plain --no-legend 'roadie*' 2>/dev/null | awk '{print $1}') $units; do
+	case "$u" in *@.service) continue ;; esac
+	systemctl disable --now -q "$u" 2>/dev/null || true
+done
+# Enabled instances of the template live in the .wants of the netdev.
+rm -f "$D"/etc/systemd/system/sys-subsystem-net-devices-*.device.wants/roadie-phone-net@*.service
+say "✅ services stopped and disabled"
+
+if [ -z "$D" ] && [ -x /usr/local/sbin/roadie-phone-net ]; then
+	for ifc in $(ls /run/roadie-phone-net 2>/dev/null | grep -v '\.orig$'); do
+		/usr/local/sbin/roadie-phone-net cleanup "$ifc" 2>/dev/null || true
+	done
+fi
+if [ -z "$D" ] && [ -x /usr/local/sbin/roadie-gadget ]; then
+	/usr/local/sbin/roadie-gadget down || true
+fi
+say "✅ gadget removed"
+
+# Only now, with the phone's interface gone, does the closed firewall table
+# that stopping the service left behind guard nothing.
+if [ -z "$D" ] && nft list table inet roadie_phone >/dev/null 2>&1; then
+	nft delete table inet roadie_phone
+fi
+say "✅ phone firewall/NAT removed, uplink forwarding restored"
+
+rm -f "$D/etc/systemd/system/roadie.service" "$D/etc/systemd/system/roadie-gadget.service" \
+	"$D/etc/systemd/system/roadie-phone-net@.service" \
+	"$D/etc/systemd/system/roadie-phone-net-check.service" "$D/etc/systemd/system/roadie-phone-net-check.timer"
+systemctl daemon-reload
+rm -f "$D/etc/udev/rules.d/99-roadie-gadget.rules" "$D/etc/modules-load.d/roadie-gadget.conf"
+udevadm control --reload-rules
+rm -f "$D/usr/local/sbin/roadie-gadget" "$D/usr/local/sbin/roadie-phone-net" "$D/usr/local/sbin/roadie-mode"
+rm -rf "$D/usr/local/lib/roadie" "$D/usr/local/share/doc/roadie" "$D/run/roadie-gadget" "$D/run/roadie-phone-net"
+say "✅ units, udev rule and scripts removed"
+
+if [ "$KEEP_BOOT" = 0 ] && grep -qF "$BEGIN_MARK" "$BOOT_CONFIG"; then
+	cp -p "$BOOT_CONFIG" "$BOOT_CONFIG.roadie-bak-$(date +%Y%m%d%H%M%S)"
+	sed -i "/^$BEGIN_MARK/,/^$END_MARK/d" "$BOOT_CONFIG"
+	# The blank line install put before the block.
+	sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$BOOT_CONFIG"
+	say "✅ $BOOT_CONFIG restored (backup beside it); reboot to return the USB-C port to normal"
+fi
+
+if [ "$PURGE" = 1 ]; then
+	rm -rf "$D/etc/roadie" "$D/var/lib/roadie"
+	rm -f "$D/etc/default/roadie" "$D/usr/local/bin/roadie"
+	getent group roadie >/dev/null && groupdel roadie
+	say "✅ settings, leases, binary and group removed"
+else
+	say "kept /etc/roadie, /etc/default/roadie and /usr/local/bin/roadie (--purge removes them)"
+fi

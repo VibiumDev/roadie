@@ -1,0 +1,7 @@
+[Unit]
+Description=Re-check Roadie's phone network (address, forwarding, firewall)
+After=roadie-gadget.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/roadie-phone-net check-all

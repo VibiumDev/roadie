@@ -1,0 +1,3 @@
+# Arguments for roadie.service: /etc/default/roadie
+# --hid-backend linux-gadget drives the phone from this Pi's USB-C port.
+ROADIE_ARGS="--hid-backend linux-gadget --platform android --port 8080"

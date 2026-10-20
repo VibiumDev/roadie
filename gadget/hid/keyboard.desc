@@ -1,0 +1,41 @@
+# Boot keyboard: CircuitPython's usb_hid.Device.KEYBOARD (MIT), the descriptor
+# the RP2040 HID board presents, with its Report ID removed -- each HID
+# function is its own interface here, so no report IDs are needed, and a boot
+# keyboard's reports must not carry one.
+#
+# Input report, 8 bytes:  [modifiers, reserved, key1..key6]
+# Output report, 1 byte:  LEDs (num, caps, scroll, compose, kana)
+#
+# Everything after '#' is a comment; the rest is hex bytes.
+05 01        # Usage Page (Generic Desktop)
+09 06        # Usage (Keyboard)
+A1 01        # Collection (Application)
+05 07        #   Usage Page (Keyboard/Keypad)
+19 E0        #   Usage Minimum (Left Control)
+29 E7        #   Usage Maximum (Right GUI)
+15 00        #   Logical Minimum (0)
+25 01        #   Logical Maximum (1)
+75 01        #   Report Size (1)
+95 08        #   Report Count (8)
+81 02        #   Input (Data,Var,Abs)          modifier byte
+95 01        #   Report Count (1)
+75 08        #   Report Size (8)
+81 01        #   Input (Const)                 reserved byte
+95 05        #   Report Count (5)
+75 01        #   Report Size (1)
+05 08        #   Usage Page (LEDs)
+19 01        #   Usage Minimum (Num Lock)
+29 05        #   Usage Maximum (Kana)
+91 02        #   Output (Data,Var,Abs)         LEDs
+95 01        #   Report Count (1)
+75 03        #   Report Size (3)
+91 01        #   Output (Const)                LED padding
+95 06        #   Report Count (6)
+75 08        #   Report Size (8)
+15 00        #   Logical Minimum (0)
+26 FF 00     #   Logical Maximum (255)
+05 07        #   Usage Page (Keyboard/Keypad)
+19 00        #   Usage Minimum (0)
+2A FF 00     #   Usage Maximum (255)
+81 00        #   Input (Data,Array,Abs)        six key slots
+C0           # End Collection

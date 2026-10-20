@@ -1,0 +1,10 @@
+[Unit]
+Description=Re-check Roadie's phone network every 30 seconds
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=30s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

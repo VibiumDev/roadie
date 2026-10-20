@@ -19,9 +19,13 @@ type Server struct {
 	Buf            *FrameBuffer
 	Device         string
 	AudioBroadcast *AudioBroadcaster
-	SourceType     string // "hardware" or "http"
-	HID            *HIDController
-	Capture        *CaptureManager
+	// AudioSource says which of the phone's outputs /audio is following,
+	// "usb" or "hdmi", when there is a choice (the gadget backend); nil
+	// otherwise.
+	AudioSource func() string
+	SourceType  string // "hardware" or "http"
+	HID         HIDBackend
+	Capture     *CaptureManager
 
 	// InputMode is the pointer mode this target wants — "mouse", "touch", or
 	// empty to leave the choice to the viewer. It belongs to the server
@@ -1404,10 +1408,16 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.AudioBroadcast != nil && s.AudioBroadcast.IsActive() {
 		p := s.AudioBroadcast.Params()
-		resp["audio"] = map[string]interface{}{
+		audio := map[string]interface{}{
 			"sampleRate": p.SampleRate,
 			"channels":   p.Channels,
 		}
+		if s.AudioSource != nil {
+			if src := s.AudioSource(); src != "" {
+				audio["source"] = src
+			}
+		}
+		resp["audio"] = audio
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
@@ -2445,6 +2455,14 @@ func (s *Server) handleHIDStatus(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]string{}
 	if s.HID != nil {
 		status = string(s.HID.Status())
+		resp["backend"] = s.HID.Backend()
+		// The gadget's far end is the phone itself: say whether it has
+		// enumerated us ("configured") or what else the controller sees.
+		if g, ok := s.HID.(interface{ USBState() string }); ok {
+			if st := g.USBState(); st != "" {
+				resp["usb_state"] = st
+			}
+		}
 		// Report the bound board so two roadie instances on one host can be
 		// told apart.
 		if p := s.HID.Port(); p != "" {

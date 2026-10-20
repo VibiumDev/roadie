@@ -436,3 +436,27 @@ func TestViewPlatform(t *testing.T) {
 		})
 	}
 }
+
+// With a choice of outputs, /health says which one /audio is following.
+func TestHealthAudioSource(t *testing.T) {
+	ab := NewAudioBroadcaster()
+	ab.SetParams(AudioParams{SampleRate: 48000, Channels: 2, Format: "f32-interleaved"})
+	for _, src := range []string{"usb", ""} {
+		s := &Server{Source: &fakeSource{status: StatusConnected}, Buf: &FrameBuffer{},
+			AudioBroadcast: ab, AudioSource: func() string { return src }}
+		_, _, body := get(t, NewMux(s), "/health")
+		var data struct {
+			Audio map[string]interface{} `json:"audio"`
+		}
+		if err := json.Unmarshal([]byte(body), &data); err != nil {
+			t.Fatalf("bad JSON: %v", err)
+		}
+		got, has := data.Audio["source"]
+		if src == "" && has {
+			t.Errorf("source %v reported with nothing playing", got)
+		}
+		if src != "" && got != src {
+			t.Errorf("source = %v, want %q", got, src)
+		}
+	}
+}

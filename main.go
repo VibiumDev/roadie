@@ -70,7 +70,13 @@ func main() {
 	name := flag.String("name", "roadie", "Bonjour service name")
 	inputMode := flag.String("input", "", "default pointer mode for viewers: mouse or touch (empty: viewer decides)")
 	platformName := flag.String("platform", "", "target OS: android, ios, mac, windows, linux (tunes pointer mapping and input mode)")
+	hidBackendName := flag.String("hid-backend", BackendRP2040, "input hardware: rp2040 (relay and HID boards) or linux-gadget (this machine's USB device port, set up by gadget/roadie-gadget)")
 	flag.Parse()
+
+	hidBackend, err := ParseHIDBackend(*hidBackendName)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	if *listDevices {
 		if err := InitObserver(); err != nil {
@@ -96,6 +102,11 @@ func main() {
 			fmt.Printf("  - %s\n", r)
 		}
 		fmt.Println()
+		if desc := describeGadget(defaultGadgetPaths()); desc != "" {
+			fmt.Println("USB gadget (for --hid-backend linux-gadget):")
+			fmt.Println(desc)
+			fmt.Println()
+		}
 		suggestCommand(os.Stdout, CaptureCandidates(), relays)
 		return
 	}
@@ -106,6 +117,10 @@ func main() {
 
 	if *inputMode != "" && *inputMode != "mouse" && *inputMode != "touch" {
 		log.Fatalf("--input must be mouse or touch, got %q", *inputMode)
+	}
+
+	if hidBackend == BackendLinuxGadget && *relay != "" {
+		fmt.Fprintln(os.Stderr, "⚠️  --relay is ignored with --hid-backend linux-gadget")
 	}
 
 	platform, err := ParsePlatform(*platformName)
@@ -119,6 +134,7 @@ func main() {
 	buf.SetWidth(*width)
 	buf.SetHeight(*height)
 	var ab *AudioBroadcaster
+	var gadgetAudio *GadgetAudio
 	var sourceType string
 	var deviceName string
 	var shutdownFunc func()
@@ -136,14 +152,46 @@ func main() {
 		// Hardware capture mode.
 		sourceType = "hardware"
 		ab = NewAudioBroadcaster()
+	}
 
+	// With the gadget's speaker the phone can send its sound over USB or
+	// HDMI -- Android picks USB, iOS either, and it can switch -- so /audio
+	// follows whichever is live (audioMux). Without a speaker, the capture
+	// dongle's audio is used as it always was.
+	captureAudio := ab
+	var mux *audioMux
+	if hidBackend == BackendLinuxGadget {
+		cfg, err := readGadgetAudioConfig(defaultGadgetPaths())
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️  USB audio: %v (no USB microphone or speaker until roadie restarts)\n", err)
+		} else {
+			var usbAudio *AudioBroadcaster
+			if cfg.hasSpeaker() {
+				if ab == nil {
+					ab = NewAudioBroadcaster()
+				}
+				usbAudio = NewAudioBroadcaster()
+				var hdmiAudio *AudioBroadcaster
+				if captureAudio != nil {
+					hdmiAudio = NewAudioBroadcaster()
+					captureAudio = hdmiAudio
+				}
+				mux = newAudioMux(ab, usbAudio, hdmiAudio)
+			}
+			gadgetAudio = NewGadgetAudio(cfg, usbAudio)
+			fmt.Printf("🔊 USB audio: %s (microphone %d ch @ %d Hz, speaker %d ch @ %d Hz)\n",
+				cfg.cardID, cfg.micChannels, cfg.micRate, cfg.spkChannels, cfg.spkRate)
+		}
+	}
+
+	if *source == "" {
 		// Start the AVFoundation device observer so the driver manager stays
 		// in sync with hardware (auto-registers on plug, auto-unregisters on unplug).
 		if err := InitObserver(); err != nil {
 			fmt.Fprintf(os.Stderr, "⚠️  Device observer failed: %v\n", err)
 		}
 
-		cm = NewCaptureManager(*device, *audioDevice, buf, ab)
+		cm = NewCaptureManager(*device, *audioDevice, buf, captureAudio)
 		shutdownFunc = cm.Shutdown
 
 		// Try an initial detect for the startup banner, but don't exit on failure.
@@ -182,16 +230,34 @@ func main() {
 		fmt.Fprintf(os.Stderr, "⚠️  mDNS registration failed: %v\n", err)
 	}
 
-	// Start HID controller (relay board serial connection).
-	hid := NewHIDController(*relay)
-	if relays := ListRelays(); len(relays) > 1 && *relay == "" {
-		fmt.Fprintf(os.Stderr, "\n⚠️  %d relay boards connected — use --relay to pick one:\n", len(relays))
-		for _, r := range relays {
-			fmt.Fprintf(os.Stderr, "   %s\n", r)
+	// Start the HID backend: the relay boards, or this machine's USB gadget.
+	var hid HIDBackend
+	if hidBackend == BackendLinuxGadget {
+		g := NewGadgetHID()
+		if gadgetAudio != nil && gadgetAudio.Mic != nil {
+			g.SetMic(gadgetAudio.Mic)
 		}
-		fmt.Fprintln(os.Stderr, "")
+		hid = g
+		fmt.Printf("🔌 HID: USB gadget %q (linux-gadget backend)\n", gadgetName)
+	} else {
+		hid = NewHIDController(*relay)
+		if relays := ListRelays(); len(relays) > 1 && *relay == "" {
+			fmt.Fprintf(os.Stderr, "\n⚠️  %d relay boards connected — use --relay to pick one:\n", len(relays))
+			for _, r := range relays {
+				fmt.Fprintf(os.Stderr, "   %s\n", r)
+			}
+			fmt.Fprintln(os.Stderr, "")
+		}
 	}
 	go hid.Run()
+	if gadgetAudio != nil {
+		gadgetAudio.Start()
+	}
+	muxCtx, stopMux := context.WithCancel(context.Background())
+	defer stopMux()
+	if mux != nil {
+		go mux.run(muxCtx)
+	}
 
 	// Print startup banner.
 	fmt.Println()
@@ -214,6 +280,9 @@ func main() {
 		Platform:       platform,
 		Name:           *name,
 	}
+	if mux != nil {
+		srv.AudioSource = mux.Source
+	}
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", listenPort),
 		Handler: NewMux(srv),
@@ -234,6 +303,9 @@ func main() {
 
 	shutdownFunc()
 	hid.Shutdown()
+	if gadgetAudio != nil {
+		gadgetAudio.Shutdown()
+	}
 
 	if mdnsShutdown != nil {
 		mdnsShutdown()

@@ -1,0 +1,150 @@
+#!/bin/bash
+# Set a Raspberry Pi 4 up to drive a phone from its USB-C port: roadie's
+# linux-gadget backend. Safe to run again; it only adds what is missing and
+# never overwrites settings in /etc/roadie or /etc/default/roadie.
+#
+#   sudo gadget/install [--user NAME] [--no-network] [--no-server]
+#
+#   --user NAME    account roadie.service runs as (default: whoever ran sudo)
+#   --no-network   do not share this Pi's Ethernet with the phone
+#   --no-server    set up the gadget only; run roadie yourself
+#
+# What it changes, and nothing else (gadget/uninstall reverses all of it):
+#   /boot/firmware/config.txt   a marked block enabling the USB-C controller
+#                               in peripheral mode (backed up first)
+#   /etc/modules-load.d/roadie-gadget.conf, /etc/udev/rules.d/99-roadie-gadget.rules
+#   /usr/local/lib/roadie, /usr/local/sbin/roadie-{gadget,phone-net,mode}
+#   /etc/systemd/system/roadie*.service|timer, /etc/roadie, /etc/default/roadie
+#   group "roadie", and the service user's membership of roadie/audio/video
+#
+# It does not touch NetworkManager, eth0, wlan0, SSH or DNS.
+
+set -euo pipefail
+
+REPO=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+# DESTDIR installs into another root; gadget/test_install uses it.
+D=${DESTDIR:-}
+SVC_USER=${SUDO_USER:-}
+NETWORK=1
+SERVER=1
+BOOT_CONFIG=$D/boot/firmware/config.txt
+LIB=/usr/local/lib/roadie
+BEGIN_MARK="# roadie-gadget: begin (gadget/uninstall removes this block)"
+END_MARK="# roadie-gadget: end"
+
+say() { echo "  $*"; }
+die() { echo "gadget/install: $*" >&2; exit 1; }
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--user) SVC_USER=${2:-}; shift 2 ;;
+		--no-network) NETWORK=0; shift ;;
+		--no-server) SERVER=0; shift ;;
+		-h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+		*) die "unknown option $1 (see --help)" ;;
+	esac
+done
+
+[ "$(id -u)" -eq 0 ] || [ -n "$D" ] || die "run with sudo"
+[ -n "$SVC_USER" ] || [ "$SERVER" = 0 ] || die "say which account runs roadie: --user NAME"
+
+echo "▶ roadie linux-gadget install"
+
+# ---- checks ----------------------------------------------------------------
+model=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || echo unknown)
+case "$model" in
+	*"Raspberry Pi 4"*) say "✅ $model" ;;
+	*) say "⚠️  $model: built and tested for the Raspberry Pi 4; the USB device controller may differ" ;;
+esac
+for m in libcomposite usb_f_hid usb_f_uac2 usb_f_ecm; do
+	modinfo "$m" >/dev/null 2>&1 || die "kernel module $m is missing; this kernel cannot be a USB gadget"
+done
+say "✅ kernel has configfs gadget support (libcomposite, f_hid, f_uac2, f_ecm)"
+if grep -qE 'modules-load=[^ ]*g_(ether|multi|serial|hid)' "$D/boot/firmware/cmdline.txt" 2>/dev/null; then
+	die "cmdline.txt loads a legacy gadget module (modules-load=...g_*); remove it first, it would own the USB port"
+fi
+missing=()
+command -v nft >/dev/null || missing+=(nftables)
+[ -x /usr/sbin/dnsmasq ] || missing+=(dnsmasq-base)
+if [ "$NETWORK" = 1 ] && [ ${#missing[@]} -gt 0 ]; then
+	say "📦 installing ${missing[*]}"
+	apt-get install -y -q "${missing[@]}" >/dev/null
+fi
+if [ "$SERVER" = 1 ] && [ ! -x "$REPO/roadie" ]; then
+	die "no roadie binary in $REPO; run 'make' first (or use --no-server)"
+fi
+
+# ---- files -----------------------------------------------------------------
+install -d -m 755 "$D$LIB/hid" "$D/etc/roadie" "$D/var/lib/roadie" "$D/usr/local/share/doc/roadie" \
+	"$D/usr/local/sbin" "$D/usr/local/bin" "$D/etc/udev/rules.d" "$D/etc/modules-load.d" \
+	"$D/etc/systemd/system" "$D/etc/default"
+install -m 755 "$REPO/gadget/roadie-gadget" "$REPO/gadget/roadie-phone-net" "$D$LIB/"
+install -m 644 "$REPO"/gadget/hid/*.desc "$D$LIB/hid/"
+ln -sf "$LIB/roadie-gadget" "$D/usr/local/sbin/roadie-gadget"
+ln -sf "$LIB/roadie-phone-net" "$D/usr/local/sbin/roadie-phone-net"
+install -m 755 "$REPO/setup/roadie-mode" "$D/usr/local/sbin/roadie-mode"
+install -m 644 "$REPO/docs/how-to/linux-gadget.md" "$D/usr/local/share/doc/roadie/linux-gadget.md"
+[ -f "$D/etc/roadie/gadget.conf" ] || install -m 644 "$REPO/gadget/gadget.conf" "$D/etc/roadie/gadget.conf"
+[ -f "$D/etc/roadie/phone-net.conf" ] || install -m 644 "$REPO/gadget/phone-net.conf" "$D/etc/roadie/phone-net.conf"
+say "✅ scripts in $LIB, settings in /etc/roadie"
+
+getent group roadie >/dev/null || groupadd --system roadie
+if [ -n "$SVC_USER" ]; then
+	id "$SVC_USER" >/dev/null 2>&1 || die "no such user: $SVC_USER"
+	usermod -aG roadie,audio,video "$SVC_USER"
+	say "✅ $SVC_USER is in groups roadie, audio, video"
+fi
+
+install -m 644 "$REPO/gadget/udev/99-roadie-gadget.rules" "$D/etc/udev/rules.d/"
+udevadm control --reload-rules
+printf 'libcomposite\n' > "$D/etc/modules-load.d/roadie-gadget.conf"
+
+# ---- boot configuration ------------------------------------------------------
+reboot_needed=0
+if ! grep -qF "$BEGIN_MARK" "$BOOT_CONFIG"; then
+	cp -p "$BOOT_CONFIG" "$BOOT_CONFIG.roadie-bak-$(date +%Y%m%d%H%M%S)"
+	# [all] so no earlier [cm4]/[pi5] filter keeps it from applying.
+	printf '\n%s\n[all]\ndtoverlay=dwc2,dr_mode=peripheral\n%s\n' "$BEGIN_MARK" "$END_MARK" >> "$BOOT_CONFIG"
+	say "✅ $BOOT_CONFIG: USB-C controller in peripheral mode (backup beside it)"
+	reboot_needed=1
+fi
+if [ -z "$(ls /sys/class/udc 2>/dev/null)" ] || [ -n "$D" ]; then
+	reboot_needed=1
+fi
+
+# ---- services ----------------------------------------------------------------
+install -m 644 "$REPO/gadget/systemd/roadie-gadget.service" \
+	"$REPO/gadget/systemd/roadie-phone-net@.service" \
+	"$REPO/gadget/systemd/roadie-phone-net-check.service" \
+	"$REPO/gadget/systemd/roadie-phone-net-check.timer" "$D/etc/systemd/system/"
+units=(roadie-gadget.service)
+
+# The gadget's interface name: NET_IFNAME's pattern, first number.
+ifname_pattern=$(. "$D/etc/roadie/gadget.conf" 2>/dev/null; echo "${NET_IFNAME:-phone%d}")
+phone_if=${ifname_pattern/\%d/0}
+if [ "$NETWORK" = 1 ]; then
+	units+=("roadie-phone-net@$phone_if.service" roadie-phone-net-check.timer)
+fi
+
+if [ "$SERVER" = 1 ]; then
+	install -m 755 "$REPO/roadie" "$D/usr/local/bin/roadie"
+	# Shared with setup/machine-setup --boards: the same unit either way.
+	sed "s/@ROADIE_USER@/$SVC_USER/" "$REPO/setup/roadie.service" > "$D/etc/systemd/system/roadie.service"
+	[ -f "$D/etc/default/roadie" ] || install -m 644 "$REPO/gadget/roadie.default" "$D/etc/default/roadie"
+	units+=(roadie.service)
+	say "✅ roadie.service runs /usr/local/bin/roadie as $SVC_USER (arguments: /etc/default/roadie)"
+fi
+systemctl daemon-reload
+systemctl enable -q "${units[@]}"
+say "✅ enabled: ${units[*]}"
+
+if [ "$reboot_needed" = 1 ]; then
+	echo
+	say "🔁 Reboot to switch the USB-C port to peripheral mode: sudo reboot"
+	say "   Power the Pi through a USB-C power/data splitter first (docs/how-to/linux-gadget.md)."
+else
+	systemctl restart roadie-gadget.service
+	[ "$NETWORK" = 1 ] && systemctl restart "roadie-phone-net@$phone_if.service" 2>/dev/null || true
+	[ "$SERVER" = 1 ] && systemctl restart roadie.service
+	say "✅ started. Check: roadie-gadget check"
+fi

@@ -1,0 +1,400 @@
+#!/bin/bash
+# roadie-phone-net: give the phone on the gadget's Ethernet link an address,
+# DNS and a NATed route out of this Pi's uplink -- and nothing else.
+#
+#   roadie-phone-net prepare IFACE   address, forwarding, firewall, dnsmasq config
+#   roadie-phone-net run IFACE       exec dnsmasq for IFACE (systemd's main process)
+#   roadie-phone-net cleanup IFACE   close the phone off (deny-all), restore forwarding
+#   roadie-phone-net remove          delete the firewall table (uninstall only)
+#   roadie-phone-net check IFACE     re-apply anything that has drifted, and say so
+#   roadie-phone-net check-all       check every running roadie-phone-net@ unit
+#   roadie-phone-net status IFACE    what the phone link looks like now
+#
+# Normally run by roadie-phone-net@IFACE.service, which systemd starts when
+# the gadget's interface appears. It does not depend on roadie running, and
+# leaves NetworkManager, eth0's own configuration, SSH and DNS alone.
+#
+# Settings: /etc/roadie/phone-net.conf (ROADIE_PHONE_NET_CONF overrides).
+
+set -euo pipefail
+
+CONF="${ROADIE_PHONE_NET_CONF:-/etc/roadie/phone-net.conf}"
+readonly TABLE=roadie_phone
+readonly RUN_DIR=/run/roadie-phone-net
+readonly STATE_DIR=/var/lib/roadie
+
+# ---- defaults (override in phone-net.conf) --------------------------------
+
+UPSTREAM_IF=eth0                       # the only interface the phone may use
+PHONE_SUBNET=192.168.42.0/24
+PHONE_GATEWAY=192.168.42.1             # this Pi, on the phone link
+PHONE_IP=192.168.42.2                  # the phone, always (fixed lease)
+DHCP_RANGE="192.168.42.10,192.168.42.50"   # anything else that asks
+LEASE_TIME=12h
+DNS_SERVERS=""                         # empty: whatever this Pi uses
+BLOCK_PRIVATE=1                        # phone may not reach private/LAN addresses
+ALLOW_DESTS=""                         # CIDRs allowed even so, space-separated
+ALLOW_PI_TCP_PORTS=""                  # Pi ports the phone may open, e.g. "8080"
+GADGET=/sys/kernel/config/usb_gadget/roadie
+
+log() { echo "roadie-phone-net: $*" >&2; }
+die() { log "error: $*"; exit 1; }
+
+load_config() {
+	if [ -f "$CONF" ]; then
+		# shellcheck disable=SC1090
+		. "$CONF"
+	fi
+	[[ "$PHONE_SUBNET" =~ ^([0-9]+\.){3}[0-9]+/([0-9]+)$ ]] || die "PHONE_SUBNET '$PHONE_SUBNET' is not a CIDR"
+	PREFIX=${PHONE_SUBNET#*/}
+	[[ "$PHONE_GATEWAY" =~ ^([0-9]+\.){3}[0-9]+$ ]] || die "PHONE_GATEWAY '$PHONE_GATEWAY' is not an address"
+	[[ "$PHONE_IP" =~ ^([0-9]+\.){3}[0-9]+$ ]] || die "PHONE_IP '$PHONE_IP' is not an address"
+	case "$BLOCK_PRIVATE" in 0|1) ;; *) die "BLOCK_PRIVATE must be 0 or 1";; esac
+}
+
+check_iface() {
+	[ -n "${1:-}" ] || die "which interface? (e.g. phone0)"
+	[[ "$1" =~ ^[a-zA-Z0-9_.-]+$ ]] || die "bad interface name '$1'"
+	[ "$1" != "$UPSTREAM_IF" ] || die "the phone interface cannot be the uplink"
+}
+
+netmask() {
+	local p=$1 m="" i
+	for i in 1 2 3 4; do
+		if [ "$p" -ge 8 ]; then m+=255; p=$((p - 8)); else m+=$((256 - (1 << (8 - p)))); p=0; fi
+		[ "$i" -lt 4 ] && m+=.
+	done
+	echo "$m"
+}
+
+# The phone's MAC is the gadget's host_addr, so its lease can be pinned.
+phone_mac() {
+	local f
+	for f in "$GADGET"/functions/*.phone/host_addr; do
+		[ -r "$f" ] && { tr -d '\0\n' < "$f"; return 0; }
+	done
+	return 1
+}
+
+# Refuse a subnet some other interface already routes: the phone would get
+# an address the Pi cannot reach it on, or worse, shadow a real network.
+check_subnet() {
+	local ifc=$1 clash
+	clash=$(ip -4 -o route show match "$PHONE_GATEWAY" | grep -v '^default' | grep -v " dev $ifc " || true)
+	[ -z "$clash" ] || die "$PHONE_SUBNET overlaps an existing route ($clash); pick another PHONE_SUBNET in $CONF"
+}
+
+# The networks the uplink is directly on. Usually private already, but a
+# LAN with public addresses must be closed off from the phone just the same.
+uplink_nets() {
+	ip -4 -o route show dev "$UPSTREAM_IF" scope link 2>/dev/null | awk '{print $1}' | tr '\n' ',' | sed 's/,$//'
+}
+
+# Forwarding was off on the uplink until we turned it on (the saved value).
+# Then nothing but the phone's replies may be forwarded from it: otherwise
+# the LAN could route through this Pi into its other interfaces.
+we_enabled_uplink_forwarding() {
+	[ "$(cat "$RUN_DIR/upstream-forwarding.orig" 2>/dev/null)" = 0 ]
+}
+
+nft_rules() {
+	local ifc=$1 allow="" ports="" private="" lan="" guard=""
+	if [ "$BLOCK_PRIVATE" = 1 ]; then
+		private="ip daddr @private4 counter drop"
+		local nets
+		nets=$(uplink_nets)
+		[ -n "$nets" ] && lan="ip daddr { $nets } counter drop"
+	fi
+	if we_enabled_uplink_forwarding; then
+		guard="iifname \"$UPSTREAM_IF\" oifname != \"$ifc\" counter drop"
+	fi
+	if [ -n "$ALLOW_DESTS" ]; then
+		allow="elements = { $(echo "$ALLOW_DESTS" | tr -s ' ' ',' | sed 's/^,//;s/,$//') }"
+	fi
+	if [ -n "$ALLOW_PI_TCP_PORTS" ]; then
+		ports="ip daddr $PHONE_GATEWAY tcp dport { $(echo "$ALLOW_PI_TCP_PORTS" | tr -s ' ' ',' | sed 's/^,//;s/,$//') } accept"
+	fi
+	cat <<EOF
+table inet $TABLE
+delete table inet $TABLE
+table inet $TABLE {
+	# Never routed to from the phone: this Pi's LAN and every other
+	# private, shared or special-purpose range.
+	set private4 {
+		type ipv4_addr; flags interval
+		elements = { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8,
+			     169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24,
+			     192.168.0.0/16, 198.18.0.0/15, 224.0.0.0/3 }
+	}
+	set allow4 {
+		type ipv4_addr; flags interval
+		$allow
+	}
+
+	chain input {
+		type filter hook input priority filter - 5; policy accept;
+		iifname "$ifc" jump phone_to_pi
+	}
+	# The phone may ask this Pi for an address, names and a ping. Nothing
+	# else: no SSH, no roadie API, no IPv6.
+	chain phone_to_pi {
+		meta nfproto ipv6 counter drop
+		# Nothing but the phone's own addresses (and DHCP's 0.0.0.0), so
+		# it cannot use this Pi to reflect replies at anyone else.
+		ip saddr != { $PHONE_SUBNET, 0.0.0.0 } counter drop
+		ct state established,related accept
+		udp dport 67 accept
+		ip daddr $PHONE_GATEWAY udp dport 53 accept
+		ip daddr $PHONE_GATEWAY tcp dport 53 accept
+		ip daddr $PHONE_GATEWAY icmp type echo-request accept
+		$ports
+		counter drop
+	}
+
+	chain forward {
+		type filter hook forward priority filter - 5; policy accept;
+		iifname "$ifc" jump from_phone
+		oifname "$ifc" jump to_phone
+		$guard
+	}
+	chain from_phone {
+		meta nfproto ipv6 counter drop
+		oifname != "$UPSTREAM_IF" counter drop
+		ip saddr != $PHONE_SUBNET counter drop
+		ip daddr @allow4 accept
+		$private
+		$lan
+		accept
+	}
+	# Only replies reach the phone; nothing outside can open a connection.
+	chain to_phone {
+		ct state established,related accept
+		counter drop
+	}
+
+	chain postrouting {
+		type nat hook postrouting priority srcnat; policy accept;
+		oifname "$UPSTREAM_IF" ip saddr $PHONE_SUBNET masquerade
+	}
+}
+EOF
+}
+
+# What is left whenever the service is not running -- stopped, restarting,
+# or failed part-way: the phone keeps its lease, so the link is closed
+# rather than open. Only "remove" (uninstall) takes this away.
+nft_closed_rules() {
+	local ifc=$1
+	cat <<EOF
+table inet $TABLE
+delete table inet $TABLE
+table inet $TABLE {
+	chain input {
+		type filter hook input priority filter - 5; policy accept;
+		iifname "$ifc" counter drop
+	}
+	chain forward {
+		type filter hook forward priority filter - 5; policy accept;
+		iifname "$ifc" counter drop
+		oifname "$ifc" counter drop
+	}
+}
+EOF
+}
+
+dnsmasq_conf() {
+	local ifc=$1 mac
+	cat <<EOF
+# Generated by roadie-phone-net from $CONF; edits here are overwritten.
+interface=$ifc
+except-interface=lo
+bind-dynamic
+dhcp-authoritative
+dhcp-range=$DHCP_RANGE,$(netmask "$PREFIX"),$LEASE_TIME
+dhcp-option=option:router,$PHONE_GATEWAY
+dhcp-option=option:dns-server,$PHONE_GATEWAY
+dhcp-leasefile=$STATE_DIR/phone-net-$ifc.leases
+domain-needed
+bogus-priv
+no-hosts
+log-facility=-
+EOF
+	if mac=$(phone_mac); then
+		echo "dhcp-host=$mac,$PHONE_IP,$LEASE_TIME"
+	else
+		log "warning: no gadget MAC found; the phone gets a dynamic address"
+	fi
+	if [ -n "$DNS_SERVERS" ]; then
+		echo "no-resolv"
+		local s
+		for s in $DNS_SERVERS; do echo "server=$s"; done
+	fi
+}
+
+sysctl_set() {
+	local key=$1 want=$2 cur
+	cur=$(sysctl -n "$key" 2>/dev/null || echo "")
+	if [ "$cur" != "$want" ]; then
+		sysctl -qw "$key=$want"
+		echo changed
+	fi
+}
+
+# Per-interface forwarding: the phone link, and the uplink so replies can
+# come back. Not net.ipv4.ip_forward, which would make the Pi route between
+# all of its interfaces.
+remember_forwarding() {
+	mkdir -p "$RUN_DIR"
+	if [ ! -f "$RUN_DIR/upstream-forwarding.orig" ]; then
+		sysctl -n "net.ipv4.conf.$UPSTREAM_IF.forwarding" > "$RUN_DIR/upstream-forwarding.orig" 2>/dev/null || true
+	fi
+}
+
+apply_forwarding() {
+	local ifc=$1 changed=""
+	changed+=$(sysctl_set "net.ipv6.conf.$ifc.disable_ipv6" 1)
+	changed+=$(sysctl_set "net.ipv4.conf.$ifc.forwarding" 1)
+	if [ -e "/proc/sys/net/ipv4/conf/$UPSTREAM_IF" ]; then
+		changed+=$(sysctl_set "net.ipv4.conf.$UPSTREAM_IF.forwarding" 1)
+	else
+		log "warning: uplink $UPSTREAM_IF does not exist yet; the phone has no internet until it does"
+	fi
+	[ -n "$changed" ]
+}
+
+apply_address() {
+	local ifc=$1 changed=1
+	if ! ip -4 -o addr show dev "$ifc" | grep -q " $PHONE_GATEWAY/$PREFIX "; then
+		ip addr flush dev "$ifc" scope global
+		ip addr add "$PHONE_GATEWAY/$PREFIX" dev "$ifc"
+		changed=0
+	fi
+	if ! ip -o link show dev "$ifc" | grep -q '[<,]UP[,>]'; then
+		ip link set dev "$ifc" up
+		changed=0
+	fi
+	return $changed
+}
+
+apply_firewall() {
+	nft_rules "$1" | nft -f -
+}
+
+cmd_prepare() {
+	local ifc=$1
+	[ -e "/sys/class/net/$ifc" ] || die "no interface $ifc (is the gadget up? roadie-gadget status)"
+	# Closed first, so nothing below can leave the link open if it fails.
+	nft_closed_rules "$ifc" | nft -f -
+	check_subnet "$ifc"
+	remember_forwarding
+	# The full rules before the address and forwarding they guard.
+	apply_firewall "$ifc"
+	mkdir -p "$RUN_DIR/$ifc"
+	uplink_nets > "$RUN_DIR/$ifc/uplink-nets"
+	apply_address "$ifc" || true
+	apply_forwarding "$ifc" || true
+	mkdir -p "$RUN_DIR/$ifc" "$STATE_DIR"
+	dnsmasq_conf "$ifc" > "$RUN_DIR/$ifc/dnsmasq.conf"
+	log "$ifc: $PHONE_GATEWAY/$PREFIX, phone gets $PHONE_IP, NAT out of $UPSTREAM_IF"
+}
+
+cmd_run() {
+	local ifc=$1
+	[ -f "$RUN_DIR/$ifc/dnsmasq.conf" ] || die "run 'prepare $ifc' first"
+	exec /usr/sbin/dnsmasq --keep-in-foreground --pid-file= \
+		--conf-file="$RUN_DIR/$ifc/dnsmasq.conf"
+}
+
+cmd_cleanup() {
+	local ifc=$1
+	nft_closed_rules "$ifc" | nft -f -
+	if [ -e "/sys/class/net/$ifc" ]; then
+		sysctl -qw "net.ipv4.conf.$ifc.forwarding=0" 2>/dev/null || true
+		ip addr flush dev "$ifc" scope global 2>/dev/null || true
+	fi
+	if [ -f "$RUN_DIR/upstream-forwarding.orig" ]; then
+		local orig
+		orig=$(cat "$RUN_DIR/upstream-forwarding.orig")
+		if [ -n "$orig" ] && [ -e "/proc/sys/net/ipv4/conf/$UPSTREAM_IF" ]; then
+			sysctl -qw "net.ipv4.conf.$UPSTREAM_IF.forwarding=$orig"
+		fi
+		rm -f "$RUN_DIR/upstream-forwarding.orig"
+	fi
+	rm -rf "${RUN_DIR:?}/$ifc"
+	log "$ifc: closed off (no address, no forwarding, all traffic dropped); uplink forwarding restored"
+}
+
+# Uninstall only: the gadget is gone, so the closed table guards nothing.
+cmd_remove() {
+	if nft list table inet "$TABLE" >/dev/null 2>&1; then
+		nft delete table inet "$TABLE"
+	fi
+	log "firewall table $TABLE removed"
+}
+
+# Drift repair, run every 30 s by the timer. Quiet unless it fixed something,
+# so the journal shows exactly when and what changed under it.
+cmd_check() {
+	local ifc=$1
+	[ -e "/sys/class/net/$ifc" ] || { log "$ifc is gone; nothing to check"; return 0; }
+	if apply_address "$ifc"; then log "repaired: $ifc address or link state"; fi
+	if apply_forwarding "$ifc"; then log "repaired: forwarding sysctls"; fi
+	if ! nft list chain inet "$TABLE" postrouting 2>/dev/null | grep -q "oifname \"$UPSTREAM_IF\""; then
+		apply_firewall "$ifc"
+		uplink_nets > "$RUN_DIR/$ifc/uplink-nets"
+		log "repaired: firewall table $TABLE"
+	fi
+	# The uplink's own networks are blocked by address, and they change: at
+	# boot the uplink may not have one yet, and DHCP can move it.
+	local nets
+	nets=$(uplink_nets)
+	if [ "$nets" != "$(cat "$RUN_DIR/$ifc/uplink-nets" 2>/dev/null)" ]; then
+		apply_firewall "$ifc"
+		mkdir -p "$RUN_DIR/$ifc"
+		echo "$nets" > "$RUN_DIR/$ifc/uplink-nets"
+		log "updated: $UPSTREAM_IF is now on ${nets:-no network}; firewall follows"
+	fi
+}
+
+cmd_check_all() {
+	local u ifc
+	for u in $(systemctl list-units --plain --no-legend --state=active 'roadie-phone-net@*.service' | awk '{print $1}'); do
+		ifc=${u#roadie-phone-net@}
+		ifc=${ifc%.service}
+		cmd_check "$ifc"
+	done
+}
+
+cmd_status() {
+	local ifc=$1
+	echo "interface: $ifc ($( [ -e "/sys/class/net/$ifc" ] && echo present || echo missing ))"
+	if [ -e "/sys/class/net/$ifc" ]; then
+		echo "carrier:   $(cat "/sys/class/net/$ifc/carrier" 2>/dev/null | sed 's/1/up (phone connected)/;s/0/down/')"
+		echo "address:   $(ip -4 -o addr show dev "$ifc" | awk '{print $4}' | tr '\n' ' ')"
+	fi
+	echo "uplink:    $UPSTREAM_IF, forwarding=$(sysctl -n "net.ipv4.conf.$UPSTREAM_IF.forwarding" 2>/dev/null)"
+	echo "phone:     $PHONE_IP (MAC $(phone_mac || echo unknown))"
+	echo "leases:"
+	sed 's/^/  /' "$STATE_DIR/phone-net-$ifc.leases" 2>/dev/null || echo "  (none)"
+	echo "firewall:"
+	if nft list table inet "$TABLE" >/dev/null 2>&1; then
+		nft list table inet "$TABLE" | grep -E 'counter|masquerade' | sed 's/^\s*/  /'
+	else
+		echo "  table inet $TABLE not loaded"
+	fi
+}
+
+[ "$(id -u)" -eq 0 ] || die "must run as root"
+load_config
+case "${1:-}" in
+	prepare) check_iface "${2:-}"; cmd_prepare "$2" ;;
+	run) check_iface "${2:-}"; cmd_run "$2" ;;
+	cleanup) check_iface "${2:-}"; cmd_cleanup "$2" ;;
+	remove) cmd_remove ;;
+	check) check_iface "${2:-}"; cmd_check "$2" ;;
+	check-all) cmd_check_all ;;
+	status) check_iface "${2:-}"; cmd_status "$2" ;;
+	rules) check_iface "${2:-}"; nft_rules "$2" ;;
+	closed-rules) check_iface "${2:-}"; nft_closed_rules "$2" ;;
+	*) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

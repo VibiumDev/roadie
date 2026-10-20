@@ -1,0 +1,18 @@
+[Unit]
+Description=Roadie USB gadget (keyboard, mouse, touch, audio, Ethernet)
+Documentation=file:///usr/local/share/doc/roadie/linux-gadget.md
+After=sys-kernel-config.mount systemd-modules-load.service systemd-udevd.service
+Wants=sys-kernel-config.mount
+Before=roadie.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/roadie-gadget up
+# No ExecStop on purpose. Stopping or restarting this unit, or an upgrade
+# that reloads units, must not unplug the phone. "roadie-gadget up" is
+# idempotent: with an unchanged config it only re-applies permissions.
+# Remove the gadget explicitly with: sudo roadie-gadget down
+
+[Install]
+WantedBy=multi-user.target

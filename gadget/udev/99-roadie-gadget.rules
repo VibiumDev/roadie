@@ -1,0 +1,11 @@
+# Roadie linux-gadget backend.
+
+# Let the roadie group write HID reports to the gadget's /dev/hidgN nodes, so
+# the server does not need to run as root. roadie-gadget sets the same when it
+# binds; this covers nodes that udev re-creates afterwards.
+SUBSYSTEM=="hidg", KERNEL=="hidg[0-9]*", GROUP="roadie", MODE="0660"
+
+# Keep desktop sound servers (PipeWire, PulseAudio) off the gadget's sound
+# card. On a Pi with a desktop, WirePlumber otherwise adopts it as a sink and
+# can hold the device roadie needs for the phone's microphone.
+SUBSYSTEM=="sound", KERNEL=="card*", ATTR{id}=="UAC[12]Gadget", ENV{ACP_IGNORE}="1", ENV{PULSE_IGNORE}="1"

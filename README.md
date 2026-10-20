@@ -41,6 +41,14 @@ flowchart TB
     D ---|"HDMI"| T
 ```
 
+### Without the boards: Raspberry Pi 4 as the USB device
+
+On a Raspberry Pi 4, `--hid-backend linux-gadget` makes the Pi's own USB-C
+port the phone's keyboard, mouse, touchscreen, microphone, speaker and
+Ethernet adapter, with the phone's internet shared from the Pi's Ethernet.
+Same web UI and API; the boards stay the default. See
+[Drive a Phone from a Raspberry Pi 4](docs/how-to/linux-gadget.md).
+
 ### Why not VNC/KVM/MDM?
 
 **VNC and remote desktop** require software running on the target. If the target is mid-setup, locked out, or doesn't have an OS yet, they can't help.
@@ -65,6 +73,11 @@ flowchart TB
 You also need a host computer to run the `roadie` server — a Raspberry Pi 4 (2GB+), Mac, or Linux PC.
 
 ## Quick Start
+
+**New Raspberry Pi?** [Install the OS](docs/how-to/install-os.md), then
+[run one set-up script](docs/how-to/configure-os.md) that installs, builds
+and configures everything — for the boards, or with the Pi itself as the
+phone's USB devices.
 
 **Prerequisites:** macOS or Linux, Go 1.21+, Python 3.10+
 
@@ -105,6 +118,7 @@ To drive more than one device from the same host, see
 - **Bonjour/mDNS**: discoverable as `roadie.local` on your network
 - **Multiple targets**: run one instance per target on a single host, each pinned to its own capture dongle and relay board, with a `/grid` page to view and drive them together
 - **Platform-aware input**: `--platform` adapts pointer mapping and input mode to Android, iOS, macOS, Windows, or Linux targets
+- **Two HID backends**: the RP2040 boards, or a Raspberry Pi 4's USB-C port as a composite USB gadget (input, audio both ways, and USB Ethernet) with `--hid-backend linux-gadget`
 - **Cross-platform**: runs on macOS and Linux (Raspberry Pi, Ubuntu, etc.)
 - **Resilient**: automatic reconnection with exponential backoff, signal loss detection
 
@@ -116,8 +130,12 @@ To drive more than one device from the same host, see
 | [Protocol Reference](docs/reference/protocol.md) | Binary wire format between relay and HID boards |
 | [Board Reference](docs/reference/boards.md) | Hardware specs, wiring, USB identifiers, LED behavior |
 | [Architecture](docs/explanation/architecture.md) | System design, pipeline, and design decisions |
+| [Install Raspberry Pi OS](docs/how-to/install-os.md) | Step 1 of setting up a new Pi: Imager settings for a Roadie |
+| [Configure Raspberry Pi OS](docs/how-to/configure-os.md) | Step 2: the one-shot `setup/machine-setup` script, and updating with it |
 | [Flash Boards](docs/how-to/flash-boards.md) | Flashing, re-flashing, and syncing board code |
 | [Connect a Phone](docs/how-to/connect-a-phone.md) | Wiring a phone through a hub, and the iOS AssistiveTouch settings a mouse needs |
+| [Drive a Phone from a Pi 4](docs/how-to/linux-gadget.md) | The linux-gadget backend: power, install, audio, USB Ethernet, recovery, hardware checklist |
+| [Linux Gadget Plan](docs/linux-gadget-plan.md) | Design and decisions behind the linux-gadget backend |
 | [Testing](docs/how-to/testing.md) | Checking keyboard, mouse, touch, and voice input against real hardware |
 | [Running Multiple Targets](docs/how-to/multiple-targets.md) | Driving several devices from one host, and viewing them together |
 | [Troubleshooting](docs/how-to/troubleshooting.md) | Common problems and fixes |

@@ -30,6 +30,25 @@ Browser / AI agent
 
 The Go server bridges both paths: it serves the target's screen as an MJPEG stream and accepts HID commands over HTTP, forwarding them to the relay board.
 
+## Two HID Backends
+
+The server talks to input hardware through `HIDBackend` (`backend.go`), the
+method set it always used on the relay controller. `--hid-backend` picks one
+at startup:
+
+| Backend | Path to the target |
+|---|---|
+| `rp2040` (default) | JSON over USB serial → relay board → UART → HID board → USB |
+| `linux-gadget` | HID reports written to `/dev/hidgN`; PCM through ALSA; all from the host's own USB device port |
+
+The linux-gadget backend needs a host with a USB device controller — a
+Raspberry Pi 4's USB-C port. A configfs gadget, built at boot by
+`gadget/roadie-gadget` and independent of the server's lifecycle, presents a
+keyboard, absolute mouse and 2-contact touchscreen (the HID board's own
+descriptors), a UAC2 microphone and speaker, and a CDC-ECM Ethernet adapter
+through which the Pi shares its uplink with the phone. See
+[Linux Gadget Plan](../linux-gadget-plan.md).
+
 ## Two-Board Design
 
 Roadie uses two microcontroller boards instead of one because they serve different roles with different USB hosts:
@@ -145,7 +164,12 @@ The HID board's multi-touch digitizer enables native touch interaction, so the p
 |------|-------------|
 | `main.go` | Startup, flag parsing, component wiring |
 | `server.go` | HTTP handlers, the `/view`, `/test` and `/soundcheck` pages, HID API |
+| `backend.go` | `HIDBackend`, the interface both input backends implement; `--hid-backend` |
 | `hid.go` | Relay board discovery and selection, serial connection, command methods |
+| `gadget_hid.go`, `gadget_report.go`, `gadget_linux.go` | linux-gadget backend: device mapping from configfs, HID report encoding, state, recovery |
+| `gadget_audio.go`, `resample.go`, `alsa_linux.go` | Gadget microphone and speaker streams; 16→48 kHz upsampler; ALSA via kernel ioctls |
+| `audio_mux.go` | `/audio` follows the phone's output: gadget USB speaker first, dongle HDMI audio otherwise |
+| `gadget/` | Gadget and phone-network setup scripts, HID descriptors, systemd units, install/uninstall |
 | `capture.go` | Frame capture, crop detection, frame buffer |
 | `bidi.go` | WebDriver BiDi endpoint (`/session`) |
 | `grid.go` | The `/grid` page: several targets in one view |

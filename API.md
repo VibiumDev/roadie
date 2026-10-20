@@ -116,6 +116,12 @@ WebSocket endpoint for live PCM audio.
 
 Returns `503` if no audio device is active.
 
+The audio is the capture dongle's (the target's HDMI audio). With
+`--hid-backend linux-gadget` and the gadget's speaker enabled, it follows the
+phone: the USB speaker whenever the phone plays to it, HDMI otherwise. If a
+switch changes the format, the server closes the socket so clients reconnect
+and read the new parameters.
+
 ## Settings
 
 ### `GET /api/settings`
@@ -176,7 +182,8 @@ Service status and device info.
 | `status` | `ok`, `disconnected`, `connecting`, or `no_signal` |
 | `source_type` | `hardware` or `http` |
 | `crop` | Present only when active crop differs from full frame |
-| `audio` | Present only when audio capture is active |
+| `audio` | Present only when audio capture is active. With `--hid-backend linux-gadget`, `source` says which of the phone's outputs `/audio` is following, `usb` (the gadget's speaker) or `hdmi`, while the phone is playing |
+| `hid_board` | `not_answering` when the far end is not taking input: the HID board is silent (RP2040), or no phone has enumerated the gadget (linux-gadget) |
 | `platform` | Present only when `--platform` is set |
 | `pointer_space` | `screen` or `frame` — which space the target reads absolute coordinates in (see `--platform`) |
 | `input_mode` | The mode viewers start in: `--input`, else the platform default |
@@ -200,6 +207,11 @@ Requires Linux and a udev rule (installed by `make setup`). Returns `503` if cap
 ### `POST /api/hid/reset`
 Reset the HID board. The relay sends a reset command over UART; the HID board reboots.
 
+With `--hid-backend linux-gadget` the target instead sees the whole USB gadget
+unplugged and plugged back in (keyboard, mouse, touch, audio and Ethernet):
+exceptional recovery, never done automatically. Needs roadie's user in the
+`roadie` group.
+
 **Response:**
 ```json
 {"status": "ok"}
@@ -207,6 +219,9 @@ Reset the HID board. The relay sends a reset command over UART; the HID board re
 
 ### `POST /api/relay/reset`
 Reset the relay board. The board reboots immediately, dropping the USB serial connection. The server auto-reconnects within a few seconds.
+
+With `--hid-backend linux-gadget`, roadie closes and reopens its HID device
+nodes and forgets what was held; the target sees nothing.
 
 **Response:**
 ```json
@@ -217,7 +232,15 @@ Reset the relay board. The board reboots immediately, dropping the USB serial co
 
 ## HID Control
 
-All HID endpoints require the relay board to be connected via USB serial. Returns `503` if HID is not available.
+All HID endpoints require the relay board to be connected via USB serial, or
+with `--hid-backend linux-gadget`, the gadget's device nodes to be open.
+Returns `503` if HID is not available.
+
+The two backends accept the same commands with the same meaning. With the
+gadget, a command that cannot reach the phone returns `500` with the reason
+(for instance, no phone attached), text with characters a US keyboard cannot
+type is rejected before anything is typed, and a release that fails is still
+delivered once the phone is reading again.
 
 ### `GET /api/hid/status`
 Connection status of the relay board.
@@ -226,17 +249,34 @@ Connection status of the relay board.
 ```json
 {
   "status": "connected",
+  "backend": "rp2040",
   "serial": "A1B2C3D4E5F60001",
   "port": "/dev/serial/by-id/usb-Adafruit_Roadie-Relay_A1B2C3D4E5F60001-if02"
 }
 ```
 
+With `--hid-backend linux-gadget`:
+
+```json
+{
+  "status": "connected",
+  "backend": "linux-gadget",
+  "usb_state": "configured",
+  "port": "fe980000.usb",
+  "serial": "10000000ff2137f1"
+}
+```
+
 Status values: `connected`, `disconnected`, `connecting`, `unavailable`.
+`backend` is `rp2040` or `linux-gadget`. `usb_state` is the USB device
+controller's state: `configured` once a phone has enumerated the gadget;
+`not attached`, `suspended` and others otherwise. For the gadget, `port` is
+the controller and `serial` the USB serial number the phone sees.
 
 `serial` and `port` identify the relay board this instance is bound to, and
 are present only while connected. They are the way to tell two Roadie
-instances on the same host apart — see [Running Two Targets at
-Once](README.md#running-two-targets-at-once). `serial` is omitted on macOS,
+instances on the same host apart — see [Running Multiple
+Targets](docs/how-to/multiple-targets.md). `serial` is omitted on macOS,
 where the port path does not embed the board's serial number.
 
 ### `POST /api/hid/type`
@@ -379,7 +419,7 @@ No server-to-client messages. Connection auto-reconnects on the `/test` page.
 ---
 
 ### `WS /api/hid/audio`
-WebSocket endpoint for voice input: audio sent here plays out of the HID board's USB microphone, so the target hears it as mic input.
+WebSocket endpoint for voice input: audio sent here plays out of the HID board's USB microphone (or, with `--hid-backend linux-gadget`, the Pi's USB gadget microphone, upsampled to 48 kHz), so the target hears it as mic input.
 
 **Protocol:**
 1. Client streams PCM audio as binary messages: 16 kHz, mono, signed 16-bit little-endian.
@@ -543,4 +583,5 @@ Ctrl+Alt+Del: press 224, press 226, press 76, release 76, release 226, release 2
 | `--relay` | (auto-detect) | Relay board serial number substring, for picking between boards |
 | `--platform` | | Target OS: `android`, `ios`, `mac`, `windows`, `linux`. Tunes pointer mapping and the default input mode |
 | `--input` | (viewer decides) | Default pointer mode for viewers: `mouse` or `touch` |
+| `--hid-backend` | rp2040 | Input hardware: `rp2040` (relay and HID boards) or `linux-gadget` (this Pi's USB-C port; see [docs/how-to/linux-gadget.md](docs/how-to/linux-gadget.md)) |
 | `--list-devices` | | List video and audio devices, then exit |

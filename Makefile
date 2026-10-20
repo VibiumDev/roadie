@@ -8,7 +8,7 @@ BINARY = roadie
 #   make flash-hid CP_VERSION=latest
 CP_VERSION ?= 10.3.1
 
-.PHONY: help build test test-unit clean setup uninstall flash-hid flash-relay flash-hid-quick flash-relay-quick sync sync-hid sync-relay test-hid test-hid-quick test-e2e-pi test-audio test-audio-serial test-audio-api test-audio-browser test-view multitouch-on multitouch-off multitouch-status test-multitouch test-e2e-android test-e2e-iphone test-e2e-pc set-vnc-password start-vnc-server stop-vnc-server vnc-status status unstick
+.PHONY: help build test test-unit clean setup uninstall flash-hid flash-relay flash-hid-quick flash-relay-quick sync sync-hid sync-relay test-hid test-hid-quick test-e2e-pi test-audio test-audio-serial test-audio-api test-audio-browser test-view multitouch-on multitouch-off multitouch-status test-multitouch test-e2e-android test-e2e-iphone test-e2e-pc set-vnc-password start-vnc-server stop-vnc-server vnc-status status unstick gadget-install gadget-uninstall gadget-status test-gadget test-gadget-install test-gadget-loopback test-phone-net
 
 # Every target carries a "## description"; help prints them by section.
 help:  ## Show this help
@@ -35,6 +35,15 @@ test:  ## Unit tests, plus the hardware tests if the boards are connected
 	else \
 		printf '%s\n' "$$out" | sed 's/^/  /'; \
 		printf "\n  ❌ unit tests failed\n\n"; exit 1; \
+	fi
+	@if out=$$(gadget/test_install 2>&1); then \
+		printf "  ✅ %-18s %s\n" "setup scripts" "install, uninstall, machine-setup (dry runs)"; \
+	else \
+		printf '%s\n' "$$out" | sed 's/^/  /'; exit 1; \
+	fi
+	@# A machine running the linux-gadget backend gets its gadget checked.
+	@if [ -d /sys/kernel/config/usb_gadget/roadie ]; then \
+		$(MAKE) --no-print-directory test-gadget || exit 1; \
 	fi
 	@# Every sub-make below ends in "|| exit 1". Without it a failing test
 	@# did not stop this compound line, the recipe took its status from the
@@ -180,6 +189,34 @@ test-view:  ## Voice input through roadie's own /view page, clicked for real
 
 # One look at everything roadie talks to: boards, the input it can drive,
 # what comes back from the target, and this machine's audio and displays.
+
+##@ Linux gadget backend (Raspberry Pi 4 as the phone's USB devices)
+
+# Instead of the two boards, the Pi's USB-C port becomes the phone's
+# keyboard, mouse, touchscreen, microphone, speaker and Ethernet adapter.
+# See docs/how-to/linux-gadget.md, including how to power the Pi safely.
+
+gadget-install: build  ## Set this Pi up as the phone's USB devices (then reboot)
+	sudo gadget/install --user $(USER)
+
+gadget-uninstall:  ## Remove it all, without touching the Pi's own network
+	sudo gadget/uninstall
+
+gadget-status:  ## The gadget, its device nodes, and whether a phone is attached
+	@gadget/roadie-gadget status
+
+test-gadget:  ## Check the installed gadget: functions, nodes, audio, network
+	@printf "\n▶ test-gadget  ·  the USB gadget on this machine\n"
+	@gadget/roadie-gadget check
+
+test-gadget-install:  ## Install, uninstall and machine-setup, changing nothing (no hardware)
+	@gadget/test_install
+
+test-gadget-loopback:  ## The gadget end to end through this Pi's own USB host (no phone; needs sudo)
+	@python3 gadget/test_loopback.py
+
+test-phone-net:  ## The phone's network (DHCP, DNS, NAT, isolation) on a virtual link (needs sudo)
+	@python3 gadget/test_loopback.py --phone-net-only
 
 ##@ Multi-touch (Linux hosts only)
 

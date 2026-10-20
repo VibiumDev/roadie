@@ -1,0 +1,297 @@
+#!/bin/bash
+# Roadie machine set-up: turn a fresh Raspberry Pi OS install into a Roadie.
+#
+# On the Pi, as the user Roadie should run as (not root; it uses sudo):
+#
+#   curl -fsSL https://raw.githubusercontent.com/VibiumDev/roadie/main/setup/machine-setup -o machine-setup
+#   bash machine-setup --gadget     # the Pi 4 itself drives the phone over USB-C
+#   bash machine-setup --boards     # the RP2040 relay and HID boards drive the target
+#
+# Options:
+#   --platform OS   target OS for roadie's --platform (default: android)
+#   --name NAME     roadie's --name, its mDNS/browser-tab name (default: hostname)
+#   --port N        HTTP port (default: 8080)
+#   --dir PATH      where the Roadie checkout lives (default: ~/Projects/roadie)
+#   --branch NAME   branch to check out (default: main)
+#   --no-network    --gadget only: do not share this Pi's Ethernet with the phone
+#   --dev           also install the test tooling ("make setup": browser, X, VNC)
+#   --no-upgrade    skip "apt-get upgrade"
+#   --noreboot      never reboot (by default it reboots after a first install,
+#                   or when the system asks for it; an update only restarts roadie)
+#   --dry-run       print what would be done, change nothing
+#
+# Run it again at any time to update: it pulls, rebuilds and restarts Roadie
+# without rebooting, and leaves settings in /etc/roadie and /etc/default/roadie
+# alone.
+# Guides: docs/how-to/install-os.md, docs/how-to/configure-os.md
+
+set -uo pipefail
+
+REPO_URL=https://github.com/VibiumDev/roadie.git
+MODE=""
+PLATFORM=android
+NAME=""
+PORT=8080
+DIR="$HOME/Projects/roadie"
+BRANCH=main
+NETWORK=1
+DEV=0
+UPGRADE=1
+REBOOT=1
+DRY_RUN=0
+
+usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; }
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--gadget) MODE=gadget; shift ;;
+		--boards) MODE=boards; shift ;;
+		--platform) PLATFORM=${2:?--platform needs a value}; shift 2 ;;
+		--name) NAME=${2:?--name needs a value}; shift 2 ;;
+		--port) PORT=${2:?--port needs a value}; shift 2 ;;
+		--dir) DIR=${2:?--dir needs a value}; shift 2 ;;
+		--branch) BRANCH=${2:?--branch needs a value}; shift 2 ;;
+		--no-network) NETWORK=0; shift ;;
+		--dev) DEV=1; shift ;;
+		--no-upgrade) UPGRADE=0; shift ;;
+		--noreboot|--no-reboot) REBOOT=0; shift ;;
+		--dry-run) DRY_RUN=1; REBOOT=0; shift ;;
+		-h|--help) usage; exit 0 ;;
+		*) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+	esac
+done
+
+# ---- running steps -----------------------------------------------------------
+# Every step runs, failures are collected, and the end
+# of the run lists them. Steps that later ones depend on stop the run.
+
+FAILURES=()
+
+run() {
+	if [ "$DRY_RUN" = 1 ]; then
+		printf '    $ %s\n' "$*"
+		return 0
+	fi
+	"$@"
+}
+
+step() { # step "what" cmd...: run, and remember a failure
+	local what=$1
+	shift
+	echo "  ▸ $what"
+	if ! run "$@"; then
+		echo "    ⚠️  failed: $what"
+		FAILURES+=("$what")
+		return 1
+	fi
+}
+
+must() { # must "what" cmd...: run, and stop everything if it fails
+	local what=$1
+	shift
+	echo "  ▸ $what"
+	if ! run "$@"; then
+		echo
+		echo "❌ $what failed; nothing after it can work. Fix that and run this again."
+		exit 1
+	fi
+}
+
+section() { echo; echo "$*"; }
+
+# ---- checks ------------------------------------------------------------------
+if [ -z "$MODE" ]; then
+	echo "Say which hardware drives the target: --gadget or --boards (see --help)." >&2
+	exit 2
+fi
+if [ "$(id -u)" -eq 0 ]; then
+	echo "Run this as the user Roadie should run as, not as root; it uses sudo itself." >&2
+	exit 1
+fi
+case "$PLATFORM" in android|ios|mac|windows|linux) ;; *)
+	echo "--platform must be android, ios, mac, windows or linux" >&2; exit 2 ;;
+esac
+[[ "$PORT" =~ ^[0-9]+$ ]] || { echo "--port must be a number" >&2; exit 2; }
+NAME=${NAME:-$(hostname)}
+USER_NAME=$(id -un)
+
+# Run from inside a checkout (bash setup/machine-setup ...): use that checkout
+# as it is, without pulling over someone's work.
+HERE=$(cd "$(dirname "$(readlink -f "$0")")/.." 2>/dev/null && pwd || true)
+IN_CHECKOUT=0
+if [ -n "$HERE" ] && [ -f "$HERE/go.mod" ] && grep -q '^module github.com/VibiumDev/roadie$' "$HERE/go.mod"; then
+	DIR=$HERE
+	IN_CHECKOUT=1
+fi
+
+MODEL=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || echo "unknown machine")
+OS=$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-unknown OS}")
+
+echo
+echo "🎸 Roadie machine set-up"
+echo "======================="
+echo "Machine:   $MODEL"
+echo "OS:        $OS"
+echo "Hardware:  $([ "$MODE" = gadget ] && echo "linux-gadget (this Pi's USB-C port drives the phone)" || echo "RP2040 relay and HID boards")"
+echo "Runs as:   $USER_NAME"
+echo "Checkout:  $DIR$([ "$IN_CHECKOUT" = 1 ] && echo " (this one, not pulled)")"
+echo "Roadie:    --platform $PLATFORM --name $NAME --port $PORT"
+[ "$MODE" = gadget ] && echo "Network:   $([ "$NETWORK" = 1 ] && echo "phone gets internet through this Pi's Ethernet" || echo "not shared with the phone")"
+[ "$DEV" = 1 ] && echo "Extras:    test tooling (make setup)"
+[ "$DRY_RUN" = 1 ] && echo "Dry run:   printing commands only"
+
+if [ "$MODE" = gadget ]; then
+	case "$MODEL" in
+		*"Raspberry Pi 4"*) ;;
+		*) echo; echo "⚠️  --gadget is built and tested for the Raspberry Pi 4 ($MODEL here)." ;;
+	esac
+fi
+if [ "$DRY_RUN" = 0 ] && ! sudo -v; then
+	echo "❌ sudo is needed." >&2
+	exit 1
+fi
+
+# ---- packages ------------------------------------------------------------------
+section "📦 Packages"
+must "Update the package lists" sudo apt-get update -q
+if [ "$UPGRADE" = 1 ]; then
+	step "Upgrade installed packages" sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -q
+fi
+# golang-go may be older than go.mod asks for; Go then fetches the toolchain
+# go.mod names, checksum-verified, on the first build.
+PACKAGES=(git make build-essential golang-go ca-certificates curl
+	python3 python3-venv v4l-utils alsa-utils)
+if [ "$MODE" = gadget ]; then
+	PACKAGES+=(dnsmasq-base nftables)
+fi
+must "Install ${PACKAGES[*]}" sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${PACKAGES[@]}"
+
+# ---- Roadie --------------------------------------------------------------------
+section "🎸 Roadie"
+if [ "$IN_CHECKOUT" = 1 ]; then
+	echo "  ▸ Using the checkout at $DIR"
+elif [ -d "$DIR/.git" ]; then
+	if [ -n "$(git -C "$DIR" status --porcelain 2>/dev/null)" ]; then
+		echo "  ▸ $DIR has local changes; not updating it"
+	else
+		step "Update $DIR to the latest $BRANCH" \
+			bash -c "git -C '$DIR' fetch -q origin '$BRANCH' && git -C '$DIR' checkout -q '$BRANCH' && git -C '$DIR' merge -q --ff-only 'origin/$BRANCH'"
+	fi
+else
+	must "Create $(dirname "$DIR")" mkdir -p "$(dirname "$DIR")"
+	must "Clone $REPO_URL into $DIR" git clone -q --branch "$BRANCH" "$REPO_URL" "$DIR"
+fi
+must "Build roadie" make -C "$DIR" build
+
+# ---- this machine ------------------------------------------------------------
+section "🔧 This machine"
+# A first install needs a reboot: new groups, udev rules and, for the gadget,
+# the USB-C controller's boot setting. An update does not.
+FIRST_INSTALL=1
+[ -f /etc/systemd/system/roadie.service ] && FIRST_INSTALL=0
+step "Create the roadie group" bash -c "getent group roadie >/dev/null || sudo groupadd --system roadie"
+step "Add $USER_NAME to roadie, audio, video, dialout and plugdev" \
+	sudo usermod -aG roadie,audio,video,dialout,plugdev "$USER_NAME"
+# Lets roadie re-enumerate its capture dongle (POST /api/capture/reset).
+step "Install the capture dongle's udev rule" \
+	sudo install -m 644 "$DIR/board/99-roadie-capture.rules" /etc/udev/rules.d/
+
+if [ "$MODE" = boards ]; then
+	step "Install the HID board's udev rule" \
+		sudo install -m 644 "$DIR/board/99-roadie-hid.rules" /etc/udev/rules.d/
+	step "Reload udev rules" sudo udevadm control --reload-rules
+	# circup and pyserial in $DIR/.venv, for flashing and syncing the boards.
+	step "Set up the board tooling (flashing)" python3 "$DIR/board/install.py" --setup-only
+fi
+
+# /etc/default/roadie holds roadie's arguments. Written once and kept after
+# that -- except the backend, which follows the mode asked for: kept as it
+# was, a second run in the other mode would leave roadie on the wrong one.
+DEFAULTS=${DESTDIR:-}/etc/default/roadie   # DESTDIR: another root, for gadget/test_install
+BACKEND=rp2040
+[ "$MODE" = gadget ] && BACKEND=linux-gadget
+BACKEND_ARG=""
+[ "$MODE" = gadget ] && BACKEND_ARG="--hid-backend linux-gadget "
+ARGS="${BACKEND_ARG}--platform $PLATFORM --name $NAME --port $PORT"
+write_defaults() {
+	printf '# Arguments for roadie.service. Edit, then: sudo systemctl restart roadie\nROADIE_ARGS="%s"\n' \
+		"$ARGS" | sudo tee "$DEFAULTS" >/dev/null
+}
+replace_args() { sudo sed -i "s|^ROADIE_ARGS=.*|ROADIE_ARGS=\"$ARGS\"|" "$DEFAULTS"; }
+install_service() {
+	sed "s/@ROADIE_USER@/$USER_NAME/" "$DIR/setup/roadie.service" |
+		sudo tee /etc/systemd/system/roadie.service >/dev/null &&
+		sudo systemctl daemon-reload && sudo systemctl enable -q roadie.service
+}
+if [ -f "$DEFAULTS" ] && grep -q '^ROADIE_ARGS=' "$DEFAULTS"; then
+	current=$(sed -n 's/^ROADIE_ARGS="\(.*\)"$/\1/p' "$DEFAULTS" | tail -1)
+	have=rp2040
+	[[ " $current " =~ [[:space:]]--hid-backend[=[:space:]]+([a-z0-9-]+) ]] && have=${BASH_REMATCH[1]}
+	if [ "$have" = "$BACKEND" ]; then
+		echo "  ▸ Keeping /etc/default/roadie (ROADIE_ARGS=\"$current\")"
+	else
+		rest=$(echo " $current " | sed -E 's/[[:space:]]--hid-backend([=[:space:]]+)[a-z0-9-]+/ /g' | tr -s ' ' | sed 's/^ //;s/ $//')
+		ARGS="--hid-backend $BACKEND${rest:+ $rest}"
+		step "Switch /etc/default/roadie to $BACKEND: ROADIE_ARGS=\"$ARGS\"" replace_args
+	fi
+else
+	step "Write /etc/default/roadie: ROADIE_ARGS=\"$ARGS\"" write_defaults
+fi
+
+if [ "$MODE" = gadget ]; then
+	# The USB gadget, the phone's network and roadie.service, all at once.
+	opts=(--user "$USER_NAME")
+	[ "$NETWORK" = 0 ] && opts+=(--no-network)
+	step "Set up the USB gadget (gadget/install)" sudo "$DIR/gadget/install" "${opts[@]}"
+else
+	step "Install roadie into /usr/local/bin" sudo install -m 755 "$DIR/roadie" /usr/local/bin/roadie
+	step "Install and enable roadie.service (runs as $USER_NAME)" install_service
+	step "Install roadie-mode (switch between boards and gadget)" \
+		sudo install -m 755 "$DIR/setup/roadie-mode" /usr/local/sbin/roadie-mode
+fi
+# Picks up the new binary on an update. On a first run the reboot does it.
+if [ "$DRY_RUN" = 0 ] && systemctl is-active -q roadie.service 2>/dev/null; then
+	step "Restart roadie" sudo systemctl restart roadie.service
+fi
+
+if [ "$DEV" = 1 ]; then
+	section "🧪 Test tooling"
+	step "make setup (browser, X server, VNC, input group)" make -C "$DIR" setup
+fi
+
+# ---- done ------------------------------------------------------------------------
+echo
+if [ ${#FAILURES[@]} -gt 0 ]; then
+	echo "⚠️  ${#FAILURES[@]} step(s) failed:"
+	for f in "${FAILURES[@]}"; do echo "   - $f"; done
+	echo "Fix them and run this again; it is safe to repeat."
+else
+	echo "✅ Set-up finished with no failed steps."
+fi
+echo
+echo "Next:"
+if [ "$MODE" = gadget ]; then
+	echo "  - After the reboot: roadie-gadget check"
+	echo "  - Power the Pi through a USB-C power/data splitter (VBUS cut on the data side),"
+	echo "    then wire the phone: $DIR/docs/how-to/linux-gadget.md"
+else
+	echo "  - Flash the boards, one at a time as each command asks:"
+	echo "      make -C $DIR flash-hid      # then unplug it"
+	echo "      make -C $DIR flash-relay"
+	echo "  - Wiring: $DIR/docs/how-to/connect-a-phone.md"
+fi
+echo "  - Open http://$NAME.local:$PORT/view"
+
+NEED_REBOOT=$FIRST_INSTALL
+[ -e /run/reboot-required ] && NEED_REBOOT=1
+[ "$MODE" = gadget ] && [ -z "$(ls /sys/class/udc 2>/dev/null)" ] && NEED_REBOOT=1
+echo
+if [ "$NEED_REBOOT" = 0 ]; then
+	echo "No reboot needed: roadie is running the new build."
+elif [ "$REBOOT" = 1 ]; then
+	echo "Rebooting in 10 s to finish (Ctrl-C to stay up, then reboot before using Roadie)..."
+	sleep 10
+	sudo reboot
+else
+	echo "Reboot before using Roadie: sudo reboot"
+fi

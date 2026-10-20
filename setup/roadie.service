@@ -1,0 +1,27 @@
+[Unit]
+Description=Roadie (KVM server: video, input and audio over HTTP)
+Documentation=https://github.com/VibiumDev/roadie
+Wants=network-online.target
+# Ordered after the USB gadget when this Pi has one (linux-gadget backend).
+# Not required: without it roadie still starts, serves video, and reports the
+# HID backend unavailable in /health and /api/hid/status.
+After=network-online.target sound.target roadie-gadget.service
+
+[Service]
+Type=simple
+User=@ROADIE_USER@
+# roadie: the gadget's HID nodes. audio, video: capture and USB audio.
+# dialout: the relay board's serial port.
+SupplementaryGroups=roadie audio video dialout
+EnvironmentFile=-/etc/default/roadie
+ExecStart=/usr/local/bin/roadie $ROADIE_ARGS
+Restart=always
+RestartSec=2
+# Stopping roadie releases every key, button and finger it holds, then
+# exits. It never touches the gadget, so the phone stays enumerated.
+TimeoutStopSec=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -54,10 +54,27 @@ func (ab *AudioBroadcaster) Subscribe() (<-chan []byte, func()) {
 
 	return ch, func() {
 		ab.mu.Lock()
-		delete(ab.subscribers, id)
-		close(ch)
+		// Restart may already have closed it.
+		if _, ok := ab.subscribers[id]; ok {
+			delete(ab.subscribers, id)
+			close(ch)
+		}
 		ab.mu.Unlock()
 	}
+}
+
+// Restart changes the stream's format and disconnects every listener, so
+// each reconnects and reads the new parameters first. Used when the audio
+// switches to a source with a different rate or channel count.
+func (ab *AudioBroadcaster) Restart(p AudioParams) {
+	ab.mu.Lock()
+	ab.params = p
+	for id, ch := range ab.subscribers {
+		delete(ab.subscribers, id)
+		close(ch)
+	}
+	ab.mu.Unlock()
+	ab.active.Store(true)
 }
 
 // Listeners returns the number of active audio subscribers.

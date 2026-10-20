@@ -1,0 +1,168 @@
+#!/bin/bash
+# roadie-mode: which hardware drives the target, and switching between them.
+#
+#   roadie-mode               show the current mode
+#   sudo roadie-mode gadget   this Pi's USB-C port drives the phone (linux-gadget)
+#   sudo roadie-mode boards   the RP2040 relay and HID boards drive the target
+#
+# A switch sets --hid-backend in /etc/default/roadie, brings the USB gadget
+# up or takes it down (and keeps it that way across reboots), and restarts
+# roadie.service. The phone sees the gadget unplugged or plugged in; the
+# capture dongle and the relay, on the Pi's USB-A ports, are not touched.
+#
+# The phone's hub still has to be cabled for the mode: its USB-A port to the
+# HID board, or to the Pi's USB-C through the power/data splitter. With both
+# plugged in (a hub with two USB-A ports) no recabling is needed.
+
+set -uo pipefail
+
+D=${DESTDIR:-}   # another root, for gadget/test_install
+DEFAULTS=$D/etc/default/roadie
+GADGET_BIN=${ROADIE_GADGET_BIN:-/usr/local/sbin/roadie-gadget}
+UNITS=$D/etc/systemd/system
+
+say() { echo "  $*"; }
+die() { echo "roadie-mode: $*" >&2; exit 1; }
+
+roadie_args() {
+	[ -f "$DEFAULTS" ] || return 0
+	sed -n 's/^ROADIE_ARGS="\(.*\)"$/\1/p' "$DEFAULTS" | tail -1
+}
+
+# The backend the arguments ask for; rp2040 when they don't say.
+backend_of() {
+	local a=" $1 "
+	if [[ "$a" =~ [[:space:]]--hid-backend[=[:space:]]+([a-z0-9-]+) ]]; then
+		echo "${BASH_REMATCH[1]}"
+	else
+		echo rp2040
+	fi
+}
+
+port_of() {
+	local a=" $1 "
+	if [[ "$a" =~ [[:space:]]--port[=[:space:]]+([0-9]+) ]]; then
+		echo "${BASH_REMATCH[1]}"
+	else
+		echo 8080
+	fi
+}
+
+# set_backend NAME: rewrite --hid-backend in ROADIE_ARGS, keeping the rest.
+set_backend() {
+	local args new
+	args=$(roadie_args)
+	new=$(echo " $args " | sed -E 's/[[:space:]]--hid-backend([=[:space:]]+)[a-z0-9-]+/ /g' | tr -s ' ' | sed 's/^ //;s/ $//')
+	new="--hid-backend $1${new:+ $new}"
+	if [ -f "$DEFAULTS" ] && grep -q '^ROADIE_ARGS=' "$DEFAULTS"; then
+		sed -i "s|^ROADIE_ARGS=.*|ROADIE_ARGS=\"$new\"|" "$DEFAULTS"
+	else
+		mkdir -p "$(dirname "$DEFAULTS")"
+		printf '# Arguments for roadie.service. Edit, then: sudo systemctl restart roadie\nROADIE_ARGS="%s"\n' "$new" >> "$DEFAULTS"
+	fi
+	say "✅ $DEFAULTS: ROADIE_ARGS=\"$new\""
+}
+
+have_service() { [ -f "$UNITS/$1" ] || [ -f "$D/lib/systemd/system/$1" ]; }
+
+gadget_installed() { have_service roadie-gadget.service && [ -x "$GADGET_BIN" ]; }
+
+gadget_state() {
+	if ! gadget_installed; then
+		echo "not installed"
+	elif [ -n "$D" ] || ! "$GADGET_BIN" status >/dev/null 2>&1; then
+		echo "down"
+	else
+		local udc state
+		udc=$(cat /sys/kernel/config/usb_gadget/roadie/UDC 2>/dev/null)
+		state=$(cat "/sys/class/udc/$udc/state" 2>/dev/null)
+		echo "up on ${udc:-?} ($([ "$state" = configured ] && echo "phone attached" || echo "${state:-unknown}"))"
+	fi
+}
+
+restart_roadie() {
+	if have_service roadie.service; then
+		systemctl restart roadie.service && say "✅ roadie restarted" || say "⚠️  roadie did not restart: journalctl -u roadie"
+	else
+		say "roadie.service is not installed; restart your roadie with --hid-backend $1"
+	fi
+}
+
+show() {
+	local args want gadget enabled live port
+	args=$(roadie_args)
+	want=$(backend_of "$args")
+	gadget=$(gadget_state)
+	enabled=$(systemctl is-enabled roadie-gadget.service 2>/dev/null)
+	case "$enabled" in enabled|disabled) ;; *) enabled="-" ;; esac
+	port=$(port_of "$args")
+	live=""
+	if [ -z "$D" ] && command -v curl >/dev/null; then
+		live=$(curl -fsS -m 2 "http://127.0.0.1:$port/api/hid/status" 2>/dev/null || true)
+	fi
+	echo "mode:    $([ "$want" = linux-gadget ] && echo gadget || echo boards)   (--hid-backend $want in $DEFAULTS)"
+	echo "gadget:  $gadget$([ "$enabled" != "-" ] && echo ", at boot: $enabled")"
+	if [ -n "$live" ]; then
+		echo "roadie:  $live"
+	else
+		echo "roadie:  not answering on port $port"
+	fi
+	# Say so when the pieces disagree, and what puts them right.
+	local fix=""
+	if [ "$want" = linux-gadget ] && [[ "$gadget" != up* ]]; then
+		fix="the gadget is not up"
+	elif [ "$want" != linux-gadget ] && [[ "$gadget" == up* ]]; then
+		fix="the gadget is up: its USB speaker takes the phone's audio off HDMI"
+	elif [ -n "$live" ] && ! grep -q "\"backend\":\"$want\"" <<<"$live"; then
+		fix="roadie is running another backend (restart it)"
+	fi
+	if [ -n "$fix" ]; then
+		echo "⚠️  $fix; to fix: sudo roadie-mode $([ "$want" = linux-gadget ] && echo gadget || echo boards)"
+	fi
+}
+
+to_gadget() {
+	gadget_installed || die "the USB gadget is not installed here; run gadget/install (or setup/machine-setup --gadget) first"
+	echo "▶ switching to gadget mode"
+	set_backend linux-gadget
+	systemctl enable -q roadie-gadget.service
+	# restart, not start: re-runs "up" even if the unit is still marked active.
+	if systemctl restart roadie-gadget.service; then
+		say "✅ USB gadget up, and brought up at boot"
+	else
+		say "❌ the gadget did not come up: journalctl -u roadie-gadget"
+	fi
+	restart_roadie linux-gadget
+	echo
+	say "🔌 Phone hub USB-A → splitter DATA → this Pi's USB-C (Pi powered by its own PSU)"
+}
+
+to_boards() {
+	echo "▶ switching to boards mode"
+	set_backend rp2040
+	if gadget_installed; then
+		# Gone, not just idle: an idle gadget still has a USB speaker the
+		# phone would route its audio to, away from HDMI and the dongle.
+		"$GADGET_BIN" down >/dev/null && say "✅ USB gadget removed; the phone sees it unplugged"
+		systemctl disable -q --now roadie-gadget.service
+		say "✅ gadget stays down at boot (sudo roadie-mode gadget brings it back)"
+	fi
+	restart_roadie rp2040
+	echo
+	say "🔌 Phone hub USB-A → HID board; relay → this Pi's USB-A"
+	if [ -z "$D" ] && ! ls /dev/serial/by-id/usb-Adafruit_Roadie-Relay_*-if02 >/dev/null 2>&1; then
+		say "⚠️  no relay board found on this Pi yet"
+	fi
+}
+
+case "${1:-}" in
+	"" | status) show ;;
+	gadget | linux-gadget)
+		[ "$(id -u)" -eq 0 ] || [ -n "$D" ] || die "switching needs root: sudo roadie-mode gadget"
+		to_gadget; echo; show ;;
+	boards | rp2040)
+		[ "$(id -u)" -eq 0 ] || [ -n "$D" ] || die "switching needs root: sudo roadie-mode boards"
+		to_boards; echo; show ;;
+	-h | --help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+	*) die "unknown mode '$1' (gadget or boards)" ;;
+esac

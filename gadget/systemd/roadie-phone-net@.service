@@ -1,0 +1,20 @@
+[Unit]
+Description=Roadie phone network on %I (DHCP, DNS, NAT to the uplink)
+Documentation=file:///usr/local/share/doc/roadie/linux-gadget.md
+# Follows the gadget's network interface: starts when it appears, stops when
+# it goes. The phone plugging and unplugging only toggles carrier, which
+# needs nothing from here.
+BindsTo=sys-subsystem-net-devices-%i.device
+After=sys-subsystem-net-devices-%i.device roadie-gadget.service network.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/sbin/roadie-phone-net prepare %I
+ExecStart=/usr/local/sbin/roadie-phone-net run %I
+ExecStopPost=/usr/local/sbin/roadie-phone-net cleanup %I
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=sys-subsystem-net-devices-%i.device
