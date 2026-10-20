@@ -247,10 +247,12 @@ The phone targets start roadie with `--platform android` or `--platform ios`,
 so the viewer maps pointers the way that device expects if you open `/view`
 during the run.
 
-On iPhone the touch checks are skipped: iOS does not register an external
-touch digitizer, so touch sent there goes nowhere. The mouse needs
-AssistiveTouch turned on, or nothing responds at all — see
-[Connect a Phone](connect-a-phone.md#iphone) for the settings and the wiring.
+On iPhone the touch check runs through the pointer, since iOS takes no
+external touchscreen (roadie converts touch with `--platform ios`); the
+two-finger check is skipped, because a pointer is one finger. The mouse needs
+AssistiveTouch turned on, with Perform Touch Gestures, or nothing responds at
+all — see [Connect a Phone](connect-a-phone.md#iphone) for the settings and the
+wiring.
 In place of the wheel, a drag check traces the Vibium mark with the button
 held, which is how iOS scrolls and swipes; the page has to see every stroke
 through to the end.

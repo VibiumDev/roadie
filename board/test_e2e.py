@@ -817,23 +817,12 @@ class Suite:
             lambda evs: next(
                 (e for e in evs if e.get("kind") == "pointerup"), None),
             self.settle + 3)
-        have = (got["screenX"], got["screenY"])
-        bar = ""
-        if self.page_relative:
-            if self.top_bar is None:
-                top = want[1] - have[1]
-                room = self.screen_h - self.inner_h
-                if not -self.tolerance <= top <= room + self.tolerance:
-                    self.record("pointer position", False,
-                                f"({hx},{hy}) → pressed at page {have}, "
-                                f"{top:.0f}pt below where expected; Safari "
-                                f"only takes {room}pt")
-                    return
-                self.top_bar = top
-                self.collector.set_status(
-                    center_y=self.screen_h / 2 - top)
-            have = (have[0], have[1] + self.top_bar)
-            bar = f" (page {self.top_bar:.0f}pt down)"
+        on_screen = self.page_to_screen(
+            "pointer position", f"({hx},{hy}) → pressed", want,
+            (got["screenX"], got["screenY"]))
+        if on_screen is None:
+            return
+        have, bar = on_screen
         dx, dy = abs(have[0] - want[0]), abs(have[1] - want[1])
         if dx <= self.tolerance and dy <= self.tolerance:
             self.record("pointer position", True,
@@ -1131,6 +1120,29 @@ class Suite:
         else:
             self.record("mouse scroll", False, "page saw no wheel event")
 
+    def page_to_screen(self, check, what, want, have):
+        """Where on the screen a press the page reports at `have` was.
+
+        Safari on iOS gives positions relative to the page, and the page
+        starts below a top bar it cannot measure: the first press measures
+        it, and has to fit in the height Safari takes from the screen; later
+        presses add it. Returns the position and a note for the result, or
+        None after recording the check as failed.
+        """
+        if not self.page_relative:
+            return have, ""
+        if self.top_bar is None:
+            top = want[1] - have[1]
+            room = self.screen_h - self.inner_h
+            if not -self.tolerance <= top <= room + self.tolerance:
+                self.record(check, False,
+                            f"{what} at page {have}, {top:.0f}pt below where "
+                            f"expected; Safari only takes {room}pt")
+                return None
+            self.top_bar = top
+            self.collector.set_status(center_y=self.screen_h / 2 - top)
+        return (have[0], have[1] + self.top_bar), f" (page {self.top_bar:.0f}pt down)"
+
     def leg_touch(self, hx, hy):
         self.collector.drain()
         want = self.to_screen(hx, hy)
@@ -1158,11 +1170,16 @@ class Suite:
             return
 
         point = got["changedTouches"][0]
-        have = (point["screenX"], point["screenY"])
+        on_screen = self.page_to_screen(
+            "touch", "page saw touchstart", want,
+            (point["screenX"], point["screenY"]))
+        if on_screen is None:
+            return
+        have, bar = on_screen
         dx, dy = abs(have[0] - want[0]), abs(have[1] - want[1])
         if dx <= self.tolerance and dy <= self.tolerance:
             self.record("touch", True,
-                        f"page saw touchstart at screen {have}, expected {want}")
+                        f"page saw touchstart at screen {have}, expected {want}{bar}")
         else:
             self.record("touch", False,
                         f"page saw touchstart at screen {have}, expected {want} "
@@ -1370,7 +1387,7 @@ def main():
         ("click", "TACTILE RESPONSE", 1, True),
         ("keyboard", "KEYBOARD UPLINK", 1, True),
         ("scroll", "SCROLL VECTOR", 1, not ios),
-        ("touch", "TOUCH SURFACE", 1, not ios),
+        ("touch", "TOUCH SURFACE", 1, True),
         ("multitouch", "MULTI-CONTACT", 1, not ios),
         ("drag", "SIGNATURE TRACE", 1, drag),
         ("speaker", "SOUNDCHECK \u00b7 SPEAKER", 1, ios),
@@ -1419,17 +1436,14 @@ def main():
             suite.record("mouse scroll", True,
                          "skipped — a touch pointer has no wheel; iOS scrolls "
                          "by dragging")
-        # iOS registers a mouse (through AssistiveTouch) but not an external
-        # touch digitizer, so touch there goes nowhere. Skipping says that,
-        # where running it would just look like a fault.
-        if "touch" not in args.skip and not ios:
+        # iOS takes no external touchscreen; roadie delivers touch there
+        # through the pointer (--platform ios), which AssistiveTouch's
+        # Perform Touch Gestures turns into a finger. Either way the page
+        # should see a touchstart where the finger went down.
+        if "touch" not in args.skip:
             suite.begin("touch")
             suite.leg_touch(HID_MAX // 4, HID_MAX * 3 // 4)
             suite.beat()
-        elif ios:
-            suite.record("touch", True,
-                         "skipped — iOS does not register an external touch "
-                         "digitizer, only a mouse via AssistiveTouch")
         if "multitouch" not in args.skip and not ios:
             suite.begin("multitouch")
             suite.leg_multitouch()

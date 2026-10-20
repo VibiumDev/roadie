@@ -278,6 +278,7 @@ With a phone (iPhone, USB-C, through a PD hub and the VBUS-cut splitter):
 | Drags | each stroke of the mark arrives 96–98% complete at both paces (~380 and ~560 pt/s); iOS coalesces moves to its 60 Hz frames |
 | `roadie-gadget down`/`up` while the iPhone was enumerating | once, the controller wedged: the phone reset it again and again but never gave it an address. `reset`, `rebind`, unbinding the controller, replugs and another cable didn't help; a reboot did. Cause unknown: the journal is kept in memory, so the logs went with the reboot |
 | Microphone through the soundcheck page (`make test-e2e-iphone`) | not yet run: needs `https://soundcheck.vibium.dev` |
+| Touch through the pointer (`--platform ios`): tap, held touch, one-finger swipe on a Safari page; `make test-e2e-iphone`'s touch check; two fingers refused before either goes down | pass |
 | Long runs, audio dropouts over time | not yet run |
 
 Not yet checked (see the

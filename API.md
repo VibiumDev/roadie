@@ -444,6 +444,11 @@ Send a multi-touch digitizer report (up to 2 simultaneous contacts). The HID boa
 
 Send an empty contacts array `[]` to lift all fingers.
 
+An iPhone takes no touchscreen, so with `--platform ios` touch arrives as the
+pointer instead: a finger down presses the button there, moving it drags, and
+lifting it releases. Taps, held touches and one-finger swipes work as on
+Android; two fingers at once are refused (`500`, "one finger at a time").
+
 **Response:**
 ```json
 {"status": "ok"}
@@ -511,7 +516,7 @@ Roadie implements a minimal subset of BiDi — only the methods that map to hard
 | `browsingContext.getTree` | Returns a single context (`"screen"`) representing the target display |
 | `browsingContext.captureScreenshot` | Returns a base64-encoded JPEG of the current frame. Right after input, it first waits for the screen to show it: at least 300 ms, then until the picture stops changing (at most 2 s after the input) |
 | `roadie:screen.getViewport` | Returns the current viewport (cropped image) width and height |
-| `input.performActions` | Execute keyboard, mouse, and touch actions |
+| `input.performActions` | Execute keyboard, mouse, and touch actions. On an iPhone touch arrives as the pointer, one finger at a time; a gesture with more fingers is refused before any of it runs (see [`/api/hid/touch`](#post-apihidtouch)) |
 | `input.releaseActions` | Release all held keys, buttons, and touches |
 
 **Example session (using [websocat](https://github.com/vi/websocat)):**

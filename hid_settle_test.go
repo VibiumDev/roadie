@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -16,6 +17,10 @@ func (m *mouseHID) MouseMove(int, int) error { m.log = append(m.log, "move"); re
 func (m *mouseHID) MousePress(int) error     { m.log = append(m.log, "press"); return nil }
 func (m *mouseHID) MouseClick(int) error     { m.log = append(m.log, "click"); return nil }
 func (m *mouseHID) MouseRelease(int) error   { m.log = append(m.log, "release"); return nil }
+func (m *mouseHID) Touch(c []TouchContact) error {
+	m.log = append(m.log, fmt.Sprintf("touch %d", len(c)))
+	return nil
+}
 
 // A press right after a move waits until the move is pressSettle old; one
 // that comes later, or a release, goes straight through.
@@ -94,3 +99,49 @@ type usbStateHID struct {
 }
 
 func (u *usbStateHID) USBState() string { return u.state }
+
+// On a target that takes touch as its pointer, a finger down is a press
+// there, moving it drags, lifting it releases, and a second finger is
+// refused; elsewhere touch goes to the touchscreen as it is.
+func TestTouchAsPointer(t *testing.T) {
+	finger := func(tip bool, x, y int) []TouchContact {
+		return []TouchContact{{ID: 0, Tip: tip, X: x, Y: y}}
+	}
+	inner := &mouseHID{}
+	h := newSettledHID(inner)
+	h.touchAsPointer = true
+	clock := time.Unix(1000, 0)
+	h.now = func() time.Time { return clock }
+	h.sleep = func(d time.Duration) {
+		inner.log = append(inner.log, "wait "+d.String())
+		clock = clock.Add(d)
+	}
+
+	for _, c := range [][]TouchContact{
+		finger(true, 10, 20),  // down: to the spot, then press
+		finger(true, 30, 40),  // dragging
+		finger(false, 30, 40), // lifted
+		nil,                   // nothing down: nothing to do
+	} {
+		if err := h.Touch(c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{"move", "wait 50ms", "press", "move", "release"}
+	if !reflect.DeepEqual(inner.log, want) {
+		t.Errorf("one finger: %v, want %v", inner.log, want)
+	}
+	if h.LastInput().IsZero() {
+		t.Error("touch didn't count as input for screenshots")
+	}
+
+	two := []TouchContact{{ID: 0, Tip: true}, {ID: 1, Tip: true, X: 5}}
+	if err := h.Touch(two); err != errOneFinger {
+		t.Errorf("two fingers: %v, want errOneFinger", err)
+	}
+
+	plain := &mouseHID{}
+	if err := newSettledHID(plain).Touch(finger(true, 1, 2)); err != nil || !reflect.DeepEqual(plain.log, []string{"touch 1"}) {
+		t.Errorf("a touchscreen target: %v %v", plain.log, err)
+	}
+}

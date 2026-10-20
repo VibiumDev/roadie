@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
@@ -26,8 +27,15 @@ const (
 // release is releaseSettle old. Moves with the button held, as in a drag,
 // go straight through. Every input path (REST, the viewer, BiDi) comes
 // through here, so a client that clicks back to back gets each click.
+//
+// With touchAsPointer it also delivers touch as the pointer, for a target
+// that takes no touchscreen (iOS): a finger down is the button pressed
+// there, moving it drags, and lifting it releases. Taps, long presses and
+// swipes then work as on a touchscreen, and get the same settling; two
+// fingers at once can't.
 type settledHID struct {
 	HIDBackend
+	touchAsPointer bool
 
 	mu       sync.Mutex
 	moved    time.Time
@@ -35,7 +43,14 @@ type settledHID struct {
 	input    time.Time // the last input of any kind, for screenshots
 	now      func() time.Time
 	sleep    func(time.Duration)
+
+	touchMu    sync.Mutex // one touch translated at a time
+	fingerDown bool
 }
+
+// errOneFinger is what a two-finger gesture gets on a target whose only
+// pointer stands in for touch.
+var errOneFinger = errors.New("this device takes touch as its pointer, so one finger at a time: two-finger gestures aren't possible")
 
 func newSettledHID(b HIDBackend) *settledHID {
 	return &settledHID{HIDBackend: b, now: time.Now, sleep: time.Sleep}
@@ -93,9 +108,46 @@ func (h *settledHID) KeyRelease(keycode int) error {
 }
 
 func (h *settledHID) Touch(contacts []TouchContact) error {
+	if h.touchAsPointer {
+		return h.touchWithPointer(contacts)
+	}
 	err := h.HIDBackend.Touch(contacts)
 	h.mark(&h.input)
 	return err
+}
+
+// touchWithPointer moves the pointer to the finger and holds the button
+// while the finger is down. Contacts are every finger now on the screen.
+func (h *settledHID) touchWithPointer(contacts []TouchContact) error {
+	var tips []TouchContact
+	for _, c := range contacts {
+		if c.Tip {
+			tips = append(tips, c)
+		}
+	}
+	h.touchMu.Lock()
+	defer h.touchMu.Unlock()
+	switch len(tips) {
+	case 0: // lifted
+		if !h.fingerDown {
+			return nil
+		}
+		h.fingerDown = false
+		return h.MouseRelease(1)
+	case 1:
+		if err := h.MouseMove(tips[0].X, tips[0].Y); err != nil {
+			return err
+		}
+		if h.fingerDown {
+			return nil
+		}
+		if err := h.MousePress(1); err != nil {
+			return err
+		}
+		h.fingerDown = true
+		return nil
+	}
+	return errOneFinger
 }
 
 // LastInput is when input last went to the target, so a screenshot can

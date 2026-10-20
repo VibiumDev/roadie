@@ -619,3 +619,34 @@ func TestBiDiSessionCleanupOnDisconnect(t *testing.T) {
 		t.Error("expected session to be cleaned up on disconnect")
 	}
 }
+
+// On an iPhone a two-finger gesture is refused whole, before either finger
+// goes down; one finger, or two anywhere else, is fine.
+func TestBiDiRefusesTwoFingersBeforeRunning(t *testing.T) {
+	touch := func(id string, down bool) bidiActionSource {
+		acts := []bidiAction{{Type: "pointerMove", X: 10, Y: 10}}
+		if down {
+			acts = append(acts, bidiAction{Type: "pointerDown"}, bidiAction{Type: "pointerUp"})
+		}
+		return bidiActionSource{Type: "pointer", ID: id, Parameters: &bidiPointerParam{PointerType: "touch"}, Actions: acts}
+	}
+	mouse := bidiActionSource{Type: "pointer", ID: "mouse", Actions: []bidiAction{{Type: "pointerDown"}}}
+
+	ios := &Server{Platform: PlatformIOS}
+	if err := ios.checkBiDiActions([]bidiActionSource{touch("f0", true), touch("f1", true)}); err != errOneFinger {
+		t.Errorf("two fingers on iOS: %v, want errOneFinger", err)
+	}
+	for name, srcs := range map[string][]bidiActionSource{
+		"one finger":           {touch("f0", true)},
+		"a finger and a hover": {touch("f0", true), touch("f1", false)},
+		"a finger and a mouse": {touch("f0", true), mouse},
+	} {
+		if err := ios.checkBiDiActions(srcs); err != nil {
+			t.Errorf("%s on iOS: %v", name, err)
+		}
+	}
+	android := &Server{Platform: PlatformAndroid}
+	if err := android.checkBiDiActions([]bidiActionSource{touch("f0", true), touch("f1", true)}); err != nil {
+		t.Errorf("two fingers on Android: %v", err)
+	}
+}

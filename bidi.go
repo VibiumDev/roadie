@@ -332,6 +332,16 @@ func (s *Server) bidiPerformActions(conn *websocket.Conn, ctx context.Context, c
 		return
 	}
 
+	if err := s.checkBiDiActions(params.Actions); err != nil {
+		writeJSON(conn, ctx, bidiErrorResp{
+			Type:    "error",
+			ID:      cmd.ID,
+			Error:   "invalid argument",
+			Message: err.Error(),
+		})
+		return
+	}
+
 	// Find the max number of ticks across all sources.
 	maxTicks := 0
 	for _, src := range params.Actions {
@@ -369,6 +379,32 @@ func (s *Server) bidiPerformActions(conn *websocket.Conn, ctx context.Context, c
 		ID:     cmd.ID,
 		Result: map[string]any{},
 	})
+}
+
+// checkBiDiActions refuses, before any of it reaches the target, what the
+// target can't do as a whole: on one that takes touch as its pointer, a
+// gesture with more than one finger. Run tick by tick, it would press the
+// first finger and only then fail on the second.
+func (s *Server) checkBiDiActions(sources []bidiActionSource) error {
+	if !s.Platform.TouchAsPointer() {
+		return nil
+	}
+	fingers := 0
+	for _, src := range sources {
+		if src.Type != "pointer" || src.Parameters == nil || src.Parameters.PointerType != "touch" {
+			continue
+		}
+		for _, a := range src.Actions {
+			if a.Type == "pointerDown" {
+				fingers++
+				break
+			}
+		}
+	}
+	if fingers > 1 {
+		return errOneFinger
+	}
+	return nil
 }
 
 func (s *Server) executeBiDiAction(sess *bidiSession, srcType, ptrType, srcID string, action bidiAction) error {

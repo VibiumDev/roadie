@@ -68,6 +68,12 @@ func (p Platform) PointerSpace() string {
 	return "frame"
 }
 
+// TouchAsPointer reports whether touch has to reach the target as its
+// pointer. iOS takes no external touchscreen, but a held mouse button is a
+// finger to it, so a script, agent or viewer that touches still taps,
+// presses and swipes.
+func (p Platform) TouchAsPointer() bool { return p == PlatformIOS }
+
 // DefaultInputMode is the pointer mode that suits the platform, used when
 // --input is not given. Empty means "no opinion", leaving the viewer to
 // decide as before.
@@ -77,8 +83,9 @@ func (p Platform) DefaultInputMode() string {
 		return "touch"
 	case PlatformIOS:
 		// iOS has no support for external touch digitizers; only mice
-		// register (via AssistiveTouch), so touch would send input into
-		// the void.
+		// register (via AssistiveTouch). Touch is delivered as the pointer
+		// (see TouchAsPointer), but a person at the viewer is better off
+		// seeing the pointer move as they do.
 		return "mouse"
 	case PlatformMac, PlatformWindows, PlatformLinux:
 		return "mouse"

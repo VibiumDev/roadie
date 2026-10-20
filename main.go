@@ -267,7 +267,9 @@ func main() {
 			fmt.Fprintln(os.Stderr, "")
 		}
 	}
-	hid = newSettledHID(hid)
+	settled := newSettledHID(hid)
+	settled.touchAsPointer = platform.TouchAsPointer()
+	hid = settled
 	go hid.Run()
 	if gadgetAudio != nil {
 		gadgetAudio.Start()
