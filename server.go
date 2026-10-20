@@ -942,6 +942,12 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         // mouseup taken by the context menu, and releasing whatever that
         // event reports then leaves the target holding the button.
         feedButton = btn;
+        // Moves go out on the timer above, so the last one may not have
+        // yet: say where the pointer is first, or the press lands at the
+        // old spot and drags to the new one.
+        var p = posFromFeed(e);
+        pendingX = p.x; pendingY = p.y; mouseDirty = false;
+        hidSend({cmd:'mouse_move', x:p.x, y:p.y});
         hidSend({cmd:'mouse_press', buttons:btn});
       } else {
         var p = posFromFeed(e);
@@ -954,6 +960,10 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       if (!feedPressed) return;
       feedPressed = false;
       if (inputMode === 'mouse') {
+        if (mouseDirty) { // the same for a move still waiting on the timer
+          hidSend({cmd:'mouse_move', x:pendingX, y:pendingY});
+          mouseDirty = false;
+        }
         hidSend({cmd:'mouse_release', buttons:feedButton || 1});
         feedButton = 0;
       } else {
