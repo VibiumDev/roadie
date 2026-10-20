@@ -285,27 +285,30 @@ func DetectDevice(filter string) (deviceInfo, error) {
 	drivers := driver.GetManager().Query(func(d driver.Driver) bool {
 		return d.Info().DeviceType == driver.Camera
 	})
-
-	if len(drivers) == 0 {
-		return deviceInfo{}, fmt.Errorf("no video capture devices found")
+	var devices []deviceInfo
+	for _, d := range drivers {
+		info := d.Info()
+		if name, ok := cameraName(info); ok {
+			devices = append(devices, deviceInfo{Name: name, Label: info.Label})
+		}
 	}
+	return chooseDevice(devices, filter)
+}
 
+// chooseDevice picks the device to capture from: the first whose name
+// contains filter, or without one, an external capture device. On-chip
+// video blocks are never chosen: nothing can be captured from them, and
+// while a dongle is briefly off the bus (a USB reset) they would be all
+// that is left to fall back on.
+func chooseDevice(devices []deviceInfo, filter string) (deviceInfo, error) {
 	skipKeywords := []string{"facetime", "iphone", "macbook", "imac", "integrated", "built-in"}
 	preferKeywords := []string{"usb", "hdmi", "capture", "video"}
 
-	type candidate struct {
-		info deviceInfo
-	}
-	var candidates []candidate
-	for _, d := range drivers {
-		info := d.Info()
-		name, ok := cameraName(info)
-		if !ok {
-			continue
+	var candidates []deviceInfo
+	for _, d := range devices {
+		if !onChipVideo(d.Name) {
+			candidates = append(candidates, d)
 		}
-		candidates = append(candidates, candidate{
-			info: deviceInfo{Name: name, Label: info.Label},
-		})
 	}
 	if len(candidates) == 0 {
 		return deviceInfo{}, fmt.Errorf("no video capture devices found")
@@ -313,51 +316,46 @@ func DetectDevice(filter string) (deviceInfo, error) {
 
 	var names []string
 	for _, c := range candidates {
-		names = append(names, c.info.Name)
+		names = append(names, c.Name)
 	}
 
 	// If a filter is provided, find the first match.
 	if filter != "" {
 		for _, c := range candidates {
-			if strings.Contains(strings.ToLower(c.info.Name), strings.ToLower(filter)) {
-				return c.info, nil
+			if strings.Contains(strings.ToLower(c.Name), strings.ToLower(filter)) {
+				return c, nil
 			}
 		}
 		return deviceInfo{}, fmt.Errorf("no device matching %q found\nAvailable devices: %s", filter, strings.Join(names, ", "))
 	}
 
-	// Auto-detect: skip built-in, prefer external capture devices.
-	for _, c := range candidates {
-		lower := strings.ToLower(c.info.Name)
-		skip := false
+	skipped := func(c deviceInfo) bool {
+		lower := strings.ToLower(c.Name)
 		for _, kw := range skipKeywords {
 			if strings.Contains(lower, kw) {
-				skip = true
-				break
+				return true
 			}
 		}
-		if skip {
+		return false
+	}
+
+	// Auto-detect: skip built-in, prefer external capture devices.
+	for _, c := range candidates {
+		if skipped(c) {
 			continue
 		}
+		lower := strings.ToLower(c.Name)
 		for _, kw := range preferKeywords {
 			if strings.Contains(lower, kw) {
-				return c.info, nil
+				return c, nil
 			}
 		}
 	}
 
 	// Fallback: return first non-skipped device.
 	for _, c := range candidates {
-		lower := strings.ToLower(c.info.Name)
-		skip := false
-		for _, kw := range skipKeywords {
-			if strings.Contains(lower, kw) {
-				skip = true
-				break
-			}
-		}
-		if !skip {
-			return c.info, nil
+		if !skipped(c) {
+			return c, nil
 		}
 	}
 

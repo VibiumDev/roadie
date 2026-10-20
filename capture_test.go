@@ -389,3 +389,41 @@ func TestCropsAgree(t *testing.T) {
 		})
 	}
 }
+
+var (
+	ispDev    = deviceInfo{Name: "bcm2835-isp;platform:bcm2835-isp"}
+	codecDev  = deviceInfo{Name: "bcm2835-codec-decode;platform:bcm2835-codec"}
+	dongleDev = deviceInfo{Name: "UGREEN 15389: UGREEN 15389;usb-0000:01:00.0-1"}
+	webcamDev = deviceInfo{Name: "FaceTime HD Camera"}
+	otherDev  = deviceInfo{Name: "Some Camera"}
+)
+
+func TestChooseDevice(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		devices []deviceInfo
+		filter  string
+		want    deviceInfo // zero: an error
+	}{
+		{"the dongle, not the Pi's ISP listed first", []deviceInfo{ispDev, codecDev, dongleDev}, "", dongleDev},
+		// A USB reset takes the dongle off the bus for a moment: then there
+		// is nothing to capture, not the ISP.
+		{"only on-chip blocks: none", []deviceInfo{ispDev, codecDev}, "", deviceInfo{}},
+		{"a filter never picks an on-chip block", []deviceInfo{ispDev, dongleDev}, "bcm2835", deviceInfo{}},
+		{"a filter picks its match", []deviceInfo{ispDev, otherDev, dongleDev}, "ugreen", dongleDev},
+		{"built-in cameras are skipped", []deviceInfo{webcamDev, dongleDev}, "", dongleDev},
+		{"falls back to any external device", []deviceInfo{ispDev, webcamDev, otherDev}, "", otherDev},
+		{"nothing", nil, "", deviceInfo{}},
+	} {
+		got, err := chooseDevice(tc.devices, tc.filter)
+		if tc.want == (deviceInfo{}) {
+			if err == nil {
+				t.Errorf("%s: chose %q, want none", tc.name, got.Name)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Errorf("%s: chose %q (%v), want %q", tc.name, got.Name, err, tc.want.Name)
+		}
+	}
+}
