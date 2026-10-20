@@ -249,6 +249,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "")
 		}
 	}
+	hid = newSettledHID(hid)
 	go hid.Run()
 	if gadgetAudio != nil {
 		gadgetAudio.Start()
