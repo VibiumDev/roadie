@@ -424,6 +424,21 @@ class Runner:
         else:
             self.record("mouse_scroll", False,
                         f"sent amount={amount} but no REL_WHEEL reached the Pi")
+            return
+
+        # And it stops. The wheel step used to stay in the board's report,
+        # so every move or click after a scroll scrolled again.
+        self.capture.drain()
+        self.send(cmd="mouse_move", x=16000, y=8000)
+        time.sleep(self.settle)
+        again = [e for e in self.capture.snapshot()
+                 if e[0] == "mouse" and e[1] == EV_REL and e[2] == REL_WHEEL
+                 and e[3] != 0]
+        if again:
+            self.record("scroll stops", False,
+                        f"a move after the scroll scrolled again: {[e[3] for e in again]}")
+        else:
+            self.record("scroll stops", True, "the next move does not scroll")
 
     def leg_multitouch(self, a, b, touch_path=None):
         if touch_path and device_has_mt(touch_path) is False:

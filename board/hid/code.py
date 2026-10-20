@@ -226,7 +226,10 @@ def handle_command(cmd, seq, payload):
             if amount > 127:
                 amount -= 256  # unsigned byte to signed int8
             mouse.move(wheel=-amount)
-            mouse.move(wheel=0)
+            # absolute_mouse leaves the last wheel step in its report, and
+            # move(wheel=0) sends nothing, so it never got cleared: every
+            # later move or click scrolled again. Clear it by hand.
+            mouse.report[5] = 0
             return STATUS_OK
 
         elif cmd == CMD_TOUCH:
