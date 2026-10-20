@@ -133,6 +133,24 @@ func main() {
 	buf.SetFPS(*fps)
 	buf.SetWidth(*width)
 	buf.SetHeight(*height)
+	cropFile := defaultCropFile(*name)
+	if use, crops, err := loadSavedCrops(cropFile); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  Saved crop not used: %v\n", err)
+	} else {
+		buf.SetCropUse(use)
+		for o, c := range crops {
+			buf.SetSavedCrop(o, c)
+			fmt.Printf("✂️  Saved %s crop: %dx%d at (%d,%d)\n", o, c.Rect.Dx(), c.Rect.Dy(), c.Rect.Min.X, c.Rect.Min.Y)
+			if use == CropSaved && len(crops) == 1 {
+				// The usual case: one crop, for the way the device is
+				// normally held. Use it from the first frame.
+				buf.presumeOrientation(o)
+			}
+		}
+		if use != CropAuto {
+			fmt.Printf("✂️  Crop: %s\n", use)
+		}
+	}
 	var ab *AudioBroadcaster
 	var gadgetAudio *GadgetAudio
 	var sourceType string
@@ -280,6 +298,7 @@ func main() {
 		InputMode:      *inputMode,
 		Platform:       platform,
 		Name:           *name,
+		CropFile:       cropFile,
 	}
 	if mux != nil {
 		srv.AudioSource = mux.Source

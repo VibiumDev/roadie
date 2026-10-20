@@ -6,9 +6,13 @@ back what it heard. `make test-e2e-iphone` uses it for the iPhone's microphone
 (see [Testing](../docs/how-to/testing.md#testing-a-phone-instead)).
 `?seconds=N` sets how long Mic records (2 to 30, default 8).
 
-`main.go` serves it. The page is built into the binary, so deploying is
-copying one file. It serves the page at `/` and nothing else, with headers
-that let the page use the microphone and nothing more. It has to sit behind
+`white.html`, at `/white`, is white to the screen's edges, for saving a crop
+in Roadie: auto-crop can't find the edges of a dark screen (see
+[`/api/crop`](../API.md#get-put-post-delete-apicrop)).
+
+`main.go` serves both. The pages are built into the binary, so deploying is
+copying one file. It serves them at `/` and `/white` and nothing else, with
+headers that let the pages use the microphone and nothing more. It has to sit behind
 HTTPS, because Safari gives the microphone only to a secure page; on exe.dev,
 the proxy provides that.
 
@@ -102,13 +106,15 @@ curl -sI https://soundcheck.vibium.dev/
 ```
 
 That should be `200`, with the server's `Permissions-Policy:
-microphone=(self)`. Then open the page on the iPhone and tap **Mic**: Safari
-asks for the microphone, the page counts down, and plays back what it heard.
+microphone=(self)`; so should `https://soundcheck.vibium.dev/white`. Then
+open the page on the iPhone and tap **Mic**: Safari asks for the microphone,
+the page counts down, and plays back what it heard.
 
 ## Updating it
 
-Edit `index.html` and try it locally (see [Building it](#building-it)), then
-rebuild for the VM, copy it over and restart:
+Edit `index.html` or `white.html` and try it locally (see
+[Building it](#building-it)), then rebuild for the VM, copy it over and
+restart:
 
 ```bash
 go test . && GOOS=linux GOARCH=$(ssh soundcheck.exe.xyz dpkg --print-architecture) \

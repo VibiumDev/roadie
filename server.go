@@ -8,6 +8,7 @@ import (
 	"image"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -41,6 +42,11 @@ type Server struct {
 	// Name is this instance's --name. It labels the browser tab so that
 	// several targets open at once stay tellable apart.
 	Name string
+
+	// CropFile is where saved crops are kept between runs; empty keeps
+	// them only until roadie stops.
+	CropFile string
+	cropMu   sync.Mutex
 }
 
 // pageTitle names the browser tab after the target this instance drives. The
@@ -75,6 +81,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/settings", s.handleSettings)
 	mux.HandleFunc("/api/settings", s.handleAPISettings)
+	mux.HandleFunc("/api/crop", s.handleAPICrop)
 	mux.HandleFunc("/audio", s.handleAudio)
 	mux.HandleFunc("/api/hid/audio", s.handleAudioIn)
 	mux.HandleFunc("/test", s.handleTest)
@@ -253,8 +260,17 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">Crop</label>
-        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input id="autocropCheck" type="checkbox" checked> Auto</label>
+        <div style="display:flex; gap:0;">
+          <button id="cropAutoBtn" title="Trim whatever is black at the edges" style="padding:2px 10px; background:#444; color:#fff; border:1px solid #6af; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Auto</button>
+          <button id="cropOffBtn" title="Show the whole frame" style="padding:2px 10px; background:#333; color:#888; border:1px solid #555; border-radius:0; font-family:monospace; cursor:pointer;">Off</button>
+          <button id="cropSavedBtn" title="Use the crop saved for the way the device is turned" style="padding:2px 10px; background:#333; color:#888; border:1px solid #555; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Saved</button>
+        </div>
       </div>
+      <div style="display:flex; align-items:center; gap:8px; margin:6px 0 0 63px;">
+        <button id="cropSaveBtn" title="Save the crop of what is on screen now, for the way the device is turned. Show something bright to its edges first, such as a white page." style="padding:2px 10px; background:#444; color:#fff; border:1px solid #666; border-radius:4px; font-family:monospace; cursor:pointer;">Save</button>
+        <button id="cropClearBtn" title="Forget the saved crops" style="padding:2px 10px; background:#444; color:#fff; border:1px solid #666; border-radius:4px; font-family:monospace; cursor:pointer;">Clear</button>
+      </div>
+      <div id="cropStatus" style="margin:4px 0 0 63px; color:#aaa; font-size:0.9em; max-width:260px;"></div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">Zoom</label>
         <input id="zoomRange" type="range" min="50" max="400" value="100" style="width:120px; vertical-align:middle;">
@@ -590,7 +606,6 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     var qval = document.getElementById('qval');
     var fpsSelect = document.getElementById('fpsSelect');
     var resSelect = document.getElementById('resSelect');
-    var autocropCheck = document.getElementById('autocropCheck');
     var zoomRange = document.getElementById('zoomRange');
     var zoomVal = document.getElementById('zoomVal');
     var alignTLBtn = document.getElementById('alignTLBtn');
@@ -603,12 +618,17 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       if (d.quality !== undefined) { qrange.value = d.quality; qval.textContent = d.quality; }
       if (d.fps !== undefined) { fpsSelect.value = d.fps; }
       if (d.width !== undefined && d.height !== undefined) { resSelect.value = d.width + 'x' + d.height; }
-      if (d.autocrop !== undefined) { autocropCheck.checked = d.autocrop; }
     }
 
     (function loadSettings() {
       var saved = {};
       try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+      // The crop is chosen on the server (see /api/crop); replaying an old
+      // autocrop from this browser would undo that.
+      if ('autocrop' in saved) {
+        delete saved.autocrop;
+        try { localStorage.setItem('roadie-settings', JSON.stringify(saved)); } catch(e) {}
+      }
       if (Object.keys(saved).length > 0) {
         applyToUI(saved);
         fetch('/api/settings', {
@@ -649,6 +669,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       } else {
         positionPanel();
         qslider.style.display = 'block';
+        cropRequest('GET');
       }
     };
 
@@ -678,9 +699,49 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       sendSettings({width: parseInt(parts[0]), height: parseInt(parts[1])});
     };
 
-    autocropCheck.onchange = function() {
-      sendSettings({autocrop: autocropCheck.checked});
+    // The crop: auto, off, or the one saved for the way the device is
+    // turned. Chosen and kept by the server, not in this browser.
+    var cropBtns = {
+      auto: document.getElementById('cropAutoBtn'),
+      off: document.getElementById('cropOffBtn'),
+      saved: document.getElementById('cropSavedBtn')
     };
+    var cropSaveBtn = document.getElementById('cropSaveBtn');
+    var cropClearBtn = document.getElementById('cropClearBtn');
+    var cropStatus = document.getElementById('cropStatus');
+    function showCrop(d) {
+      for (var u in cropBtns) {
+        var on = d.use === u;
+        cropBtns[u].style.background = on ? '#444' : '#333';
+        cropBtns[u].style.color = on ? '#fff' : '#888';
+        cropBtns[u].style.borderColor = on ? '#6af' : '#555';
+      }
+      var saved = [];
+      ['portrait', 'landscape'].forEach(function(o) {
+        var c = d.saved && d.saved[o];
+        if (c) saved.push(o + ' ' + c.width + '\u00d7' + c.height + (d.mode === 'saved' && d.orientation === o ? ' (in use)' : ''));
+      });
+      var any = saved.length > 0;
+      cropBtns.saved.disabled = cropClearBtn.disabled = !any;
+      cropBtns.saved.style.opacity = cropClearBtn.style.opacity = any ? '' : '0.4';
+      var text = any ? 'Saved: ' + saved.join(', ') + '.' : 'No crop saved.';
+      if (d.use === 'saved' && d.mode !== 'saved') text += ' None for ' + (d.orientation || 'this way') + ': auto for now.';
+      cropStatus.textContent = text;
+    }
+    function cropRequest(method, body) {
+      var opts = {method: method};
+      if (body) { opts.headers = {'Content-Type': 'application/json'}; opts.body = JSON.stringify(body); }
+      fetch('/api/crop', opts).then(function(r) {
+        if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
+        return r.json();
+      }).then(showCrop).catch(function(e) { cropStatus.textContent = e.message; });
+    }
+    Object.keys(cropBtns).forEach(function(u) {
+      cropBtns[u].onclick = function() { cropRequest('PUT', {use: u}); };
+    });
+    cropSaveBtn.onclick = function() { cropRequest('POST'); };
+    cropClearBtn.onclick = function() { cropRequest('DELETE'); };
+    cropRequest('GET');
 
     function applyAlignment(mode) {
       alignment = mode;
@@ -1407,6 +1468,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 			"width": content.Dx(), "height": content.Dy(),
 		}
 	}
+	if s.Buf != nil {
+		resp["crop_mode"] = s.Buf.CropMode()
+	}
 	cropRect := s.Source.CropRect()
 	if cropRect != (image.Rectangle{}) && cropRect != image.Rect(0, 0, s.Buf.Width(), s.Buf.Height()) {
 		resp["crop"] = map[string]interface{}{
@@ -1466,7 +1530,14 @@ func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 			s.Buf.SetQuality(*body.Quality)
 		}
 		if body.Autocrop != nil {
+			// Auto (true) or off (false): the two-way form of /api/crop's
+			// choice, kept with it.
+			s.cropMu.Lock()
 			s.Buf.SetAutocrop(*body.Autocrop)
+			if _, err := s.storeCrops(); err != nil {
+				log.Printf("crop: %v", err)
+			}
+			s.cropMu.Unlock()
 		}
 		captureChanged := false
 		if body.FPS != nil && *body.FPS != s.Buf.FPS() {
@@ -1587,6 +1658,10 @@ select { padding: 4px 8px; font-family: monospace; font-size: 1em; }
 .info div { margin: 4px 0; }
 nav { margin-bottom: 16px; }
 nav a { margin-right: 12px; }
+button { font-family: monospace; font-size: 1em; padding: 4px 10px; margin-right: 8px; }
+.hint { color: #666; margin: 6px 0; }
+#cropStatus div { margin: 2px 0; }
+label.opt { display: block; margin: 4px 0; font-weight: normal; }
 </style>
 </head>
 <body>
@@ -1611,7 +1686,16 @@ nav a { margin-right: 12px; }
   <option value="640x480">480p</option>
 </select>
 
-<label><input id="autocrop" type="checkbox" checked> Auto-crop black borders</label>
+<label>Crop:</label>
+<label class="opt"><input type="radio" name="crop" value="auto"> Auto: trim whatever is black at the edges</label>
+<label class="opt"><input type="radio" name="crop" value="off"> Off: show the whole frame</label>
+<label class="opt"><input type="radio" name="crop" value="saved"> Saved: the crop saved for the way the device is turned</label>
+<div id="cropStatus">Loading&hellip;</div>
+<p><button id="cropSave">Save current crop</button><button id="cropClear">Clear saved crops</button></p>
+<p class="hint">A dark app can fool auto-crop into shrinking the picture. Show something
+bright to the screen's edges, such as a white page, and save the crop: Saved is then
+chosen, and it survives restarts. Portrait and landscape each keep their own; where
+there is none, Saved uses auto-crop.</p>
 
 <label for="zoom">Zoom: <span id="zval" class="val">100%</span></label>
 <input id="zoom" type="range" min="50" max="400" value="100">
@@ -1624,7 +1708,6 @@ nav a { margin-right: 12px; }
   var valSpan = document.getElementById('qval');
   var fpsSelect = document.getElementById('fps');
   var resSelect = document.getElementById('res');
-  var autocropCheck = document.getElementById('autocrop');
   var zoomSlider = document.getElementById('zoom');
   var zvalSpan = document.getElementById('zval');
   var info = document.getElementById('devinfo');
@@ -1634,13 +1717,18 @@ nav a { margin-right: 12px; }
     if (d.quality !== undefined) { slider.value = d.quality; valSpan.textContent = d.quality; }
     if (d.fps !== undefined) { fpsSelect.value = d.fps; }
     if (d.width !== undefined && d.height !== undefined) { resSelect.value = d.width + 'x' + d.height; }
-    if (d.autocrop !== undefined) { autocropCheck.checked = d.autocrop; }
     if (d.zoom !== undefined) { zoomSlider.value = d.zoom; zvalSpan.textContent = d.zoom + '%'; }
   }
 
   (function loadSettings() {
     var saved = {};
     try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+    // The crop is chosen on the server (see /api/crop); replaying an old
+    // autocrop from this browser would undo that.
+    if ('autocrop' in saved) {
+      delete saved.autocrop;
+      try { localStorage.setItem('roadie-settings', JSON.stringify(saved)); } catch(e) {}
+    }
     if (Object.keys(saved).length > 0) {
       applyToUI(saved);
       fetch('/api/settings', {
@@ -1688,14 +1776,49 @@ nav a { margin-right: 12px; }
     sendSettings({width: parseInt(parts[0]), height: parseInt(parts[1])});
   };
 
-  autocropCheck.onchange = function(){
-    sendSettings({autocrop: autocropCheck.checked});
-  };
-
   zoomSlider.oninput = function(){
     zvalSpan.textContent = zoomSlider.value + '%';
     saveSettings({zoom: parseInt(zoomSlider.value)});
   };
+
+  // The crop is chosen, and saved crops kept, by the server, not in this
+  // browser.
+  var cropRadios = document.querySelectorAll('input[name=crop]');
+  var cropStatus = document.getElementById('cropStatus');
+  var cropSave = document.getElementById('cropSave');
+  var cropClear = document.getElementById('cropClear');
+  function showCrop(d) {
+    var any = !!(d.saved && (d.saved.portrait || d.saved.landscape));
+    cropRadios.forEach(function(r) {
+      r.checked = r.value === d.use;
+      if (r.value === 'saved') r.disabled = !any;
+    });
+    var html = '';
+    ['portrait', 'landscape'].forEach(function(o) {
+      var c = d.saved && d.saved[o];
+      html += '<div>' + o + ': ' + (c
+        ? c.width + '\u00d7' + c.height + ' at (' + c.x + ', ' + c.y + ')' + (d.mode === 'saved' && d.orientation === o ? ' &mdash; in use' : '')
+        : 'none') + '</div>';
+    });
+    var mode = {saved: 'the saved crop', auto: 'auto-crop', off: 'no crop'}[d.mode] || d.mode;
+    html += '<div>Device is ' + (d.orientation || 'turned an unknown way') + '; using ' + mode + '.</div>';
+    cropStatus.innerHTML = html;
+    cropClear.disabled = !any;
+  }
+  function cropRequest(method, body) {
+    var opts = {method: method};
+    if (body) { opts.headers = {'Content-Type': 'application/json'}; opts.body = JSON.stringify(body); }
+    fetch('/api/crop', opts).then(function(r) {
+      if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
+      return r.json();
+    }).then(showCrop).catch(function(e) { cropStatus.textContent = e.message; });
+  }
+  cropRadios.forEach(function(r) {
+    r.onchange = function(){ if (r.checked) cropRequest('PUT', {use: r.value}); };
+  });
+  cropSave.onclick = function(){ cropRequest('POST'); };
+  cropClear.onclick = function(){ cropRequest('DELETE'); };
+  cropRequest('GET');
 
   fetch('/health').then(function(r){ return r.json(); }).then(function(d){
     var html = '';

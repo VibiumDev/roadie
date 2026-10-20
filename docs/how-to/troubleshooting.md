@@ -217,3 +217,14 @@ Adjust the capture resolution via the settings panel in `/view`, or use CLI flag
 ```bash
 ./roadie --width 1280 --height 720
 ```
+
+**The picture shrinks, or taps land a little off, in a dark app**
+Auto-crop trims whatever is black at the frame's edges, so a dark app (or a
+restart while one is open) makes the picture look smaller than the screen.
+Show something bright to the screen's edges, such as
+`https://soundcheck.vibium.dev/white` or a light wallpaper, then press **Save**
+under **Crop** in `/view`'s settings panel (or **Save current crop** on
+`/settings`). That chooses **Saved**, and the crop is used from then on,
+across restarts; turn the device sideways and save again for landscape.
+**Auto** and **Off** keep the saved crops without using them; **Clear**
+deletes them. See [`/api/crop`](../../API.md#get-put-post-delete-apicrop).

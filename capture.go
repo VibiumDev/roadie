@@ -51,14 +51,33 @@ type FrameBuffer struct {
 	// even when autocrop is off: the frame is then served whole, but input
 	// still has to land on the picture rather than on the letterbox bars.
 	contentRect image.Rectangle
-	status      CaptureStatus
-	quality     atomic.Int32
-	viewers     atomic.Int32
-	fps         atomic.Int32
-	width       atomic.Int32
-	height      atomic.Int32
-	autocrop    atomic.Int32 // 0 = unset (default on), 1 = on, 2 = off
+	// Crops someone saved from a bright screen, one per way the target can
+	// be turned, used instead of what is detected; which way it is turned
+	// now; and the size of the frames being captured.
+	savedCrops    map[string]SavedCrop
+	orientation   string
+	orientPending string
+	orientSeen    int
+	frameSize     image.Point
+	status        CaptureStatus
+	quality       atomic.Int32
+	viewers       atomic.Int32
+	fps           atomic.Int32
+	width         atomic.Int32
+	height        atomic.Int32
+	// cropUse is the crop chosen: CropAuto (the default, ""), CropOff or
+	// CropSaved.
+	cropUse string
 }
+
+// The crops to choose from: trim what is black at the edges, nothing, or
+// the crop saved for the way the target is turned (auto where there is
+// none).
+const (
+	CropAuto  = "auto"
+	CropOff   = "off"
+	CropSaved = "saved"
+)
 
 // AddViewer increments the active viewer count.
 func (fb *FrameBuffer) AddViewer() { fb.viewers.Add(1) }
@@ -105,18 +124,34 @@ func (fb *FrameBuffer) Height() int {
 	return v
 }
 
-// SetAutocrop enables or disables automatic crop detection.
+// SetAutocrop chooses auto-crop (true) or no crop (false): the older,
+// two-way form of SetCropUse.
 func (fb *FrameBuffer) SetAutocrop(on bool) {
 	if on {
-		fb.autocrop.Store(1)
+		fb.SetCropUse(CropAuto)
 	} else {
-		fb.autocrop.Store(2)
+		fb.SetCropUse(CropOff)
 	}
 }
 
-// Autocrop returns whether automatic crop detection is enabled (default true).
-func (fb *FrameBuffer) Autocrop() bool {
-	return fb.autocrop.Load() != 2
+// Autocrop returns whether auto-crop is the crop chosen.
+func (fb *FrameBuffer) Autocrop() bool { return fb.CropUse() == CropAuto }
+
+// SetCropUse chooses the crop: CropAuto, CropOff or CropSaved.
+func (fb *FrameBuffer) SetCropUse(use string) {
+	fb.mu.Lock()
+	fb.cropUse = use
+	fb.mu.Unlock()
+}
+
+// CropUse returns the crop chosen.
+func (fb *FrameBuffer) CropUse() string {
+	fb.mu.RLock()
+	defer fb.mu.RUnlock()
+	if fb.cropUse == "" {
+		return CropAuto
+	}
+	return fb.cropUse
 }
 
 // SetQuality sets the JPEG quality, clamped to [30, 95].
@@ -180,19 +215,180 @@ func (fb *FrameBuffer) LatestRaw() []byte {
 	return frame
 }
 
-// SetContentRect records where the picture sits in the captured frame.
+// SetContentRect records where the picture sits in the captured frame, and
+// from its shape which way the target is turned.
 func (fb *FrameBuffer) SetContentRect(rect image.Rectangle) {
 	fb.mu.Lock()
 	fb.contentRect = rect
+	fb.trackOrientation(orientationOf(rect))
 	fb.mu.Unlock()
 }
 
-// ContentRect returns where the picture sits in the captured frame.
+// trackOrientation follows the picture's shape, but only once two
+// detections in a row agree, so one odd frame can't swap the saved crops.
+// That goes for the first one too: the first frames from a dongle that has
+// just started can show anything.
+func (fb *FrameBuffer) trackOrientation(o string) {
+	switch {
+	case o == "" || o == fb.orientation:
+		fb.orientPending, fb.orientSeen = "", 0
+	default:
+		if o == fb.orientPending {
+			fb.orientSeen++
+		} else {
+			fb.orientPending, fb.orientSeen = o, 1
+		}
+		if fb.orientSeen >= cropAgreeCount {
+			fb.orientation, fb.orientPending, fb.orientSeen = o, "", 0
+		}
+	}
+}
+
+// orientationOf names a picture's shape. A dark app can shrink what is
+// detected, but not turn a tall picture wide; a square-ish one says
+// nothing.
+func orientationOf(r image.Rectangle) string {
+	switch w, h := r.Dx(), r.Dy(); {
+	case w*5 > h*6:
+		return OrientationLandscape
+	case h*5 > w*6:
+		return OrientationPortrait
+	}
+	return ""
+}
+
+const (
+	OrientationPortrait  = "portrait"
+	OrientationLandscape = "landscape"
+)
+
+// presumeOrientation starts out turned that way before anything is
+// detected, so a saved crop applies from the first frame after a restart.
+// Detection still turns it, as usual.
+func (fb *FrameBuffer) presumeOrientation(o string) {
+	fb.mu.Lock()
+	if fb.orientation == "" {
+		fb.orientation = o
+	}
+	fb.mu.Unlock()
+}
+
+// Orientation is which way the target's picture is turned, as last
+// detected; empty before anything was.
+func (fb *FrameBuffer) Orientation() string {
+	fb.mu.RLock()
+	defer fb.mu.RUnlock()
+	return fb.orientation
+}
+
+// ContentRect returns where the picture sits in the captured frame: the
+// saved crop when it is in use, otherwise what was last detected.
 func (fb *FrameBuffer) ContentRect() image.Rectangle {
 	fb.mu.RLock()
-	r := fb.contentRect
-	fb.mu.RUnlock()
-	return r
+	defer fb.mu.RUnlock()
+	if r, ok := fb.savedInUse(fb.frameSize); ok {
+		return r
+	}
+	return fb.contentRect
+}
+
+// savedInUse returns the saved crop when it is the crop chosen and there is
+// one for the way the target is turned, at this frame size. Call with mu
+// held.
+func (fb *FrameBuffer) savedInUse(frame image.Point) (image.Rectangle, bool) {
+	if fb.cropUse != CropSaved {
+		return image.Rectangle{}, false
+	}
+	return fb.savedCrops[fb.orientation].appliesTo(frame)
+}
+
+// DetectedRect returns the picture's edges as last detected, ignoring any
+// saved crop: what saving a crop now would save.
+func (fb *FrameBuffer) DetectedRect() image.Rectangle {
+	fb.mu.RLock()
+	defer fb.mu.RUnlock()
+	return fb.contentRect
+}
+
+// SavedCrop is a crop saved from a bright screen, and the size of the
+// frames it was taken from: it only means anything at that size.
+type SavedCrop struct {
+	Rect  image.Rectangle
+	Frame image.Point
+}
+
+func (c SavedCrop) appliesTo(frame image.Point) (image.Rectangle, bool) {
+	ok := !c.Rect.Empty() && frame == c.Frame && c.Rect.In(image.Rectangle{Max: frame})
+	return c.Rect, ok
+}
+
+// SetSavedCrop sets the crop to use, instead of detection, while the
+// target is turned that way; the zero SavedCrop clears it.
+func (fb *FrameBuffer) SetSavedCrop(orientation string, c SavedCrop) {
+	fb.mu.Lock()
+	defer fb.mu.Unlock()
+	if c.Rect.Empty() {
+		delete(fb.savedCrops, orientation)
+		return
+	}
+	if fb.savedCrops == nil {
+		fb.savedCrops = map[string]SavedCrop{}
+	}
+	fb.savedCrops[orientation] = c
+}
+
+// SavedCrops returns the saved crops by orientation.
+func (fb *FrameBuffer) SavedCrops() map[string]SavedCrop {
+	fb.mu.RLock()
+	defer fb.mu.RUnlock()
+	out := make(map[string]SavedCrop, len(fb.savedCrops))
+	for o, c := range fb.savedCrops {
+		out[o] = c
+	}
+	return out
+}
+
+// savedCropFor returns the saved crop if it is in use for frames of bounds.
+func (fb *FrameBuffer) savedCropFor(bounds image.Rectangle) (image.Rectangle, bool) {
+	fb.mu.RLock()
+	defer fb.mu.RUnlock()
+	return fb.savedInUse(bounds.Size())
+}
+
+// autocropping is whether the crop is detected now: auto-crop chosen, or
+// the saved crop chosen with none for the way the target is turned.
+func (fb *FrameBuffer) autocropping() bool {
+	return fb.CropMode() == CropAuto
+}
+
+// setFrameSize records the size of the frames being captured.
+func (fb *FrameBuffer) setFrameSize(p image.Point) {
+	fb.mu.Lock()
+	fb.frameSize = p
+	fb.mu.Unlock()
+}
+
+// FrameSize returns the size of the frames being captured, zero before the
+// first one.
+func (fb *FrameBuffer) FrameSize() image.Point {
+	fb.mu.RLock()
+	defer fb.mu.RUnlock()
+	return fb.frameSize
+}
+
+// CropMode says what decides the crop now: CropSaved, CropAuto or CropOff.
+// It is the crop chosen, except that the saved crop chosen with none for
+// the way the target is turned (or for this frame size) means auto.
+func (fb *FrameBuffer) CropMode() string {
+	fb.mu.RLock()
+	defer fb.mu.RUnlock()
+	if _, ok := fb.savedInUse(fb.frameSize); ok {
+		return CropSaved
+	}
+	if fb.cropUse == CropOff {
+		return CropOff
+	}
+	return CropAuto
 }
 
 // CropRect returns the current crop rectangle.
@@ -709,6 +905,7 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 		var activeCrop image.Rectangle
 		var pendingCrop image.Rectangle
 		var pendingCropSeen int
+		var usingSaved bool
 		var frameCount int
 		var prevBlack bool
 		var prevFingerprint uint64
@@ -759,15 +956,26 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 			transitioned := black != prevBlack
 			prevBlack = black
 			fullBounds := img.Bounds()
-			if frameCount == 1 || transitioned || frameCount%fps == 0 {
+			buf.setFrameSize(fullBounds.Size())
+			// A black frame says nothing about where the picture is or which
+			// way it is turned (the dongle sends them for seconds after it
+			// starts): keep what the last real one said.
+			if !black && (frameCount == 1 || transitioned || frameCount%fps == 0) {
 				detected := detectContentRect(img, cropThreshold)
 				if detected != (image.Rectangle{}) {
 					buf.SetContentRect(detected)
 				}
 			}
-			if buf.Autocrop() {
+			if saved, ok := buf.savedCropFor(fullBounds); ok {
+				activeCrop, usingSaved = saved, true
+				pendingCrop, pendingCropSeen = image.Rectangle{}, 0
+			} else if usingSaved {
+				// The saved crop was just cleared: detect afresh.
+				activeCrop, usingSaved = image.Rectangle{}, false
+			}
+			if !usingSaved && buf.autocropping() {
 				if frameCount == 1 || transitioned || frameCount%fps == 0 {
-					rect := buf.ContentRect()
+					rect := buf.DetectedRect()
 					if isMajorCropChange(activeCrop, rect, fullBounds) {
 						// One frame is a poor witness. When the target's own
 						// screen goes dark near its edges, the detected
@@ -792,7 +1000,7 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 						pendingCrop, pendingCropSeen = image.Rectangle{}, 0
 					}
 				}
-			} else {
+			} else if !usingSaved {
 				activeCrop = image.Rectangle{}
 			}
 

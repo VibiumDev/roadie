@@ -99,6 +99,7 @@ func (h *HTTPSourceManager) stream() error {
 	h.Buf.SetStatus(StatusConnected)
 
 	var activeCrop image.Rectangle
+	var usingSaved bool
 	var consecutiveBlack int
 	var frameCount int
 	var prevBlack bool
@@ -157,11 +158,21 @@ func (h *HTTPSourceManager) stream() error {
 		transitioned := black != prevBlack
 		prevBlack = black
 		fullBounds := img.Bounds()
+		h.Buf.setFrameSize(fullBounds.Size())
 		if frameCount == 1 || transitioned || frameCount%httpCropInterval == 0 {
 			rect := detectContentRect(img, cropThreshold)
-			if isMajorCropChange(activeCrop, rect, fullBounds) {
+			if rect != (image.Rectangle{}) && !black { // a black frame says nothing
+				h.Buf.SetContentRect(rect)
+			}
+			if !usingSaved && isMajorCropChange(activeCrop, rect, fullBounds) {
 				activeCrop = rect
 			}
+		}
+		if saved, ok := h.Buf.savedCropFor(fullBounds); ok {
+			activeCrop, usingSaved = saved, true
+		} else if usingSaved {
+			// The saved crop was just cleared: detect afresh.
+			activeCrop, usingSaved = image.Rectangle{}, false
 		}
 
 		if activeCrop == (image.Rectangle{}) || activeCrop == fullBounds {

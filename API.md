@@ -54,7 +54,7 @@ Only the scheme and host of each target are used; the iframe path is always
 `/view?minimal=1` plus any `input` mode. Returns `400` with usage help if `targets` is missing or invalid.
 
 ### `GET /settings`
-Device info and JPEG quality adjustment UI.
+Device info, capture settings, and the [saved crop](#get-put-post-delete-apicrop).
 
 ### `GET /soundcheck`
 
@@ -147,12 +147,69 @@ Update settings. All fields are optional — only provided fields are changed. C
 | `fps` | 10-30 | Capture framerate |
 | `width` | | Capture width (must be set with `height`) |
 | `height` | | Capture height (must be set with `width`) |
-| `autocrop` | `true`/`false` | Trim constant black bars from the captured frame. The viewer's settings panel has a checkbox for it |
+| `autocrop` | `true`/`false` | Choose auto-crop (trim constant black bars) or no crop: the two-way form of [`/api/crop`](#get-put-post-delete-apicrop)'s choice, which also offers a saved crop. Kept across restarts. `GET` answers `true` only while auto-crop is chosen |
 
 **Response:**
 ```json
 {"quality": 60, "fps": 15, "width": 1280, "height": 720}
 ```
+
+### `GET`, `PUT`, `POST`, `DELETE /api/crop`
+The crop: **auto**, **off**, or **saved**. Auto-crop trims whatever is black
+at the frame's edges, so a dark app on the target shrinks the picture, and
+with it the screenshot's size and where taps land. A crop saved while the
+target shows something bright to its edges, such as
+`https://soundcheck.vibium.dev/white`, doesn't move. Portrait and landscape
+each keep their own, picked by the shape of the picture; where there is
+none, saved means auto. A crop saved at another capture resolution is
+ignored. The choice and the saved crops survive restarts (in
+`~/.config/roadie/crop-<name>.json`, by `--name`). The viewer's settings
+panel and [`/settings`](#get-settings) have the same controls.
+
+- `GET` returns the state below.
+- `PUT {"use": "auto"}` (or `"off"`, `"saved"`) chooses. Choosing auto or off
+  keeps the saved crops; `saved` needs one.
+- `POST` with no body saves the crop detected now, for the way the target is
+  turned, and chooses saved. With `{"x": 734, "y": 54, "width": 452,
+  "height": 972}` (frame pixels) it saves that rectangle instead, as portrait
+  or landscape by its shape; add `"orientation"` to say which.
+- `DELETE` clears both saved crops; `?orientation=portrait` or `landscape`
+  clears one. Clearing the last one while saved is chosen goes back to auto.
+
+**Response:**
+```json
+{
+  "use": "saved",
+  "mode": "saved",
+  "orientation": "portrait",
+  "saved": {
+    "portrait": {"x": 734, "y": 54, "width": 452, "height": 972, "frame_width": 1920, "frame_height": 1080},
+    "landscape": null
+  },
+  "detected": {"x": 750, "y": 76, "width": 418, "height": 931, "frame_width": 1920, "frame_height": 1080}
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `use` | The crop chosen: `auto`, `off` or `saved` |
+| `mode` | What decides the crop now: `use`, except `auto` when `saved` is chosen and there is none for the way the target is turned |
+| `orientation` | `portrait` or `landscape`: the picture's shape as detected, empty until something bright was seen |
+| `detected` | The picture's edges as last detected: what `POST` saves |
+
+`POST` answers `409` when nothing is detected, because the screen is black at
+its edges, and `400` for a rectangle outside the frame or one too square to
+call portrait or landscape. `PUT {"use": "saved"}` answers `409` when no crop
+is saved.
+
+-------|-------------|
+| `mode` | What decides the crop now: `saved`, `auto` or `off` |
+| `orientation` | `portrait` or `landscape`: the picture's shape as detected, empty until something bright was seen |
+| `detected` | The picture's edges as last detected: what `POST` saves |
+
+`POST` answers `409` when nothing is detected, because the screen is black at
+its edges, and `400` for a rectangle outside the frame or one too square to
+call portrait or landscape.
 
 ---
 
@@ -171,6 +228,7 @@ Service status and device info.
   "fps": 30,
   "quality": 80,
   "crop": {"x": 0, "y": 140, "width": 1920, "height": 800},
+  "crop_mode": "auto",
   "audio": {"sampleRate": 48000, "channels": 2},
   "platform": "ios",
   "pointer_space": "screen",
@@ -183,6 +241,7 @@ Service status and device info.
 | `status` | `ok`, `disconnected`, `connecting`, or `no_signal` |
 | `source_type` | `hardware` or `http` |
 | `crop` | Present only when active crop differs from full frame |
+| `crop_mode` | `saved`, `auto` or `off`: what decides the crop (see [`/api/crop`](#get-put-post-delete-apicrop)) |
 | `audio` | Present only when audio capture is active. With `--hid-backend linux-gadget`, `source` says which of the phone's outputs `/audio` is following, `usb` (the gadget's speaker) or `hdmi`, while the phone is playing |
 | `hid_board` | `not_answering` when the far end is not taking input: the HID board is silent (RP2040), or no phone has enumerated the gadget (linux-gadget) |
 | `platform` | Present only when `--platform` is set |
