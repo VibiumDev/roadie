@@ -450,7 +450,7 @@ Roadie implements a minimal subset of BiDi — only the methods that map to hard
 | `session.new` | Create a session (one at a time) |
 | `session.end` | End the session, release all held input |
 | `browsingContext.getTree` | Returns a single context (`"screen"`) representing the target display |
-| `browsingContext.captureScreenshot` | Returns a base64-encoded JPEG of the current frame |
+| `browsingContext.captureScreenshot` | Returns a base64-encoded JPEG of the current frame. Right after input, it first waits for the screen to show it: at least 300 ms, then until the picture stops changing (at most 2 s after the input) |
 | `roadie:screen.getViewport` | Returns the current viewport (cropped image) width and height |
 | `input.performActions` | Execute keyboard, mouse, and touch actions |
 | `input.releaseActions` | Release all held keys, buttons, and touches |

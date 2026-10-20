@@ -32,6 +32,7 @@ type settledHID struct {
 	mu       sync.Mutex
 	moved    time.Time
 	released time.Time
+	input    time.Time // the last input of any kind, for screenshots
 	now      func() time.Time
 	sleep    func(time.Duration)
 }
@@ -43,26 +44,66 @@ func newSettledHID(b HIDBackend) *settledHID {
 func (h *settledHID) MouseMove(x, y int) error {
 	h.wait(&h.released, releaseSettle)
 	err := h.HIDBackend.MouseMove(x, y)
-	h.mark(&h.moved)
+	h.mark(&h.moved, &h.input)
 	return err
 }
 
 func (h *settledHID) MousePress(buttons int) error {
 	h.wait(&h.moved, pressSettle)
-	return h.HIDBackend.MousePress(buttons)
+	err := h.HIDBackend.MousePress(buttons)
+	h.mark(&h.input)
+	return err
 }
 
 func (h *settledHID) MouseRelease(buttons int) error {
 	err := h.HIDBackend.MouseRelease(buttons)
-	h.mark(&h.released)
+	h.mark(&h.released, &h.input)
 	return err
 }
 
 func (h *settledHID) MouseClick(buttons int) error {
 	h.wait(&h.moved, pressSettle)
 	err := h.HIDBackend.MouseClick(buttons)
-	h.mark(&h.released)
+	h.mark(&h.released, &h.input)
 	return err
+}
+
+func (h *settledHID) MouseScroll(amount int) error {
+	err := h.HIDBackend.MouseScroll(amount)
+	h.mark(&h.input)
+	return err
+}
+
+func (h *settledHID) Type(text string) error {
+	err := h.HIDBackend.Type(text)
+	h.mark(&h.input)
+	return err
+}
+
+func (h *settledHID) KeyPress(keycode int) error {
+	err := h.HIDBackend.KeyPress(keycode)
+	h.mark(&h.input)
+	return err
+}
+
+func (h *settledHID) KeyRelease(keycode int) error {
+	err := h.HIDBackend.KeyRelease(keycode)
+	h.mark(&h.input)
+	return err
+}
+
+func (h *settledHID) Touch(contacts []TouchContact) error {
+	err := h.HIDBackend.Touch(contacts)
+	h.mark(&h.input)
+	return err
+}
+
+// LastInput is when input last went to the target, so a screenshot can
+// wait for the screen to show it.
+func (h *settledHID) LastInput() time.Time {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.input
 }
 
 // wait sleeps until the event at *at is d old.

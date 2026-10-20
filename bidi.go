@@ -248,6 +248,10 @@ func (s *Server) bidiGetViewport(conn *websocket.Conn, ctx context.Context, cmd 
 
 func (s *Server) bidiCaptureScreenshot(conn *websocket.Conn, ctx context.Context, cmd bidiCommand) {
 	frame := s.Source.Latest()
+	// Straight after input, show the screen once it has caught up with it.
+	if h, ok := s.HID.(interface{ LastInput() time.Time }); ok && frame != nil {
+		frame = settledFrame(ctx, s.Source, h.LastInput(), realSettleClock)
+	}
 	if frame == nil {
 		writeJSON(conn, ctx, bidiErrorResp{
 			Type:    "error",
