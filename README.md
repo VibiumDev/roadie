@@ -139,7 +139,7 @@ To drive more than one device from the same host, see
 | [Testing](docs/how-to/testing.md) | Checking keyboard, mouse, touch, and voice input against real hardware |
 | [Running Multiple Targets](docs/how-to/multiple-targets.md) | Driving several devices from one host, and viewing them together |
 | [Troubleshooting](docs/how-to/troubleshooting.md) | Common problems and fixes |
-| [Automate with Vibium](docs/tutorials/automate-with-vibium.md) | Drive Roadie with JavaScript using browser automation |
+| [Automate with Vibium](docs/tutorials/automate-with-vibium.md) | Drive Roadie from the CLI, JavaScript, Python or an AI agent |
 | [REPL Tutorial](docs/tutorials/repl.md) | Interactive debugging via CircuitPython REPL |
 
 ## Development

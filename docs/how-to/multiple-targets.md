@@ -91,9 +91,9 @@ LAN hostnames or IPs rather than `localhost` when viewing from another machine.
 ## Automating several targets
 
 Because a single browser page now contains every target, one automation session
-driving that page drives all of them — no aggregating server needed. Point
-[Vibium](../tutorials/automate-with-vibium.md) at the grid URL instead of
-`/view` and the same script reaches any of the devices.
+driving that page drives all of them — no aggregating server needed. Have
+[Vibium](../tutorials/automate-with-vibium.md#driving-the-viewer) launch a
+browser on the grid URL and the same script reaches any of the devices.
 
 ## Notes and caveats
 

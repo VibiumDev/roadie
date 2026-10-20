@@ -18,8 +18,7 @@ Two things are under test that nothing else covers:
 The button is located over WebDriver BiDi using the vibium CLI, which
 attaches to a browser this script launches (see "Remote Browser Control"
 in the vibium docs). Launching it here is what lets the browser have a
-file playing in place of a microphone -- and it means vibium never has to
-fetch a browser of its own, which is the part that has no arm64 build.
+file playing in place of a microphone.
 
 Usage:
     python3 board/test_view.py           # on a Pi with both boards attached
