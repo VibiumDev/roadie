@@ -110,9 +110,10 @@ WebSocket endpoint for live PCM audio.
 **Protocol:**
 1. Server sends audio parameters as the first text message:
    ```json
-   {"sampleRate": 48000, "channels": 2, "format": "f32-planar"}
+   {"sampleRate": 48000, "channels": 2, "format": "f32-interleaved"}
    ```
-2. Server streams PCM audio as binary messages (little-endian float32).
+2. Server streams PCM audio as binary messages: little-endian float32,
+   channels interleaved (left, right, left, right, ...).
 
 Returns `503` if no audio device is active.
 

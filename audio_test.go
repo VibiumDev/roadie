@@ -90,7 +90,7 @@ func TestAudioBroadcasterParams(t *testing.T) {
 		t.Error("expected inactive initially")
 	}
 
-	ab.SetParams(AudioParams{SampleRate: 48000, Channels: 2, Format: "f32-planar"})
+	ab.SetParams(AudioParams{SampleRate: 48000, Channels: 2, Format: "f32-interleaved"})
 	if !ab.IsActive() {
 		t.Error("expected active after SetParams")
 	}

@@ -23,7 +23,7 @@ import (
 type AudioParams struct {
 	SampleRate int    `json:"sampleRate"`
 	Channels   int    `json:"channels"`
-	Format     string `json:"format"` // "f32-planar"
+	Format     string `json:"format"` // "f32-interleaved"
 }
 
 // AudioBroadcaster fans out raw PCM audio chunks to WebSocket subscribers.
@@ -261,7 +261,7 @@ func StartAudioCapture(ctx context.Context, dev deviceInfo, ab *AudioBroadcaster
 	ab.SetParams(AudioParams{
 		SampleRate: mediaProp.SampleRate,
 		Channels:   mediaProp.ChannelCount,
-		Format:     "f32-planar",
+		Format:     "f32-interleaved",
 	})
 
 	done := make(chan struct{})

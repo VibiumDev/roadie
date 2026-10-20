@@ -979,7 +979,26 @@ func (cm *CaptureManager) Run() {
 		// Start audio capture (optional — failure is non-fatal).
 		var audioDone <-chan struct{}
 		var audioCancel context.CancelFunc
+		useDriver := false
 		if cm.AudioBroadcast != nil {
+			// The dongle's own sound card, straight from ALSA where there is
+			// one; the microphone driver only where there is none (macOS,
+			// capture that is not a USB dongle).
+			audioCtx, ac := context.WithCancel(captureCtx)
+			ad, desc, err := startDongleAudio(audioCtx, dev, cm.AudioFilter, cm.AudioBroadcast)
+			switch {
+			case err == nil:
+				audioCancel, audioDone = ac, ad
+				log.Printf("audio capture started on %s", desc)
+			case errors.Is(err, errNoDongleCard):
+				ac()
+				useDriver = true
+			default:
+				ac()
+				log.Printf("audio capture failed: %v (continuing without audio)", err)
+			}
+		}
+		if useDriver {
 			audioDev, found := DetectAudioDevice(cm.audioFilter())
 			if found {
 				audioCtx, ac := context.WithCancel(captureCtx)

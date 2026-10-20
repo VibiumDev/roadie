@@ -169,6 +169,7 @@ The HID board's multi-touch digitizer enables native touch interaction, so the p
 | `gadget_hid.go`, `gadget_report.go`, `gadget_linux.go` | linux-gadget backend: device mapping from configfs, HID report encoding, state, recovery |
 | `gadget_audio.go`, `resample.go`, `alsa_linux.go` | Gadget microphone and speaker streams; 16→48 kHz upsampler; ALSA via kernel ioctls |
 | `audio_mux.go` | `/audio` follows the phone's output: gadget USB speaker first, dongle HDMI audio otherwise |
+| `capture_audio_linux.go` | The capture dongle's audio from its own ALSA card, matched to the video by USB device |
 | `gadget/` | Gadget and phone-network setup scripts, HID descriptors, systemd units, install/uninstall |
 | `capture.go` | Frame capture, crop detection, frame buffer |
 | `bidi.go` | WebDriver BiDi endpoint (`/session`) |
