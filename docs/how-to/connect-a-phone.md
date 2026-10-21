@@ -51,6 +51,7 @@ For a phone that scripts, agents and people drive through roadie, under
 | Mouse Keys | Touch → AssistiveTouch | Off | It turns keys into pointer moves, which fights roadie's typing |
 | Sound on Click | Touch → AssistiveTouch | Off | roadie records the phone's audio |
 | Show Onscreen Keyboard | Touch → AssistiveTouch | Off | roadie is the keyboard; the onscreen one covers half of every screenshot |
+| Full Keyboard Access | Keyboards & Typing | Off | It outlines whatever has keyboard focus, and the outline shows in screenshots; roadie's shortcuts (⌘H, ⌘Space) work without it |
 | Double-Tap, Long Press | Touch → AssistiveTouch → Custom Actions | None | A stray click on the floating button does nothing |
 | Additional buttons | Touch → AssistiveTouch → Devices → Roadie | None | See the right button, below |
 | Always Show Menu | Touch → AssistiveTouch | On, the button at an edge, Idle Opacity low | Its menu is the only way to Rotate Screen, open Control Center, or leave the Today view; where it sits it takes clicks, and it shows in screenshots |
