@@ -5,10 +5,12 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"reflect"
 	"sync"
 	"testing"
 
 	"github.com/pion/mediadevices/pkg/driver"
+	"github.com/pion/mediadevices/pkg/prop"
 )
 
 // makeImage creates a w×h RGBA image filled with fillColor, then draws a
@@ -424,6 +426,50 @@ func TestChooseDevice(t *testing.T) {
 		}
 		if err != nil || got != tc.want {
 			t.Errorf("%s: chose %q (%v), want %q", tc.name, got.Name, err, tc.want.Name)
+		}
+	}
+}
+
+// fakeNode is a video node as the driver list gives it.
+type fakeNode struct{ info driver.Info }
+
+func (f fakeNode) Open() error              { return nil }
+func (f fakeNode) Close() error             { return nil }
+func (f fakeNode) Properties() []prop.Media { return nil }
+func (f fakeNode) ID() string               { return f.info.Label }
+func (f fakeNode) Info() driver.Info        { return f.info }
+func (f fakeNode) Status() driver.State     { return driver.StateClosed }
+
+// Whichever of a dongle's nodes was chosen, every one of them is tried,
+// the chosen one first, in the same order however the list comes.
+func TestCaptureNodesTriesTheWholeDevice(t *testing.T) {
+	name := "UGREEN 15389: UGREEN 15389;usb-0000:01:00.0-1"
+	node := func(label, name string) driver.Driver {
+		return fakeNode{driver.Info{Label: label, Name: name, DeviceType: driver.Camera}}
+	}
+	video := node("usb-MACROSILICON_UGREEN_15389_20230204-video-index0;video0", name)
+	meta := node("usb-MACROSILICON_UGREEN_15389_20230204-video-index1;video1", name)
+	other := node("usb-Other-video-index0;video2", "Other: Other;usb-0000:01:00.0-2")
+	mic := fakeNode{driver.Info{Label: "hw:5,0", Name: name, DeviceType: driver.Microphone}}
+	labels := func(ds []driver.Driver) (out []string) {
+		for _, d := range ds {
+			out = append(out, d.Info().Label)
+		}
+		return out
+	}
+
+	for _, list := range [][]driver.Driver{{meta, other, video, mic}, {video, mic, meta, other}} {
+		chose := deviceInfo{Name: name, Label: meta.Info().Label} // the metadata node
+		got := labels(captureNodes(list, chose))
+		want := labels([]driver.Driver{meta, video})
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("chose the metadata node: try %v, want %v", got, want)
+		}
+		chose.Label = video.Info().Label
+		got = labels(captureNodes(list, chose))
+		want = labels([]driver.Driver{video, meta})
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("chose the video node: try %v, want %v", got, want)
 		}
 	}
 }

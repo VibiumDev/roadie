@@ -9,6 +9,7 @@ import (
 	"image/jpeg"
 	"log"
 	"math"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -634,6 +635,33 @@ func ListDevices() []string {
 	return names
 }
 
+// captureNodes returns the nodes to try for dev, in order: the one chosen,
+// then the same device's others by label. A capture dongle presents more
+// than one node under one name -- one that streams video, one that carries
+// only metadata -- with different labels, and the driver list comes in no
+// fixed order, so the node chosen is as likely to be the one with nothing
+// to stream.
+func captureNodes(drivers []driver.Driver, dev deviceInfo) []driver.Driver {
+	var nodes []driver.Driver
+	for _, d := range drivers {
+		info := d.Info()
+		if info.DeviceType != driver.Camera {
+			continue
+		}
+		if name, ok := cameraName(info); info.Label == dev.Label || ok && name == dev.Name {
+			nodes = append(nodes, d)
+		}
+	}
+	sort.SliceStable(nodes, func(i, j int) bool {
+		a, b := nodes[i].Info().Label, nodes[j].Info().Label
+		if (a == dev.Label) != (b == dev.Label) {
+			return a == dev.Label
+		}
+		return a < b
+	})
+	return nodes
+}
+
 // maxConsecutiveErrors is the number of consecutive read errors before
 // the capture goroutine treats the device as disconnected.
 const maxConsecutiveErrors = 3
@@ -845,20 +873,14 @@ func InitObserver() error {
 // reads frames, JPEG-encodes them, and stores them in buf.
 // The returned channel closes when the goroutine exits (device disconnected or context cancelled).
 func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, buf *FrameBuffer) (<-chan struct{}, error) {
-	// Find the driver matching our detected device label (UID).
-	drivers := driver.GetManager().Query(func(d driver.Driver) bool {
-		return d.Info().DeviceType == driver.Camera && d.Info().Label == dev.Label
-	})
+	drivers := captureNodes(driver.GetManager().Query(func(driver.Driver) bool { return true }), dev)
 	if len(drivers) == 0 {
 		return nil, fmt.Errorf("device %q not found", dev.Name)
 	}
 
-	// A capture dongle usually presents more than one node under the same
-	// name -- one that streams video and one that carries only metadata --
-	// and which comes first is not fixed. Take the first that opens and
-	// actually offers a format, rather than assuming it is drivers[0]:
-	// picking the metadata node means retrying a device that can never work
-	// while the usable one sits next to it.
+	// Take the first node that opens and actually offers a format: picking
+	// the metadata node means retrying a device that can never work while
+	// the usable one sits next to it.
 	var d driver.Driver
 	var props []prop.Media
 	var lastErr error
