@@ -171,9 +171,12 @@ settings panel and [`/settings`](#get-settings) have the same controls.
 - `PUT {"use": "auto"}` (or `"off"`, `"saved"`) chooses. Choosing auto or off
   keeps the saved crops; `saved` needs one.
 - `POST` with no body saves the crop detected now, for the way the target is
-  turned, and chooses saved. With `{"x": 734, "y": 54, "width": 452,
-  "height": 972}` (frame pixels) it saves that rectangle instead, as portrait
-  or landscape by its shape; add `"orientation"` to say which.
+  turned, and chooses saved. It leaves out up to two lines along each edge
+  that stand out from the picture: one half-lit where the screen's edge falls
+  partway across a pixel, and one the capture's sharpening brightened. With
+  `{"x": 737, "y": 54, "width": 446, "height": 972}` (frame pixels) it saves
+  that rectangle instead, as portrait or landscape by its shape; add
+  `"orientation"` to say which.
 - `DELETE` clears both saved crops; `?orientation=portrait` or `landscape`
   clears one. Clearing the last one while saved is chosen goes back to auto.
 

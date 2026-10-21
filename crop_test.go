@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"image"
+	"image/color"
+	"image/jpeg"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -329,5 +332,48 @@ func TestSettingsGlide(t *testing.T) {
 	}
 	if code, _ := call("PUT", `{"glide":true}`); code != http.StatusConflict {
 		t.Errorf("PUT glide to an input that can't: %d", code)
+	}
+}
+
+// Saving what is detected trims the edge lines that stand out: one
+// half-lit, where the target's edge falls partway across a pixel, and one
+// the scaler brightened. A crop given as numbers is saved as given.
+func TestSaveTrimsEdgeLinesThatStandOut(t *testing.T) {
+	dark := color.RGBA{16, 16, 16, 255}
+	white := color.RGBA{235, 235, 235, 255}
+	picture := image.Rect(735, 54, 1184, 1026)
+	img := image.NewRGBA(image.Rectangle{Max: hd})
+	for y := 0; y < hd.Y; y++ {
+		for x := 0; x < hd.X; x++ {
+			c := dark
+			if image.Pt(x, y).In(picture) {
+				c = white
+				switch x {
+				case picture.Min.X:
+					c = color.RGBA{124, 124, 124, 255} // half across a pixel
+				case picture.Min.X + 1, picture.Max.X - 1:
+					c = color.RGBA{255, 255, 255, 255} // sharpened
+				}
+			}
+			img.Set(x, y, c)
+		}
+	}
+	var frame bytes.Buffer
+	if err := jpeg.Encode(&frame, img, &jpeg.Options{Quality: 80}); err != nil {
+		t.Fatal(err)
+	}
+	fb := &FrameBuffer{}
+	s := &Server{Buf: fb, CropFile: filepath.Join(t.TempDir(), "crop.json")}
+	fb.setFrameSize(hd)
+	fb.UpdateBoth(frame.Bytes(), frame.Bytes(), image.Rectangle{Max: hd})
+	fb.SetContentRect(picture)
+
+	_, st, _ := cropCall(t, s, "POST", "/api/crop", "")
+	if got, want := st.Saved.Portrait.savedCrop().Rect, image.Rect(737, 54, 1183, 1026); got != want {
+		t.Errorf("saved %v, want %v: the half-lit and sharpened columns trimmed, the clean edges kept", got, want)
+	}
+	_, st, _ = cropCall(t, s, "POST", "/api/crop", `{"x":735,"y":54,"width":449,"height":972}`)
+	if got := st.Saved.Portrait.savedCrop().Rect; got != picture {
+		t.Errorf("saved %v from numbers, want them as given, %v", got, picture)
 	}
 }

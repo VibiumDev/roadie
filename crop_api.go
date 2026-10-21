@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
+	"image/jpeg"
 	"io"
 	"log"
 	"net/http"
@@ -112,6 +115,7 @@ func (s *Server) saveCrop(r *http.Request) (int, error) {
 		if rect.Empty() {
 			return http.StatusConflict, errors.New("nothing detected: the screen is black at its edges. Show something bright to its edges, such as a white page, and save again")
 		}
+		rect = trimEdgeLines(s.Buf.LatestRaw(), rect)
 	}
 	if rect.Empty() || !rect.In(image.Rectangle{Max: frame}) {
 		return http.StatusBadRequest, fmt.Errorf("crop %v isn't inside the %dx%d frame", rect, frame.X, frame.Y)
@@ -131,6 +135,47 @@ func (s *Server) saveCrop(r *http.Request) (int, error) {
 	log.Printf("crop: saved the %s crop, %dx%d at (%d,%d) of a %dx%d frame, and using it",
 		o, rect.Dx(), rect.Dy(), rect.Min.X, rect.Min.Y, frame.X, frame.Y)
 	return s.storeCrops()
+}
+
+// trimEdgeLines trims the lines along each edge of r that stand out from
+// the picture inside them, in frame, a JPEG of the whole picture: at most
+// two per edge, each more than about 6% dimmer or brighter than the line
+// inside it. Where the target's edge falls partway across a pixel, that
+// line comes through half-lit, and the scaler's sharpening brightens the
+// line next to it: a grey line and a white one down that side of the crop.
+// Without a frame, or with r outside it, r is returned as it is.
+func trimEdgeLines(frame []byte, r image.Rectangle) image.Rectangle {
+	img, err := jpeg.Decode(bytes.NewReader(frame))
+	if err != nil || !r.In(img.Bounds()) {
+		return r
+	}
+	level := func(x, y, dx, dy, n int) int {
+		sum := 0
+		for i := 0; i < n; i++ {
+			sum += int(color.GrayModel.Convert(img.At(x+i*dx, y+i*dy)).(color.Gray).Y)
+		}
+		return sum / n
+	}
+	col := func(x int) int { return level(x, r.Min.Y, 0, 1, r.Dy()) }
+	row := func(y int) int { return level(r.Min.X, y, 1, 0, r.Dx()) }
+	standsOut := func(edge, inside int) bool {
+		d := edge - inside
+		return d*16 > inside || -d*16 > inside
+	}
+	out := r
+	for i := 0; i < 2 && out.Dx() > 2 && standsOut(col(out.Min.X), col(out.Min.X+1)); i++ {
+		out.Min.X++
+	}
+	for i := 0; i < 2 && out.Dx() > 2 && standsOut(col(out.Max.X-1), col(out.Max.X-2)); i++ {
+		out.Max.X--
+	}
+	for i := 0; i < 2 && out.Dy() > 2 && standsOut(row(out.Min.Y), row(out.Min.Y+1)); i++ {
+		out.Min.Y++
+	}
+	for i := 0; i < 2 && out.Dy() > 2 && standsOut(row(out.Max.Y-1), row(out.Max.Y-2)); i++ {
+		out.Max.Y--
+	}
+	return out
 }
 
 func (s *Server) clearCrop(o string) (int, error) {
