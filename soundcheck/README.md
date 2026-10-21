@@ -21,16 +21,14 @@ the proxy provides that.
 From this directory, with Go installed:
 
 ```bash
-go test .                     # check it
-go build -o soundcheck .      # build it for this machine
-./soundcheck                  # serve it at http://localhost:8000/ (-addr to change)
+make test                     # check it
+make                          # build it for this machine
+make run                      # serve it at http://localhost:8000/ (ADDR=:9000 to change)
 ```
 
 The microphone works at `localhost` too, since browsers treat it as secure.
-
-To build for another machine, name its OS and processor: `GOOS=linux
-GOARCH=amd64 go build -o soundcheck .` (`arm64` for an ARM one). `index.html`
-is built in, so rebuild after changing it.
+The pages are built in, so rebuild after changing them. `make help` lists
+the targets.
 
 ## Hosting it on exe.dev
 
@@ -46,32 +44,18 @@ Run them from this directory.
 ssh exe.dev new --name=soundcheck
 ```
 
-**2. Build the server for the VM.** This asks the VM which processor it
-has (`amd64` or `arm64`) and builds for that, as one file that needs nothing
-else installed (`CGO_ENABLED=0`):
+**2. Build it for the VM, copy it over, and start it.**
 
 ```bash
-GOOS=linux GOARCH=$(ssh soundcheck.exe.xyz dpkg --print-architecture) \
-  CGO_ENABLED=0 go build -o soundcheck .
+make deploy
 ```
 
-**3. Copy it over with its service, and start it.** It listens on port 8000:
+This runs the tests, asks the VM which processor it has (`amd64` or `arm64`)
+and builds for that, as one file that needs nothing else installed. It then
+copies the server and `soundcheck.service` over and starts the service, which
+listens on port 8000. For a VM with another name, `make deploy VM=othername`.
 
-```bash
-scp soundcheck soundcheck.service soundcheck.exe.xyz:~/
-ssh soundcheck.exe.xyz '
-  set -e
-  sudo install -m 755 ~/soundcheck /usr/local/bin/soundcheck
-  sudo install -m 644 ~/soundcheck.service /etc/systemd/system/
-  rm ~/soundcheck ~/soundcheck.service
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now soundcheck
-  sleep 1
-  curl -sf -o /dev/null http://localhost:8000/ && echo "serving on 8000"
-'
-```
-
-**4. Point exe.dev's HTTPS proxy at port 8000, and make it public.** A VM's
+**3. Point exe.dev's HTTPS proxy at port 8000, and make it public.** A VM's
 site is private by default: anyone not logged in to exe.dev, like the
 iPhone's Safari, gets a login page instead.
 
@@ -83,7 +67,7 @@ ssh exe.dev share set-public soundcheck
 The page is now at `https://soundcheck.exe.xyz/`. Open it in a private
 window to check that it loads without a login.
 
-**5. Give it the domain.** In vibium.dev's DNS, add:
+**4. Give it the domain.** In vibium.dev's DNS, add:
 
 ```
 soundcheck.vibium.dev.   CNAME   soundcheck.exe.xyz.
@@ -102,26 +86,21 @@ requests for it get `421 Misdirected Request`.
 ## Checking it
 
 ```bash
-curl -sI https://soundcheck.vibium.dev/
+make check
 ```
 
-That should be `200`, with the server's `Permissions-Policy:
-microphone=(self)`; so should `https://soundcheck.vibium.dev/white`. Then
+That should show `200` for `/`, with the server's `Permissions-Policy:
+microphone=(self)`, and `200` for `/white`. Then
 open the page on the iPhone and tap **Mic**: Safari asks for the microphone,
 the page counts down, and plays back what it heard.
 
 ## Updating it
 
 Edit `index.html` or `white.html` and try it locally (see
-[Building it](#building-it)), then rebuild for the VM, copy it over and
-restart:
+[Building it](#building-it)), then put it on the VM again:
 
 ```bash
-go test . && GOOS=linux GOARCH=$(ssh soundcheck.exe.xyz dpkg --print-architecture) \
-  CGO_ENABLED=0 go build -o soundcheck .
-scp soundcheck soundcheck.exe.xyz:~/
-ssh soundcheck.exe.xyz 'sudo install -m 755 ~/soundcheck /usr/local/bin/soundcheck &&
-  rm ~/soundcheck && sudo systemctl restart soundcheck'
+make deploy
 ```
 
 ## When something's wrong
@@ -129,7 +108,7 @@ ssh soundcheck.exe.xyz 'sudo install -m 755 ~/soundcheck /usr/local/bin/soundche
 | Symptom | Fix |
 |---|---|
 | exe.dev login page instead of the page | `ssh exe.dev share set-public soundcheck` |
-| `421 Misdirected Request` | the domain isn't registered: step 5's `domain add` |
+| `421 Misdirected Request` | the domain isn't registered: step 4's `domain add` |
 | an error from exe.dev instead of the page | the server may be down: `ssh soundcheck.exe.xyz 'systemctl status soundcheck'` |
 | "No microphone: this page has to be opened over HTTPS" | it was opened over `http://` |
 | "Recorded silence" | the mic heard nothing; on the test rig, Roadie didn't play into it |

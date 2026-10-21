@@ -34,3 +34,4 @@ roadie.log
 
 # The soundcheck server, built for deploying (soundcheck/README.md)
 soundcheck/soundcheck
+soundcheck/soundcheck-vm
