@@ -1072,6 +1072,11 @@ class Suite:
         self.tap(MIC_BUTTON)
         time.sleep(1.5)
         self.tap(ALLOW_MIC)
+        # Safari's prompt sometimes ignores a click (14 in a row one
+        # afternoon, then none), and a second without moving lands. If the
+        # first did land, the page is recording and its buttons are off.
+        time.sleep(1.0)
+        self.hid("mouse/click", {"buttons": 1})
         time.sleep(1.0)
         stream_api(make_tone(), self.base)
         rec.join()

@@ -65,6 +65,9 @@ buttons, exists only on iPad.
 Don't use the right button. On an iPhone a right-click starts a touch that
 never ends: pages stop taking taps until AssistiveTouch is turned off and on.
 
+Safari's microphone prompt ("Would Like to Access the Microphone") sometimes
+ignores a click. If it's still up, click again without moving.
+
 ## Android
 
 Nothing to turn on. The HID board registers as a touchscreen, so taps,
