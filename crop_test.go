@@ -286,3 +286,31 @@ func TestSettingsAutocropChoosesTheCrop(t *testing.T) {
 		t.Errorf("back to the default left a file")
 	}
 }
+
+// /api/settings shows and sets the glide switch, where the input can glide.
+func TestSettingsGlide(t *testing.T) {
+	h := newSettledHID(&pathHID{})
+	s := &Server{Buf: &FrameBuffer{}, HID: h}
+	call := func(method, body string) (int, map[string]interface{}) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		s.handleAPISettings(w, httptest.NewRequest(method, "/api/settings", strings.NewReader(body)))
+		var got map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &got)
+		return w.Code, got
+	}
+	if _, got := call("GET", ""); got["glide"] != false {
+		t.Errorf("GET: glide = %v, want false", got["glide"])
+	}
+	if code, got := call("PUT", `{"glide":true}`); code != http.StatusOK || got["glide"] != true || !h.Glide() {
+		t.Errorf("PUT glide true: %d %v, switch %v", code, got["glide"], h.Glide())
+	}
+
+	s.HID = &pathHID{} // an input that can't glide
+	if _, got := call("GET", ""); got["glide"] != nil {
+		t.Errorf("no glide switch, but GET says %v", got["glide"])
+	}
+	if code, _ := call("PUT", `{"glide":true}`); code != http.StatusConflict {
+		t.Errorf("PUT glide to an input that can't: %d", code)
+	}
+}

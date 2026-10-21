@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"math"
 	"sync"
 	"time"
 )
@@ -28,6 +29,8 @@ const (
 // go straight through. Every input path (REST, the viewer, BiDi) comes
 // through here, so a client that clicks back to back gets each click.
 //
+// With glide on, a jump from rest glides there instead (see glidePath).
+//
 // With touchAsPointer it also delivers touch as the pointer, for a target
 // that takes no touchscreen (iOS): a finger down is the button pressed
 // there, moving it drags, and lifting it releases. Taps, long presses and
@@ -41,6 +44,10 @@ type settledHID struct {
 	moved    time.Time
 	released time.Time
 	input    time.Time // the last input of any kind, for screenshots
+	x, y     int       // where the pointer is, once placed
+	placed   bool
+	held     int  // buttons down
+	glide    bool // jumps glide (see glidePath)
 	now      func() time.Time
 	sleep    func(time.Duration)
 
@@ -56,22 +63,70 @@ func newSettledHID(b HIDBackend) *settledHID {
 	return &settledHID{HIDBackend: b, now: time.Now, sleep: time.Sleep}
 }
 
-func (h *settledHID) MouseMove(x, y int) error {
+func (h *settledHID) MouseMove(x, y int) error { return h.moveTo(x, y, true) }
+
+// Glide reports whether jumps glide; SetGlide turns that on or off.
+func (h *settledHID) Glide() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.glide
+}
+
+func (h *settledHID) SetGlide(on bool) {
+	h.mu.Lock()
+	h.glide = on
+	h.mu.Unlock()
+}
+
+// moveTo moves the pointer, gliding if it may and glide is on.
+func (h *settledHID) moveTo(x, y int, mayGlide bool) error {
 	h.wait(&h.released, releaseSettle)
-	err := h.HIDBackend.MouseMove(x, y)
+	path := [][2]int{{x, y}}
+	if mayGlide {
+		path = h.route(x, y)
+	}
+	var err error
+	for i, p := range path {
+		if i > 0 {
+			h.sleep(glideFrame)
+		}
+		if err = h.HIDBackend.MouseMove(p[0], p[1]); err != nil {
+			break
+		}
+	}
+	h.mu.Lock()
+	h.x, h.y, h.placed = x, y, err == nil
+	h.mu.Unlock()
 	h.mark(&h.moved, &h.input)
 	return err
+}
+
+// route is the way to (x, y): a glide from rest, or else straight there.
+func (h *settledHID) route(x, y int) [][2]int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.glide || !h.placed || h.held != 0 || h.now().Sub(h.moved) < glideRest ||
+		math.Hypot(float64(x-h.x), float64(y-h.y)) < glideMin {
+		return [][2]int{{x, y}}
+	}
+	return glidePath(h.x, h.y, x, y)
 }
 
 func (h *settledHID) MousePress(buttons int) error {
 	h.wait(&h.moved, pressSettle)
 	err := h.HIDBackend.MousePress(buttons)
+	h.mu.Lock()
+	h.held |= buttons
+	h.mu.Unlock()
 	h.mark(&h.input)
 	return err
 }
 
 func (h *settledHID) MouseRelease(buttons int) error {
 	err := h.HIDBackend.MouseRelease(buttons)
+	h.mu.Lock()
+	h.held &^= buttons
+	h.mu.Unlock()
 	h.mark(&h.released, &h.input)
 	return err
 }
@@ -135,7 +190,8 @@ func (h *settledHID) touchWithPointer(contacts []TouchContact) error {
 		h.fingerDown = false
 		return h.MouseRelease(1)
 	case 1:
-		if err := h.MouseMove(tips[0].X, tips[0].Y); err != nil {
+		// A finger lands where it lands: no glide.
+		if err := h.moveTo(tips[0].X, tips[0].Y, false); err != nil {
 			return err
 		}
 		if h.fingerDown {

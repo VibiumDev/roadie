@@ -130,7 +130,7 @@ Get current settings.
 
 **Response:**
 ```json
-{"quality": 80, "fps": 30, "width": 1920, "height": 1080, "autocrop": true}
+{"quality": 80, "fps": 30, "width": 1920, "height": 1080, "autocrop": true, "glide": false}
 ```
 
 ### `PUT /api/settings`
@@ -148,6 +148,7 @@ Update settings. All fields are optional — only provided fields are changed. C
 | `width` | | Capture width (must be set with `height`) |
 | `height` | | Capture height (must be set with `width`) |
 | `autocrop` | `true`/`false` | Choose auto-crop (trim constant black bars) or no crop: the two-way form of [`/api/crop`](#get-put-post-delete-apicrop)'s choice, which also offers a saved crop. Kept across restarts. `GET` answers `true` only while auto-crop is chosen |
+| `glide` | `true`/`false` | Glide the pointer to each new spot instead of jumping (see [`/api/hid/mouse/move`](#post-apihidmousemove)). Off unless `--glide` was given; a change lasts until restart. `409` from an input that can't |
 
 **Response:**
 ```json
@@ -382,6 +383,16 @@ Coordinates are absolute in the range 0-32767:
 - `(0, 0)` = top-left
 - `(16383, 16383)` = center
 - `(32767, 32767)` = bottom-right
+
+The pointer jumps there. With glide on (`--glide`, or `{"glide": true}` to
+[`/api/settings`](#put-apisettings)), a jump from rest glides instead, as a
+hand would move a mouse: along a slight arc, slow at both ends, in 100 to 300
+ms by distance, and the call returns when the pointer arrives. It's off by
+default, because clients expect a move to be instant, and on a computer a
+glide can open hover menus on its way. Even with it on, taps, short moves
+(under about 3% of the screen), moves with a button held, and moves sent less
+than 100 ms apart go straight there, so a drag or a client's own animation
+keeps its path. It applies to WebDriver BiDi moves too.
 
 **Response:**
 ```json

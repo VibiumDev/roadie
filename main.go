@@ -70,6 +70,7 @@ func main() {
 	name := flag.String("name", "roadie", "Bonjour service name")
 	inputMode := flag.String("input", "", "default pointer mode for viewers: mouse or touch (empty: viewer decides)")
 	platformName := flag.String("platform", "", "target OS: android, ios, mac, windows, linux (tunes pointer mapping and input mode)")
+	glide := flag.Bool("glide", false, "glide the pointer to each new spot along an arc, as a hand would, instead of jumping (a switch in /settings too)")
 	hidBackendName := flag.String("hid-backend", BackendRP2040, "input hardware: rp2040 (relay and HID boards) or linux-gadget (this machine's USB device port, set up by gadget/roadie-gadget)")
 	flag.Parse()
 
@@ -269,6 +270,7 @@ func main() {
 	}
 	settled := newSettledHID(hid)
 	settled.touchAsPointer = platform.TouchAsPointer()
+	settled.SetGlide(*glide)
 	hid = settled
 	go hid.Run()
 	if gadgetAudio != nil {

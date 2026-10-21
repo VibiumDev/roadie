@@ -1498,22 +1498,37 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	enc.Encode(resp)
 }
 
+// glider is the input wrapper's glide switch (settledHID).
+type glider interface {
+	Glide() bool
+	SetGlide(bool)
+}
+
 func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 	if s.Buf == nil {
 		http.Error(w, "not available", http.StatusServiceUnavailable)
 		return
 	}
 
-	switch r.Method {
-	case http.MethodGet:
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+	glide, _ := s.HID.(glider)
+	settings := func() map[string]interface{} {
+		m := map[string]interface{}{
 			"quality":  s.Buf.Quality(),
 			"fps":      s.Buf.FPS(),
 			"width":    s.Buf.Width(),
 			"height":   s.Buf.Height(),
 			"autocrop": s.Buf.Autocrop(),
-		})
+		}
+		if glide != nil {
+			m["glide"] = glide.Glide()
+		}
+		return m
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(settings())
 	case http.MethodPut:
 		var body struct {
 			Quality  *int  `json:"quality"`
@@ -1521,10 +1536,18 @@ func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 			Width    *int  `json:"width"`
 			Height   *int  `json:"height"`
 			Autocrop *bool `json:"autocrop"`
+			Glide    *bool `json:"glide"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
+		}
+		if body.Glide != nil {
+			if glide == nil {
+				http.Error(w, "this input backend can't glide", http.StatusConflict)
+				return
+			}
+			glide.SetGlide(*body.Glide)
 		}
 		if body.Quality != nil {
 			s.Buf.SetQuality(*body.Quality)
@@ -1553,13 +1576,7 @@ func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 			s.Capture.NotifySettingsChanged()
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"quality":  s.Buf.Quality(),
-			"fps":      s.Buf.FPS(),
-			"width":    s.Buf.Width(),
-			"height":   s.Buf.Height(),
-			"autocrop": s.Buf.Autocrop(),
-		})
+		json.NewEncoder(w).Encode(settings())
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
