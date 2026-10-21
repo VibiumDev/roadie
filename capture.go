@@ -689,6 +689,11 @@ func captureNodes(drivers []driver.Driver, dev deviceInfo) []driver.Driver {
 	return nodes
 }
 
+// captureWarmup is how long after a capture starts its frames are shown
+// but not used to find the picture: a dongle that has just started can send
+// it torn for a few seconds (3 s seen).
+const captureWarmup = 5 * time.Second
+
 // maxConsecutiveErrors is the number of consecutive read errors before
 // the capture goroutine treats the device as disconnected.
 const maxConsecutiveErrors = 3
@@ -958,6 +963,8 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 		var frameCount int
 		var prevBlack bool
 		var prevFingerprint uint64
+		started := time.Now()
+		var detectedOnce bool
 		jpegOpts := &jpeg.Options{}
 		for {
 			select {
@@ -1001,19 +1008,26 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 				consecutiveStatic = 0
 			}
 
-			// Periodic crop detection: first frame, every ~1 s, or on signal transitions.
+			// Crop detection: the first good frame, then every ~1 s and on signal
+			// transitions.
 			transitioned := black != prevBlack
 			prevBlack = black
 			fullBounds := img.Bounds()
 			buf.setFrameSize(fullBounds.Size())
 			// A black frame says nothing about where the picture is or which
 			// way it is turned (the dongle sends them for seconds after it
-			// starts): keep what the last real one said.
-			if !black && (frameCount == 1 || transitioned || frameCount%fps == 0) {
+			// starts): keep what the last real one said. Nor do the first
+			// seconds of frames: the dongle can send the picture torn
+			// sideways for a few seconds after it starts, which reads as an
+			// upright phone turned on its side.
+			detectNow := !black && time.Since(started) >= captureWarmup &&
+				(!detectedOnce || transitioned || frameCount%fps == 0)
+			if detectNow {
 				detected := detectContentRect(img, cropThreshold)
 				if detected != (image.Rectangle{}) {
 					buf.SetContentRect(detected)
 				}
+				detectedOnce = true
 			}
 			if saved, ok := buf.savedCropFor(fullBounds); ok {
 				activeCrop, usingSaved = saved, true
@@ -1023,7 +1037,7 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 				activeCrop, usingSaved = image.Rectangle{}, false
 			}
 			if !usingSaved && buf.autocropping() {
-				if frameCount == 1 || transitioned || frameCount%fps == 0 {
+				if frameCount == 1 || detectNow {
 					rect := buf.DetectedRect()
 					if isMajorCropChange(activeCrop, rect, fullBounds) {
 						// One frame is a poor witness. When the target's own
