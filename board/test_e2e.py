@@ -1257,7 +1257,8 @@ def main():
                              "(one is started if this isn't answering)")
     parser.add_argument("--text",
                         help="text to type through the chain (default "
-                             f"'roadie e2e 123', or {HUD_TEXT!r} with --hud)")
+                             f"'roadie e2e 123', or {HUD_TEXT!r} with --hud)"
+                             .replace("%", "%%"))
     parser.add_argument("--browser", help="browser binary to use")
     parser.add_argument("--display", default=os.environ.get("DISPLAY") or ":0")
     parser.add_argument("--xauthority",
