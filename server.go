@@ -1679,6 +1679,9 @@ button { font-family: monospace; font-size: 1em; padding: 4px 10px; margin-right
 .hint { color: #666; margin: 6px 0; }
 #cropStatus div { margin: 2px 0; }
 label.opt { display: block; margin: 4px 0; font-weight: normal; }
+.head { display: block; margin: 16px 0 4px; font-weight: bold; }
+button.help { font-size: 0.8em; width: 1.6em; height: 1.6em; padding: 0; margin: 0 0 0 6px; border: 1px solid #999; border-radius: 50%; background: #fff; color: #555; cursor: pointer; vertical-align: middle; }
+button.help[aria-expanded=true] { background: #555; color: #fff; }
 </style>
 </head>
 <body>
@@ -1703,13 +1706,13 @@ label.opt { display: block; margin: 4px 0; font-weight: normal; }
   <option value="640x480">480p</option>
 </select>
 
-<label>Crop:</label>
+<div class="head">Crop:<button class="help" aria-controls="cropHelp" aria-expanded="false" title="About the crop">?</button></div>
 <label class="opt"><input type="radio" name="crop" value="auto"> Auto: trim whatever is black at the edges</label>
 <label class="opt"><input type="radio" name="crop" value="off"> Off: show the whole frame</label>
 <label class="opt"><input type="radio" name="crop" value="saved"> Saved: the crop saved for the way the device is turned</label>
 <div id="cropStatus">Loading&hellip;</div>
 <p><button id="cropSave">Save current crop</button><button id="cropClear">Clear saved crops</button></p>
-<p class="hint">A dark app can fool auto-crop into shrinking the picture. Show something
+<p class="hint" id="cropHelp" hidden>A dark app can fool auto-crop into shrinking the picture. Show something
 bright to the screen's edges, such as a white page, and save the crop: Saved is then
 chosen, and it survives restarts. Portrait and landscape each keep their own; where
 there is none, Saved uses auto-crop.</p>
@@ -1797,6 +1800,15 @@ there is none, Saved uses auto-crop.</p>
     zvalSpan.textContent = zoomSlider.value + '%';
     saveSettings({zoom: parseInt(zoomSlider.value)});
   };
+
+  // Each "?" shows or hides the explanation it controls.
+  document.querySelectorAll('button.help').forEach(function(b) {
+    b.onclick = function() {
+      var hint = document.getElementById(b.getAttribute('aria-controls'));
+      hint.hidden = !hint.hidden;
+      b.setAttribute('aria-expanded', String(!hint.hidden));
+    };
+  });
 
   // The crop is chosen, and saved crops kept, by the server, not in this
   // browser.
