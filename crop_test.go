@@ -53,7 +53,7 @@ func TestOrientationNeedsTwoDetections(t *testing.T) {
 }
 
 // The saved crop for the way the device is turned is used instead of what
-// is detected, at the frame size it was saved at only.
+// is detected, scaled to the frames being captured.
 func TestSavedCropOverridesDetection(t *testing.T) {
 	fb := &FrameBuffer{}
 	fb.setFrameSize(hd)
@@ -77,11 +77,28 @@ func TestSavedCropOverridesDetection(t *testing.T) {
 		t.Errorf("saved crop: content %v detected %v mode %s", fb.ContentRect(), fb.DetectedRect(), fb.CropMode())
 	}
 
-	fb.setFrameSize(image.Pt(1280, 720)) // resolution changed: it no longer means anything
-	if _, ok := fb.savedCropFor(image.Rect(0, 0, 1280, 720)); ok || fb.CropMode() != "auto" {
-		t.Errorf("a crop saved at 1080p was used at 720p")
+	// The capture resolution changed: the dongle scales the whole picture,
+	// so the saved crop and the last detection scale with it.
+	for _, c := range []struct {
+		frame         image.Point
+		saved, detect image.Rectangle
+	}{
+		{image.Pt(1280, 720), image.Rect(489, 36, 791, 684), image.Rect(500, 51, 779, 671)},
+		{image.Pt(720, 480), image.Rect(275, 24, 445, 456), image.Rect(281, 34, 438, 448)}, // stretched
+	} {
+		fb.setFrameSize(c.frame)
+		got, ok := fb.savedCropFor(image.Rectangle{Max: c.frame})
+		if !ok || got != c.saved || fb.ContentRect() != c.saved || fb.CropMode() != CropSaved {
+			t.Errorf("at %v: saved crop %v %v, content %v, mode %s; want %v", c.frame, got, ok, fb.ContentRect(), fb.CropMode(), c.saved)
+		}
+		if fb.DetectedRect() != c.detect {
+			t.Errorf("at %v: detected %v, want %v", c.frame, fb.DetectedRect(), c.detect)
+		}
 	}
 	fb.setFrameSize(hd)
+	if fb.DetectedRect() != tallDark {
+		t.Errorf("back at 1080p, detected %v, want %v: scaling drifted", fb.DetectedRect(), tallDark)
+	}
 
 	// Auto or off chosen: the saved crops are kept, not used.
 	for _, use := range []string{CropAuto, CropOff} {

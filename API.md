@@ -161,11 +161,11 @@ at the frame's edges, so a dark app on the target shrinks the picture, and
 with it the screenshot's size and where taps land. A crop saved while the
 target shows something bright to its edges, such as
 `https://soundcheck.vibium.dev/white`, doesn't move. Portrait and landscape
-each keep their own, picked by the shape of the picture; where there is
-none, saved means auto. A crop saved at another capture resolution is
-ignored. The choice and the saved crops survive restarts (in
-`~/.config/roadie/crop-<name>.json`, by `--name`). The viewer's settings
-panel and [`/settings`](#get-settings) have the same controls.
+each keep their own, picked by the shape of the picture; where there is none,
+saved means auto. A crop saved at one capture resolution is scaled to another,
+as the dongle scales the picture. The choice and the saved crops survive
+restarts (in `~/.config/roadie/crop-<name>.json`, by `--name`). The viewer's
+settings panel and [`/settings`](#get-settings) have the same controls.
 
 - `GET` returns the state below.
 - `PUT {"use": "auto"}` (or `"off"`, `"saved"`) chooses. Choosing auto or off

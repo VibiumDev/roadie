@@ -52,6 +52,8 @@ type FrameBuffer struct {
 	// even when autocrop is off: the frame is then served whole, but input
 	// still has to land on the picture rather than on the letterbox bars.
 	contentRect image.Rectangle
+	// The size of the frames contentRect was detected in.
+	contentFrame image.Point
 	// Crops someone saved from a bright screen, one per way the target can
 	// be turned, used instead of what is detected; which way it is turned
 	// now; and the size of the frames being captured.
@@ -220,7 +222,7 @@ func (fb *FrameBuffer) LatestRaw() []byte {
 // from its shape which way the target is turned.
 func (fb *FrameBuffer) SetContentRect(rect image.Rectangle) {
 	fb.mu.Lock()
-	fb.contentRect = rect
+	fb.contentRect, fb.contentFrame = rect, fb.frameSize
 	fb.trackOrientation(orientationOf(rect))
 	fb.mu.Unlock()
 }
@@ -290,7 +292,7 @@ func (fb *FrameBuffer) ContentRect() image.Rectangle {
 	if r, ok := fb.savedInUse(fb.frameSize); ok {
 		return r
 	}
-	return fb.contentRect
+	return fb.detected()
 }
 
 // savedInUse returns the saved crop when it is the crop chosen and there is
@@ -308,19 +310,44 @@ func (fb *FrameBuffer) savedInUse(frame image.Point) (image.Rectangle, bool) {
 func (fb *FrameBuffer) DetectedRect() image.Rectangle {
 	fb.mu.RLock()
 	defer fb.mu.RUnlock()
-	return fb.contentRect
+	return fb.detected()
+}
+
+// detected is the last detection, in the frames now being captured: one
+// made before the capture resolution changed is scaled to the new one
+// until the next detection replaces it. Call with mu held.
+func (fb *FrameBuffer) detected() image.Rectangle {
+	return scaleRect(fb.contentRect, fb.contentFrame, fb.frameSize)
 }
 
 // SavedCrop is a crop saved from a bright screen, and the size of the
-// frames it was taken from: it only means anything at that size.
+// frames it was taken from.
 type SavedCrop struct {
 	Rect  image.Rectangle
 	Frame image.Point
 }
 
+// appliesTo returns the crop for frames of the given size: the saved one,
+// scaled to it.
 func (c SavedCrop) appliesTo(frame image.Point) (image.Rectangle, bool) {
-	ok := !c.Rect.Empty() && frame == c.Frame && c.Rect.In(image.Rectangle{Max: frame})
-	return c.Rect, ok
+	if c.Rect.Empty() || frame.X <= 0 || frame.Y <= 0 {
+		return image.Rectangle{}, false
+	}
+	r := scaleRect(c.Rect, c.Frame, frame)
+	return r, !r.Empty() && r.In(image.Rectangle{Max: frame})
+}
+
+// scaleRect maps a rectangle in frames of one size to frames of another.
+// A capture dongle scales the whole picture to whatever size it is asked
+// for (at 1280x720, and stretched at 720x480), so where the target's
+// screen sits scales with it. Either size unknown: r as it is.
+func scaleRect(r image.Rectangle, from, to image.Point) image.Rectangle {
+	if from == to || from.X <= 0 || from.Y <= 0 || to.X <= 0 || to.Y <= 0 {
+		return r
+	}
+	x := func(v int) int { return int(math.Round(float64(v) * float64(to.X) / float64(from.X))) }
+	y := func(v int) int { return int(math.Round(float64(v) * float64(to.Y) / float64(from.Y))) }
+	return image.Rect(x(r.Min.X), y(r.Min.Y), x(r.Max.X), y(r.Max.Y)).Intersect(image.Rectangle{Max: to})
 }
 
 // SetSavedCrop sets the crop to use, instead of detection, while the
