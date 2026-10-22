@@ -18,7 +18,8 @@ tellable apart. Click/touch the stream to send mouse or touch events to the targ
 
 | Param | Description |
 |-------|-------------|
-| `minimal` | `1` hides the toolbar, for embedding in an iframe (see `/grid`). |
+| `toolbar` | `show`, `auto` (auto-hide: tucked off the right edge until the pointer reaches it) or `off`. Sets the toolbar, and this browser remembers it, like the choice in the toolbar's own menu or on `/settings`; `?toolbar=show` brings back a toolbar turned off. |
+| `minimal` | `1` hides the toolbar for this page load only, leaving the remembered choice alone, for embedding in an iframe (see `/grid`). |
 | `input` | `mouse` or `touch` sets the pointer mode for this page load, overriding the server's `--input`. |
 
 Pointer mode resolves in this order: `?input=` for this page load, then the

@@ -158,6 +158,9 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
   .hint { color:var(--ui-muted); }
   .err { color:var(--ui-error); }
   .divider { border-top:1px solid var(--ui-divider); }
+  #toolbarNote { position:fixed; right:12px; bottom:12px; z-index:30; max-width:260px; padding:8px 12px; border-radius:6px;
+    background:var(--ui-panel); color:var(--ui-text); border:1px solid var(--ui-btn-border); font-family:monospace; font-size:0.85em;
+    transition:opacity 0.4s; }
   /* Auto-hide: the toolbar tucks off the right edge when not wanted, and
      floats over the picture when the picture needs its column. */
   #toolbar { position:relative; transition:transform 0.15s ease-out; }
@@ -343,7 +346,11 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       </div>
       <div class="divider" style="display:flex; align-items:center; gap:8px; margin-top:8px; padding-top:8px;">
         <label style="min-width:55px;">Toolbar</label>
-        <label title="Tuck the toolbar off the right edge; it comes back when the pointer reaches the edge" style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input id="tbAutoHide" type="checkbox"> Auto-hide</label>
+        <div class="seg" style="display:flex; gap:0;">
+          <button id="tbShowBtn" title="Always show the toolbar" style="padding:2px 10px; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Show</button>
+          <button id="tbAutoBtn" title="Tuck the toolbar off the right edge; it comes back when the pointer reaches the edge" style="padding:2px 10px; border-radius:0; font-family:monospace; cursor:pointer;">Auto-hide</button>
+          <button id="tbOffBtn" title="No toolbar. Bring it back with ?toolbar=show in the address, or on /settings" style="padding:2px 10px; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Off</button>
+        </div>
       </div>
     </div>
   </div>
@@ -800,7 +807,6 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     // the toolbar slides away, or, turning auto-hide off, when the menu
     // closes: never at the moment the box is ticked.
     var toolbarEl = document.getElementById('toolbar');
-    var tbAutoHide = document.getElementById('tbAutoHide');
     var REVEAL_PX = 18;
     var autoHide = false;
     var tuckTimer = null, overToolbar = false;
@@ -841,7 +847,6 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     zoomRange.addEventListener('input', relayout);
     function applyAutoHide(on) {
       autoHide = on;
-      tbAutoHide.checked = on;
       if (on) scheduleTuck(600);
       else if (qslider.style.display === 'none') menuClosed();
     }
@@ -860,14 +865,56 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       if (e.clientX >= window.innerWidth - REVEAL_PX) untuck();
       else if (!toolbarEl.contains(e.target)) { overToolbar = false; scheduleTuck(600); }
     }, true);
-    tbAutoHide.onchange = function() {
-      saveSettings({toolbarAutoHide: tbAutoHide.checked});
-      applyAutoHide(tbAutoHide.checked);
+    // --- Toolbar: Show, Auto-hide or Off ---
+    // Remembered by this browser. Off hides it entirely; ?toolbar=show in
+    // the address (or /settings) brings it back. ?toolbar= also sets it,
+    // and is remembered, for a bookmark or an agent wanting a bare viewer.
+    var tbBtns = {
+      show: document.getElementById('tbShowBtn'),
+      auto: document.getElementById('tbAutoBtn'),
+      off: document.getElementById('tbOffBtn')
     };
+    function setToolbar(mode) {
+      if (!tbBtns[mode]) mode = 'show';
+      for (var k in tbBtns) tbBtns[k].classList.toggle('on', k === mode);
+      if (mode === 'off') {
+        autoHide = false;
+        clearTimeout(tuckTimer);
+        qslider.style.display = 'none';
+        toolbarEl.classList.remove('floating', 'tucked');
+        toolbarEl.style.display = 'none';
+      } else {
+        toolbarEl.style.display = 'flex';
+        applyAutoHide(mode === 'auto');
+      }
+    }
+    function toolbarNote(text) {
+      var n = document.getElementById('toolbarNote');
+      if (!n) { n = document.createElement('div'); n.id = 'toolbarNote'; document.body.appendChild(n); }
+      n.textContent = text;
+      n.style.opacity = '1';
+      clearTimeout(n.timer);
+      n.timer = setTimeout(function() { n.style.opacity = '0'; }, 6000);
+    }
+    Object.keys(tbBtns).forEach(function(mode) {
+      tbBtns[mode].onclick = function() {
+        saveSettings({toolbar: mode});
+        setToolbar(mode);
+        if (mode === 'off') toolbarNote('Toolbar off. To bring it back, add ?toolbar=show to the address, or choose it on /settings.');
+      };
+    });
     (function() {
       var saved = {};
       try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
-      if (saved.toolbarAutoHide) applyAutoHide(true);
+      var mode = saved.toolbar || (saved.toolbarAutoHide ? 'auto' : 'show');
+      var asked = new URLSearchParams(location.search).get('toolbar');
+      if (tbBtns[asked]) mode = asked;
+      if (saved.toolbar !== mode || 'toolbarAutoHide' in saved) {
+        delete saved.toolbarAutoHide;
+        saved.toolbar = mode;
+        try { localStorage.setItem('roadie-settings', JSON.stringify(saved)); } catch(e) {}
+      }
+      setToolbar(mode);
     })();
 
     function sendSettings(obj) {
@@ -1983,6 +2030,11 @@ there is none, Saved uses auto-crop.</p>
 <label for="zoom">Zoom: <span id="zval" class="val">100%</span></label>
 <input id="zoom" type="range" min="50" max="400" value="100">
 
+<label>Viewer toolbar:</label>
+<label class="opt"><input type="radio" name="toolbar" value="show"> Show</label>
+<label class="opt"><input type="radio" name="toolbar" value="auto"> Auto-hide: tucked off the right edge until the pointer reaches it</label>
+<label class="opt"><input type="radio" name="toolbar" value="off"> Off</label>
+
 <div class="info" id="devinfo">Loading device info&hellip;</div>
 
 <script>
@@ -2058,6 +2110,18 @@ there is none, Saved uses auto-crop.</p>
     var parts = resSelect.value.split('x');
     sendSettings({width: parseInt(parts[0]), height: parseInt(parts[1])});
   };
+
+  // The viewer's toolbar, kept by this browser for /view (a way back from Off).
+  var tbRadios = document.querySelectorAll('input[name=toolbar]');
+  (function() {
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+    var mode = saved.toolbar || (saved.toolbarAutoHide ? 'auto' : 'show');
+    tbRadios.forEach(function(r) { r.checked = r.value === mode; });
+  })();
+  tbRadios.forEach(function(r) {
+    r.onchange = function() { if (r.checked) saveSettings({toolbar: r.value}); };
+  });
 
   zoomSlider.oninput = function(){
     zvalSpan.textContent = zoomSlider.value + '%';
