@@ -63,8 +63,9 @@ Tracking Sensitivity doesn't matter: roadie places the pointer at exact
 positions. Pointer Animations, which would stop the pointer snapping onto
 buttons, exists only on iPad.
 
-Don't use the right button. On an iPhone a right-click starts a touch that
-never ends: pages stop taking taps until AssistiveTouch is turned off and on.
+Don't use the right button. On an iPhone a right-click acts as a long press,
+and once left a touch that never ended. If moving the pointer drags, see
+[Troubleshooting](troubleshooting.md#stuck-keys).
 
 Safari's microphone prompt ("Would Like to Access the Microphone") sometimes
 ignores a click. If it's still up, click again without moving.

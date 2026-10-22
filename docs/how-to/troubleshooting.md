@@ -117,6 +117,17 @@ curl -X POST http://localhost:8080/api/hid/reset
 That is the heavier option; the modifier tap is instant and does not interrupt
 the session.
 
+**iPhone: moving the pointer drags, as if a finger were still down**
+iOS has lost the end of a touch (seen after a right-click, and once with no
+known cause). Releasing the buttons or clicking again doesn't end it;
+re-enumerating the mouse does:
+```bash
+curl -X POST http://localhost:8080/api/hid/reset
+```
+The phone sees Roadie's devices unplugged and plugged back in (with the Pi as
+its USB devices, its audio and network too), and the half-done swipe
+finishes. Turning AssistiveTouch off and on, on the phone, also works.
+
 ## Device Reset
 
 **Glitchy HDMI signal (wrong colors, static on first connection)**
