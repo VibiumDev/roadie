@@ -510,3 +510,25 @@ func TestUSBReset(t *testing.T) {
 		}
 	}
 }
+
+// A phone's /view is told which phone, for its Home button; a computer's
+// isn't, since GUI+H means something else there.
+func TestViewHomeButtonPlatform(t *testing.T) {
+	for _, tc := range []struct {
+		platform Platform
+		want     string
+	}{
+		{PlatformIOS, "window.__roadiePlatform='ios'"},
+		{PlatformAndroid, "window.__roadiePlatform='android'"},
+		{PlatformMac, ""},
+		{"", ""},
+	} {
+		s, mux := newTestServer()
+		s.Platform = tc.platform
+		_, _, body := get(t, mux, "/view")
+		has := strings.Contains(body, "window.__roadiePlatform=")
+		if tc.want == "" && has || tc.want != "" && !strings.Contains(body, tc.want) {
+			t.Errorf("platform %q: want %q, page has it: %v", tc.platform, tc.want, has)
+		}
+	}
+}

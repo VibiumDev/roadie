@@ -14,7 +14,7 @@ Index page with links to all endpoints.
 ### `GET /view`
 Live video feed with full HID control. The browser tab is titled
 `Roadie — <name>` when `--name` is set, so several targets open at once stay
-tellable apart. Click/touch the stream to send mouse or touch events to the target. Keyboard events are captured automatically (except when interacting with the toolbar). Includes audio toggle, microphone toggle (voice input to the target; needs https or localhost), quality/FPS/resolution settings, and mouse/touch input mode toggle. Input mode persists across page refreshes via `localStorage`.
+tellable apart. Click/touch the stream to send mouse or touch events to the target. Keyboard events are captured automatically (except when interacting with the toolbar). Includes audio toggle, microphone toggle (voice input to the target; needs https or localhost), quality/FPS/resolution settings, and mouse/touch input mode toggle. With `--platform ios` or `android` it also has a Home button, which sends the Home shortcut a phone's hardware keyboard gets: GUI+H (Cmd+H on iOS, Meta+H on Android). Input mode persists across page refreshes via `localStorage`.
 
 | Param | Description |
 |-------|-------------|

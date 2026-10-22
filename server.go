@@ -227,6 +227,15 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "\n<script>window.__roadiePointerSpace='screen';</script>")
 	}
 
+	// A phone gets a Home button, which sends the shortcut its hardware
+	// keyboard has for Home. Fixed literals only.
+	switch s.Platform {
+	case PlatformIOS:
+		fmt.Fprint(w, "\n<script>window.__roadiePlatform='ios';</script>")
+	case PlatformAndroid:
+		fmt.Fprint(w, "\n<script>window.__roadiePlatform='android';</script>")
+	}
+
 	// With the Pi as the phone's USB devices there are no boards to reset:
 	// the menu offers one reset that replugs them all.
 	if s.HID != nil && s.HID.Backend() == BackendLinuxGadget {
@@ -267,6 +276,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     <button id="unmute" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Toggle audio"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M6.717 3.55A.5.5 0 0 1 7 4v8a.5.5 0 0 1-.812.39L3.825 10.5H1.5A.5.5 0 0 1 1 10V6a.5.5 0 0 1 .5-.5h2.325l2.363-1.89a.5.5 0 0 1 .529-.06m7.137 2.096a.5.5 0 0 1 0 .708L12.207 8l1.647 1.646a.5.5 0 0 1-.708.708L11.5 8.707l-1.646 1.647a.5.5 0 0 1-.708-.708L10.793 8 9.146 6.354a.5.5 0 1 1 .708-.708L11.5 7.293l1.646-1.647a.5.5 0 0 1 .708 0"/></svg></button>
     <button id="ptt" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Toggle microphone"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0z"/><path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5"/></svg></button>
     <button id="kbdBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center; opacity:0.4;" title="On-screen keyboard"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M0 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm13 .25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M2.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 3 8.75v-.5A.25.25 0 0 0 2.75 8zM4 8.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 5 8.75v-.5A.25.25 0 0 0 4.75 8h-.5a.25.25 0 0 0-.25.25M6.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 7 8.75v-.5A.25.25 0 0 0 6.75 8zM8 8.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 9 8.75v-.5A.25.25 0 0 0 8.75 8h-.5a.25.25 0 0 0-.25.25M13.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm0 2a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm-3-2a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h1.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm.75 2.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M11.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zM9 6.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5A.25.25 0 0 0 9.75 6h-.5a.25.25 0 0 0-.25.25M7.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 8 6.75v-.5A.25.25 0 0 0 7.75 6zM5 6.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 6 6.75v-.5A.25.25 0 0 0 5.75 6h-.5a.25.25 0 0 0-.25.25M2.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h1.5A.25.25 0 0 0 4 6.75v-.5A.25.25 0 0 0 3.75 6zM2 10.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M4.25 10a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h5.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25z"/></svg></button>
+    <button id="homeBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Home"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M8 .8.6 7.3l.8.9.6-.5V15h4.5v-4h3v4H14V7.7l.6.5.8-.9z"/></svg></button>
     <div id="qslider" style="display:none; position:absolute; top:8px; z-index:21; border-radius:8px; padding:10px 14px; font-family:monospace; font-size:0.85em; white-space:nowrap;">
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
         <label style="min-width:55px;">Quality</label>
@@ -911,6 +921,23 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       if (nearEdge(e)) untuck();
       else if (!toolbarEl.contains(e.target)) { overToolbar = false; scheduleTuck(600); }
     }, true);
+    // --- Home: GUI+H, the Home shortcut a hardware keyboard gets on both
+    // iOS (Cmd+H) and Android (Meta+H). On a computer the same keys hide
+    // the app or start dictation, so it is offered for phones only.
+    (function() {
+      var plat = window.__roadiePlatform;
+      if (plat !== 'ios' && plat !== 'android') return;
+      var homeBtn = document.getElementById('homeBtn');
+      homeBtn.style.display = 'flex';
+      homeBtn.title = plat === 'ios' ? 'Home (\u2318H)' : 'Home (Meta+H)';
+      homeBtn.onclick = function() {
+        hidSend({cmd: 'key_press', keycode: 227});   // left GUI
+        hidSend({cmd: 'key_press', keycode: 11});    // H
+        hidSend({cmd: 'key_release', keycode: 11});
+        hidSend({cmd: 'key_release', keycode: 227});
+      };
+    })();
+
     // --- Toolbar: Show, Auto-hide or Off ---
     // Remembered by this browser. Off hides it entirely; ?toolbar=show in
     // the address (or /settings) brings it back. ?toolbar= also sets it,
