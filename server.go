@@ -163,9 +163,21 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     transition:opacity 0.4s; }
   /* Auto-hide: the toolbar tucks off the right edge when not wanted, and
      floats over the picture when the picture needs its column. */
-  #toolbar { position:relative; transition:transform 0.15s ease-out; }
-  #toolbar.floating { position:fixed; right:0; top:0; z-index:20; }
+  #toolbar { position:relative; flex-direction:column; gap:4px; padding:8px 6px; transition:transform 0.15s ease-out; }
+  #toolbar.floating { position:fixed; z-index:20; }
   #toolbar.tucked { transform:translateX(100%); }
+  /* The side the toolbar sits on: a column at the right (the default) or
+     left, a row at the top or bottom from the left-hand corner. */
+  body.tb-left #toolbar, body.tb-top #toolbar { order:-1; }
+  body.tb-top, body.tb-bottom { flex-direction:column; }
+  body.tb-top #toolbar, body.tb-bottom #toolbar { flex-direction:row; justify-content:flex-start; padding:6px 8px; }
+  body.tb-right #toolbar.floating { right:0; top:0; }
+  body.tb-left #toolbar.floating { left:0; top:0; }
+  body.tb-top #toolbar.floating { top:0; left:0; }
+  body.tb-bottom #toolbar.floating { bottom:0; left:0; }
+  body.tb-left #toolbar.tucked { transform:translateX(-100%); }
+  body.tb-top #toolbar.tucked { transform:translateY(-100%); }
+  body.tb-bottom #toolbar.tucked { transform:translateY(100%); }
   body { background:var(--page-bg); }
   @keyframes spin { to { transform:rotate(360deg); } }
   #onscreen-kbd .kr { display:flex; gap:3px; margin-bottom:3px; justify-content:center; }
@@ -228,8 +240,8 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprint(w, `
 </head>
-<body style="margin:0; display:flex; height:100vh; overflow:hidden; overscroll-behavior:none;">
-  <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
+<body class="tb-right" style="margin:0; display:flex; height:100vh; overflow:hidden; overscroll-behavior:none;">
+  <div style="flex:1; min-width:0; min-height:0; display:flex; flex-direction:column;">
     <div id="viewer" style="position:relative; flex:1; min-width:0; min-height:0; overflow:hidden;">
       <div id="overlay" style="display:flex; position:absolute; inset:0; background:rgba(0,0,0,0.85); color:#fff; font-family:monospace; font-size:1.2em; justify-content:center; align-items:center; text-align:center; z-index:10;">
         Connecting&hellip;
@@ -249,7 +261,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       </div>
     </div>
   </div>
-  <div id="toolbar" style="display:flex; flex-direction:column; gap:4px; padding:8px 6px;">
+  <div id="toolbar" style="display:flex;">
     <style>#toolbar button { outline:none; } #toolbar button:focus { outline:none; }</style>
     <button id="qbtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Settings"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/></svg></button>
     <button id="unmute" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Toggle audio"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M6.717 3.55A.5.5 0 0 1 7 4v8a.5.5 0 0 1-.812.39L3.825 10.5H1.5A.5.5 0 0 1 1 10V6a.5.5 0 0 1 .5-.5h2.325l2.363-1.89a.5.5 0 0 1 .529-.06m7.137 2.096a.5.5 0 0 1 0 .708L12.207 8l1.647 1.646a.5.5 0 0 1-.708.708L11.5 8.707l-1.646 1.647a.5.5 0 0 1-.708-.708L10.793 8 9.146 6.354a.5.5 0 1 1 .708-.708L11.5 7.293l1.646-1.647a.5.5 0 0 1 .708 0"/></svg></button>
@@ -350,6 +362,15 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
           <button id="tbShowBtn" title="Always show the toolbar" style="padding:2px 10px; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Show</button>
           <button id="tbAutoBtn" title="Tuck the toolbar off the right edge; it comes back when the pointer reaches the edge" style="padding:2px 10px; border-radius:0; font-family:monospace; cursor:pointer;">Auto-hide</button>
           <button id="tbOffBtn" title="No toolbar. Bring it back with ?toolbar=show in the address, or on /settings" style="padding:2px 10px; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Off</button>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+        <label style="min-width:55px;">Side</label>
+        <div class="seg" style="display:flex; gap:0;">
+          <button id="tbSideTop" style="padding:2px 10px; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Top</button>
+          <button id="tbSideRight" style="padding:2px 10px; border-radius:0; font-family:monospace; cursor:pointer;">Right</button>
+          <button id="tbSideBottom" style="padding:2px 10px; border-radius:0; font-family:monospace; cursor:pointer;">Bottom</button>
+          <button id="tbSideLeft" style="padding:2px 10px; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Left</button>
         </div>
       </div>
     </div>
@@ -776,13 +797,23 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     function positionPanel() {
       var toolbar = document.getElementById('toolbar');
       var tr = toolbar.getBoundingClientRect();
-      if (window.innerWidth - tr.right > 230) {
-        qslider.style.left = 'calc(100% + 2px)';
-        qslider.style.right = '';
+      var st = qslider.style;
+      st.left = st.right = st.top = st.bottom = '';
+      var room;
+      if (toolbarSide === 'top') {
+        st.top = 'calc(100% + 2px)'; st.left = '8px';
+        room = window.innerHeight - tr.bottom - 10;
+      } else if (toolbarSide === 'bottom') {
+        st.bottom = 'calc(100% + 2px)'; st.left = '8px';
+        room = tr.top - 10;
       } else {
-        qslider.style.right = 'calc(100% - 2px)';
-        qslider.style.left = '';
+        st.top = '8px';
+        if (window.innerWidth - tr.right > 230) st.left = 'calc(100% + 2px)';
+        else st.right = 'calc(100% - 2px)';
+        room = window.innerHeight - tr.top - 18;
       }
+      st.maxHeight = Math.max(120, room) + 'px';
+      st.overflowY = 'auto';
     }
 
     qbtn.onclick = function() {
@@ -810,17 +841,23 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     var REVEAL_PX = 18;
     var autoHide = false;
     var tuckTimer = null, overToolbar = false;
+    var toolbarSide = 'right';
     // Whether the picture, fitted to the window's height and zoomed, fits
     // beside the toolbar's column: taking the column wouldn't enlarge it.
     function roomBeside() {
       var nw = img.naturalWidth, nh = img.naturalHeight;
       if (!nw || !nh) return true;
-      var winW = document.documentElement.clientWidth;
-      var colW = toolbarEl.offsetWidth;
-      var h = document.getElementById('viewer').clientHeight;
-      var fit = function(w) { return Math.min(nw, w, nw * h / nh); };
+      var across = toolbarSide === 'top' || toolbarSide === 'bottom';
+      var W = document.documentElement.clientWidth;
+      var H = document.documentElement.clientHeight - document.getElementById('onscreen-kbd').offsetHeight;
+      var bar = across ? toolbarEl.offsetHeight : toolbarEl.offsetWidth;
+      // The picture's width, fitted into w by h.
+      var fit = function(w, h) { return Math.min(nw, w, nw * h / nh); };
+      var full = fit(W, H);
+      var kept = across ? fit(W, H - bar) : fit(W - bar, H);
       var zoom = (parseInt(zoomRange.value, 10) || 100) / 100;
-      return fit(winW) <= fit(winW - colW) + 0.5 && fit(winW - colW) * zoom <= winW - colW + 0.5;
+      var zoomedFits = across ? kept * nh / nw * zoom <= H - bar + 0.5 : kept * zoom <= W - bar + 0.5;
+      return full <= kept + 0.5 && zoomedFits;
     }
     // A tucked toolbar keeps or gives up its column as the picture needs;
     // a shown one floating where there is now room goes back to it.
@@ -852,8 +889,17 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     }
     toolbarEl.addEventListener('mouseenter', function() { overToolbar = true; untuck(); });
     toolbarEl.addEventListener('mouseleave', function() { overToolbar = false; scheduleTuck(600); });
+    // Within half a button's width of the toolbar's edge.
+    function nearEdge(e) {
+      switch (toolbarSide) {
+        case 'left': return e.clientX <= REVEAL_PX;
+        case 'top': return e.clientY <= REVEAL_PX;
+        case 'bottom': return e.clientY >= window.innerHeight - REVEAL_PX;
+        default: return e.clientX >= window.innerWidth - REVEAL_PX;
+      }
+    }
     document.addEventListener('mousemove', function(e) {
-      if (toolbarEl.classList.contains('tucked') && e.clientX >= window.innerWidth - REVEAL_PX) {
+      if (toolbarEl.classList.contains('tucked') && nearEdge(e)) {
         untuck();
         scheduleTuck(1500);  // unless the pointer goes on to it
       }
@@ -862,7 +908,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     // anywhere else tucks it.
     document.addEventListener('pointerdown', function(e) {
       if (e.pointerType === 'mouse' || !autoHide) return;
-      if (e.clientX >= window.innerWidth - REVEAL_PX) untuck();
+      if (nearEdge(e)) untuck();
       else if (!toolbarEl.contains(e.target)) { overToolbar = false; scheduleTuck(600); }
     }, true);
     // --- Toolbar: Show, Auto-hide or Off ---
@@ -903,9 +949,32 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         if (mode === 'off') toolbarNote('Toolbar off. To bring it back, add ?toolbar=show to the address, or choose it on /settings.');
       };
     });
+    var sideBtns = {
+      top: document.getElementById('tbSideTop'),
+      right: document.getElementById('tbSideRight'),
+      bottom: document.getElementById('tbSideBottom'),
+      left: document.getElementById('tbSideLeft')
+    };
+    function setToolbarSide(side) {
+      if (!sideBtns[side]) side = 'right';
+      toolbarSide = side;
+      for (var k in sideBtns) {
+        sideBtns[k].classList.toggle('on', k === side);
+        document.body.classList.toggle('tb-' + k, k === side);
+      }
+      if (qslider.style.display !== 'none') positionPanel();
+      relayout();
+    }
+    Object.keys(sideBtns).forEach(function(side) {
+      sideBtns[side].onclick = function() {
+        saveSettings({toolbarSide: side});
+        setToolbarSide(side);
+      };
+    });
     (function() {
       var saved = {};
       try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+      setToolbarSide(saved.toolbarSide);
       var mode = saved.toolbar || (saved.toolbarAutoHide ? 'auto' : 'show');
       var asked = new URLSearchParams(location.search).get('toolbar');
       if (tbBtns[asked]) mode = asked;
