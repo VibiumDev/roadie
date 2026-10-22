@@ -490,7 +490,9 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       var ctl = new AbortController();
       stream = ctl;
       lastFrame = Date.now();
-      fetch('/stream', {signal: ctl.signal, cache: 'no-store'}).then(function(r) {
+      // ?as=bytes: Safari hands fetch nothing of a multipart/x-mixed-replace
+      // response, so ask for the same stream under a plain type.
+      fetch('/stream?as=bytes', {signal: ctl.signal, cache: 'no-store'}).then(function(r) {
         if (!r.ok || !r.body) throw new Error('stream: ' + r.status);
         var reader = r.body.getReader();
         var buf = new Uint8Array(0);
@@ -1813,7 +1815,15 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+	// ?as=bytes is the same stream for a page reading it with fetch (/view):
+	// Safari takes multipart/x-mixed-replace apart in its network layer and
+	// hands fetch nothing, so it gets a type no browser treats specially.
+	if r.URL.Query().Get("as") == "bytes" {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+	} else {
+		w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+	}
 	w.Header().Set("Cache-Control", "no-cache")
 
 	s.Buf.AddViewer()

@@ -532,3 +532,24 @@ func TestViewPlatformFlag(t *testing.T) {
 		}
 	}
 }
+
+// /stream is multipart/x-mixed-replace, for an <img>; ?as=bytes is the
+// same stream under a type Safari passes to fetch untouched.
+func TestStreamAsBytes(t *testing.T) {
+	for _, tc := range []struct{ url, want string }{
+		{"/stream", "multipart/x-mixed-replace; boundary=frame"},
+		{"/stream?as=bytes", "application/octet-stream"},
+	} {
+		_, mux := newTestServer()
+		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("GET", tc.url, nil).WithContext(ctx))
+		cancel()
+		if got := w.Header().Get("Content-Type"); got != tc.want {
+			t.Errorf("%s: Content-Type %q, want %q", tc.url, got, tc.want)
+		}
+		if !strings.HasPrefix(w.Body.String(), "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ") {
+			t.Errorf("%s: body isn't the framed stream: %q", tc.url, w.Body.String()[:min(80, w.Body.Len())])
+		}
+	}
+}
