@@ -85,7 +85,8 @@ units:
 | `roadie.service` | The server, as your user (groups roadie, audio, video, dialout) | Restartable at will |
 
 Restarting or crashing roadie never re-enumerates USB: the phone keeps its
-keyboard, audio and network. Arguments live in `/etc/default/roadie`:
+keyboard, audio and network. Arguments live in `/etc/default/roadie` (see
+[How to Run Roadie](run-roadie.md) for starting, stopping and its log):
 
 ```bash
 ROADIE_ARGS="--hid-backend linux-gadget --platform android --port 8080"
