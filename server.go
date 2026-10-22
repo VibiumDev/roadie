@@ -141,6 +141,23 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
   :root { --page-bg:#1a1a1a; --kbd-bg:#222; --kbd-key:rgba(255,255,255,0.12); --kbd-key-active:rgba(255,255,255,0.25); --kbd-text:#fff; --kbd-border:transparent; }
   :root[data-theme="light"] { --page-bg:#e8e8ed; --kbd-bg:#d4d4d9; --kbd-key:rgba(255,255,255,0.85); --kbd-key-active:rgba(255,255,255,0.55); --kbd-text:#1a1a1a; --kbd-border:rgba(0,0,0,0.08); }
   @media (prefers-color-scheme:light) { :root[data-theme="system"] { --page-bg:#e8e8ed; --kbd-bg:#d4d4d9; --kbd-key:rgba(255,255,255,0.85); --kbd-key-active:rgba(255,255,255,0.55); --kbd-text:#1a1a1a; --kbd-border:rgba(0,0,0,0.08); } }
+  /* The toolbar and its menu, in the same three themes. */
+  :root { --ui-btn:rgba(50,50,50,0.9); --ui-btn-border:rgba(255,255,255,0.15); --ui-icon:#ccc; --ui-panel:rgba(50,50,50,0.95); --ui-text:#fff; --ui-muted:#aaa; --ui-ctl:#333; --ui-ctl-text:#888; --ui-ctl-border:#555; --ui-ctl-on:#444; --ui-ctl-on-text:#fff; --ui-accent:#6af; --ui-btn2:#444; --ui-btn2-border:#666; --ui-danger:#633; --ui-danger-border:#955; --ui-danger-text:#fff; --ui-divider:rgba(255,255,255,0.1); --ui-error:#f99; color-scheme:dark; }
+  :root[data-theme="light"] { --ui-btn:rgba(255,255,255,0.9); --ui-btn-border:rgba(0,0,0,0.15); --ui-icon:#444; --ui-panel:rgba(255,255,255,0.97); --ui-text:#1a1a1a; --ui-muted:#666; --ui-ctl:#f2f2f5; --ui-ctl-text:#777; --ui-ctl-border:#c9c9d0; --ui-ctl-on:#fff; --ui-ctl-on-text:#111; --ui-accent:#2f7fe0; --ui-btn2:#fff; --ui-btn2-border:#bbb; --ui-danger:#fbe3e3; --ui-danger-border:#e0a0a0; --ui-danger-text:#8b1e1e; --ui-divider:rgba(0,0,0,0.1); --ui-error:#c0392b; color-scheme:light; }
+  @media (prefers-color-scheme:light) { :root[data-theme="system"] { --ui-btn:rgba(255,255,255,0.9); --ui-btn-border:rgba(0,0,0,0.15); --ui-icon:#444; --ui-panel:rgba(255,255,255,0.97); --ui-text:#1a1a1a; --ui-muted:#666; --ui-ctl:#f2f2f5; --ui-ctl-text:#777; --ui-ctl-border:#c9c9d0; --ui-ctl-on:#fff; --ui-ctl-on-text:#111; --ui-accent:#2f7fe0; --ui-btn2:#fff; --ui-btn2-border:#bbb; --ui-danger:#fbe3e3; --ui-danger-border:#e0a0a0; --ui-danger-text:#8b1e1e; --ui-divider:rgba(0,0,0,0.1); --ui-error:#c0392b; color-scheme:light; } }
+  .tbtn { background:var(--ui-btn); border:1px solid var(--ui-btn-border); color:var(--ui-icon); }
+  .tbtn.live { background:rgba(180,40,40,0.95); color:#fff; }
+  #qslider { background:var(--ui-panel); border:1px solid var(--ui-btn-border); color:var(--ui-text); }
+  #qslider select { background:var(--ui-ctl); color:var(--ui-text); border:1px solid var(--ui-ctl-border); }
+  .seg button { background:var(--ui-ctl); color:var(--ui-ctl-text); border:1px solid var(--ui-ctl-border); }
+  .seg button.on { background:var(--ui-ctl-on); color:var(--ui-ctl-on-text); border-color:var(--ui-accent); }
+  .btn2 { background:var(--ui-btn2); color:var(--ui-ctl-on-text); border:1px solid var(--ui-btn2-border); }
+  .danger { background:var(--ui-danger); color:var(--ui-danger-text); border:1px solid var(--ui-danger-border); }
+  .qhelp { background:var(--ui-ctl); color:var(--ui-icon); border:1px solid var(--ui-btn2-border); }
+  .qhelp[aria-expanded="true"] { background:var(--ui-ctl-on); color:var(--ui-ctl-on-text); }
+  .hint { color:var(--ui-muted); }
+  .err { color:var(--ui-error); }
+  .divider { border-top:1px solid var(--ui-divider); }
   body { background:var(--page-bg); }
   @keyframes spin { to { transform:rotate(360deg); } }
   #onscreen-kbd .kr { display:flex; gap:3px; margin-bottom:3px; justify-content:center; }
@@ -225,12 +242,12 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     </div>
   </div>
   <div id="toolbar" style="position:relative; display:flex; flex-direction:column; gap:4px; padding:8px 6px;">
-    <style>#toolbar button { outline:none; color:#ccc; } #toolbar button:focus { outline:none; }</style>
-    <button id="qbtn" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Settings"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/></svg></button>
-    <button id="unmute" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Toggle audio"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M6.717 3.55A.5.5 0 0 1 7 4v8a.5.5 0 0 1-.812.39L3.825 10.5H1.5A.5.5 0 0 1 1 10V6a.5.5 0 0 1 .5-.5h2.325l2.363-1.89a.5.5 0 0 1 .529-.06m7.137 2.096a.5.5 0 0 1 0 .708L12.207 8l1.647 1.646a.5.5 0 0 1-.708.708L11.5 8.707l-1.646 1.647a.5.5 0 0 1-.708-.708L10.793 8 9.146 6.354a.5.5 0 1 1 .708-.708L11.5 7.293l1.646-1.647a.5.5 0 0 1 .708 0"/></svg></button>
-    <button id="ptt" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Toggle microphone"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0z"/><path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5"/></svg></button>
-    <button id="kbdBtn" style="width:36px; height:36px; background:rgba(50,50,50,0.9); border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center; opacity:0.4;" title="On-screen keyboard"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M0 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm13 .25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M2.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 3 8.75v-.5A.25.25 0 0 0 2.75 8zM4 8.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 5 8.75v-.5A.25.25 0 0 0 4.75 8h-.5a.25.25 0 0 0-.25.25M6.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 7 8.75v-.5A.25.25 0 0 0 6.75 8zM8 8.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 9 8.75v-.5A.25.25 0 0 0 8.75 8h-.5a.25.25 0 0 0-.25.25M13.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm0 2a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm-3-2a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h1.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm.75 2.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M11.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zM9 6.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5A.25.25 0 0 0 9.75 6h-.5a.25.25 0 0 0-.25.25M7.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 8 6.75v-.5A.25.25 0 0 0 7.75 6zM5 6.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 6 6.75v-.5A.25.25 0 0 0 5.75 6h-.5a.25.25 0 0 0-.25.25M2.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h1.5A.25.25 0 0 0 4 6.75v-.5A.25.25 0 0 0 3.75 6zM2 10.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M4.25 10a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h5.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25z"/></svg></button>
-    <div id="qslider" style="display:none; position:absolute; top:8px; z-index:21; background:rgba(50,50,50,0.95); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color:#fff; font-family:monospace; font-size:0.85em; white-space:nowrap;">
+    <style>#toolbar button { outline:none; } #toolbar button:focus { outline:none; }</style>
+    <button id="qbtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Settings"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/></svg></button>
+    <button id="unmute" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Toggle audio"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M6.717 3.55A.5.5 0 0 1 7 4v8a.5.5 0 0 1-.812.39L3.825 10.5H1.5A.5.5 0 0 1 1 10V6a.5.5 0 0 1 .5-.5h2.325l2.363-1.89a.5.5 0 0 1 .529-.06m7.137 2.096a.5.5 0 0 1 0 .708L12.207 8l1.647 1.646a.5.5 0 0 1-.708.708L11.5 8.707l-1.646 1.647a.5.5 0 0 1-.708-.708L10.793 8 9.146 6.354a.5.5 0 1 1 .708-.708L11.5 7.293l1.646-1.647a.5.5 0 0 1 .708 0"/></svg></button>
+    <button id="ptt" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Toggle microphone"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0z"/><path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5"/></svg></button>
+    <button id="kbdBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center; opacity:0.4;" title="On-screen keyboard"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M0 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm13 .25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M2.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 3 8.75v-.5A.25.25 0 0 0 2.75 8zM4 8.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 5 8.75v-.5A.25.25 0 0 0 4.75 8h-.5a.25.25 0 0 0-.25.25M6.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 7 8.75v-.5A.25.25 0 0 0 6.75 8zM8 8.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 9 8.75v-.5A.25.25 0 0 0 8.75 8h-.5a.25.25 0 0 0-.25.25M13.25 8a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm0 2a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm-3-2a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h1.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zm.75 2.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M11.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25zM9 6.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5A.25.25 0 0 0 9.75 6h-.5a.25.25 0 0 0-.25.25M7.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 8 6.75v-.5A.25.25 0 0 0 7.75 6zM5 6.25v.5c0 .138.112.25.25.25h.5A.25.25 0 0 0 6 6.75v-.5A.25.25 0 0 0 5.75 6h-.5a.25.25 0 0 0-.25.25M2.25 6a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h1.5A.25.25 0 0 0 4 6.75v-.5A.25.25 0 0 0 3.75 6zM2 10.25v.5c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-.5a.25.25 0 0 0-.25.25M4.25 10a.25.25 0 0 0-.25.25v.5c0 .138.112.25.25.25h5.5a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25z"/></svg></button>
+    <div id="qslider" style="display:none; position:absolute; top:8px; z-index:21; border-radius:8px; padding:10px 14px; font-family:monospace; font-size:0.85em; white-space:nowrap;">
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
         <label style="min-width:55px;">Quality</label>
         <input id="qrange" type="range" min="30" max="95" style="width:120px; vertical-align:middle;">
@@ -238,7 +255,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
         <label style="min-width:55px;">FPS</label>
-        <select id="fpsSelect" style="background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px 6px; font-family:monospace;">
+        <select id="fpsSelect" style="border-radius:4px; padding:2px 6px; font-family:monospace;">
           <option value="10">10</option>
           <option value="15">15</option>
           <option value="20">20</option>
@@ -247,7 +264,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       </div>
       <div style="display:flex; align-items:center; gap:8px;">
         <label style="min-width:55px;">Size</label>
-        <select id="resSelect" style="background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px 6px; font-family:monospace;">
+        <select id="resSelect" style="border-radius:4px; padding:2px 6px; font-family:monospace;">
           <option value="1920x1080">1080p</option>
           <option value="1280x720">720p</option>
           <option value="640x480">480p</option>
@@ -255,9 +272,9 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">Input</label>
-        <div style="display:flex; gap:0;">
-          <button id="modeMouseBtn" style="padding:2px 10px; background:#444; color:#fff; border:1px solid #6af; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Mouse</button>
-          <button id="modeTouchBtn" style="padding:2px 10px; background:#333; color:#888; border:1px solid #555; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Touch</button>
+        <div class="seg" style="display:flex; gap:0;">
+          <button id="modeMouseBtn" style="padding:2px 10px; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Mouse</button>
+          <button id="modeTouchBtn" style="padding:2px 10px; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Touch</button>
         </div>
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
@@ -271,17 +288,17 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">Crop</label>
-        <div style="display:flex; gap:0;">
-          <button id="cropAutoBtn" title="Trim whatever is black at the edges" style="padding:2px 10px; background:#444; color:#fff; border:1px solid #6af; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Auto</button>
-          <button id="cropOffBtn" title="Show the whole frame" style="padding:2px 10px; background:#333; color:#888; border:1px solid #555; border-radius:0; font-family:monospace; cursor:pointer;">Off</button>
-          <button id="cropSavedBtn" title="Use the crop saved for the way the device is turned" style="padding:2px 10px; background:#333; color:#888; border:1px solid #555; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Saved</button>
+        <div class="seg" style="display:flex; gap:0;">
+          <button id="cropAutoBtn" title="Trim whatever is black at the edges" style="padding:2px 10px; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Auto</button>
+          <button id="cropOffBtn" title="Show the whole frame" style="padding:2px 10px; border-radius:0; font-family:monospace; cursor:pointer;">Off</button>
+          <button id="cropSavedBtn" title="Use the crop saved for the way the device is turned" style="padding:2px 10px; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Saved</button>
         </div>
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin:6px 0 0 63px;">
-        <button id="cropSaveBtn" title="Save the crop of what is on screen now, for the way the device is turned. Show something bright to its edges first, such as a white page." style="padding:2px 10px; background:#444; color:#fff; border:1px solid #666; border-radius:4px; font-family:monospace; cursor:pointer;">Save</button>
-        <button id="cropClearBtn" title="Forget the saved crops" style="padding:2px 10px; background:#444; color:#fff; border:1px solid #666; border-radius:4px; font-family:monospace; cursor:pointer;">Clear</button>
+        <button id="cropSaveBtn" title="Save the crop of what is on screen now, for the way the device is turned. Show something bright to its edges first, such as a white page." class="btn2" style="padding:2px 10px; border-radius:4px; font-family:monospace; cursor:pointer;">Save</button>
+        <button id="cropClearBtn" title="Forget the saved crops" class="btn2" style="padding:2px 10px; border-radius:4px; font-family:monospace; cursor:pointer;">Clear</button>
       </div>
-      <div id="cropStatus" hidden style="margin:4px 0 0 63px; color:#f99; font-size:0.9em; max-width:260px; white-space:normal;"></div>
+      <div id="cropStatus" class="err" hidden style="margin:4px 0 0 63px; font-size:0.9em; max-width:260px; white-space:normal;"></div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">Zoom</label>
         <input id="zoomRange" type="range" min="50" max="400" value="100" style="width:120px; vertical-align:middle;">
@@ -289,35 +306,35 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">Align</label>
-        <div style="display:flex; gap:0;">
-          <button id="alignTLBtn" style="padding:2px 10px; background:#444; color:#fff; border:1px solid #6af; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Top-Left</button>
-          <button id="alignCenterBtn" style="padding:2px 10px; background:#333; color:#888; border:1px solid #555; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Center</button>
+        <div class="seg" style="display:flex; gap:0;">
+          <button id="alignTLBtn" style="padding:2px 10px; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Top-Left</button>
+          <button id="alignCenterBtn" style="padding:2px 10px; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Center</button>
         </div>
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">Theme</label>
-        <div style="display:flex; gap:0;">
-          <button id="themeDarkBtn" style="padding:2px 10px; background:#333; color:#888; border:1px solid #555; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Dark</button>
-          <button id="themeLightBtn" style="padding:2px 10px; background:#333; color:#888; border:1px solid #555; border-radius:0; font-family:monospace; cursor:pointer;">Light</button>
-          <button id="themeSystemBtn" style="padding:2px 10px; background:#444; color:#fff; border:1px solid #6af; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">System</button>
+        <div class="seg" style="display:flex; gap:0;">
+          <button id="themeDarkBtn" style="padding:2px 10px; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Dark</button>
+          <button id="themeLightBtn" style="padding:2px 10px; border-radius:0; font-family:monospace; cursor:pointer;">Light</button>
+          <button id="themeSystemBtn" style="padding:2px 10px; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">System</button>
         </div>
       </div>
-      <div style="display:flex; align-items:center; gap:8px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.1);">
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px; padding-top:8px;" class="divider">
         <label style="min-width:55px;">Resets</label>
-        <button id="resetHelpBtn" aria-controls="resetHelp" aria-expanded="false" title="What each reset does" style="width:20px; height:20px; padding:0; border-radius:50%; background:#333; color:#ccc; border:1px solid #666; font-family:monospace; font-size:0.85em; cursor:pointer;">?</button>
+        <button id="resetHelpBtn" aria-controls="resetHelp" aria-expanded="false" title="What each reset does" class="qhelp" style="width:20px; height:20px; padding:0; border-radius:50%; font-family:monospace; font-size:0.85em; cursor:pointer;">?</button>
       </div>
-      <div id="resetHelp" hidden style="margin:6px 0 0 63px; color:#aaa; font-size:0.9em; max-width:260px; white-space:normal;"></div>
+      <div id="resetHelp" class="hint" hidden style="margin:6px 0 0 63px; font-size:0.9em; max-width:260px; white-space:normal;"></div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">Video</label>
-        <button id="resetVideoBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>
+        <button id="resetVideoBtn" class="danger" style="padding:2px 10px; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label id="resetHIDLabel" style="min-width:55px;">HID</label>
-        <button id="resetHIDBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>
+        <button id="resetHIDBtn" class="danger" style="padding:2px 10px; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>
       </div>
       <div id="resetRelayRow" style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">Relay</label>
-        <button id="resetRelayBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>
+        <button id="resetRelayBtn" class="danger" style="padding:2px 10px; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>
       </div>
     </div>
   </div>
@@ -637,7 +654,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     function startTalk() {
       if (talking || !navigator.mediaDevices) return;
       talking = true;
-      pttBtn.style.background = 'rgba(180,40,40,0.95)';
+      pttBtn.classList.add('live');
       navigator.mediaDevices.getUserMedia({ audio: {
         channelCount: 1, echoCancellation: true, noiseSuppression: true
       } }).then(function(stream) {
@@ -675,7 +692,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 
     function stopTalk() {
       talking = false;
-      pttBtn.style.background = 'rgba(50,50,50,0.9)';
+      pttBtn.classList.remove('live');
       if (pttNode) { pttNode.disconnect(); pttNode = null; }
       if (pttCtx) { pttCtx.close(); pttCtx = null; }
       if (pttStream) { pttStream.getTracks().forEach(function(t){ t.stop(); }); pttStream = null; }
@@ -799,9 +816,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     function showCrop(d) {
       for (var u in cropBtns) {
         var on = d.use === u;
-        cropBtns[u].style.background = on ? '#444' : '#333';
-        cropBtns[u].style.color = on ? '#fff' : '#888';
-        cropBtns[u].style.borderColor = on ? '#6af' : '#555';
+        cropBtns[u].classList.toggle('on', on);
       }
       var saved = [];
       ['portrait', 'landscape'].forEach(function(o) {
@@ -844,15 +859,13 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       var viewer = document.getElementById('viewer');
       var kbdI = document.getElementById('kbd-inner');
       if (mode === 'center') {
-        alignTLBtn.style.background = '#333'; alignTLBtn.style.color = '#888'; alignTLBtn.style.borderColor = '#555';
-        alignCenterBtn.style.background = '#444'; alignCenterBtn.style.color = '#fff'; alignCenterBtn.style.borderColor = '#6af';
+        alignTLBtn.classList.remove('on'); alignCenterBtn.classList.add('on');
         viewer.style.display = 'flex';
         viewer.style.justifyContent = 'center';
         viewer.style.alignItems = 'center';
         kbdI.style.textAlign = 'center';
       } else {
-        alignCenterBtn.style.background = '#333'; alignCenterBtn.style.color = '#888'; alignCenterBtn.style.borderColor = '#555';
-        alignTLBtn.style.background = '#444'; alignTLBtn.style.color = '#fff'; alignTLBtn.style.borderColor = '#6af';
+        alignCenterBtn.classList.remove('on'); alignTLBtn.classList.add('on');
         viewer.style.display = '';
         viewer.style.justifyContent = '';
         viewer.style.alignItems = '';
@@ -896,7 +909,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     (function() {
       var saved = {};
       try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
-      if (saved.alignment) { applyAlignment(saved.alignment); }
+      applyAlignment(saved.alignment || alignment);
       if (saved.zoom !== undefined) { applyZoom(saved.zoom); }
     })();
 
@@ -905,8 +918,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     function applyTheme(t) {
       document.documentElement.setAttribute('data-theme', t);
       for (var k in themeBtns) {
-        if (k === t) { themeBtns[k].style.background = '#444'; themeBtns[k].style.color = '#fff'; themeBtns[k].style.borderColor = '#6af'; }
-        else { themeBtns[k].style.background = '#333'; themeBtns[k].style.color = '#888'; themeBtns[k].style.borderColor = '#555'; }
+        themeBtns[k].classList.toggle('on', k === t);
       }
       saveSettings({theme: t});
     }
@@ -1005,7 +1017,6 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       helpBtn.onclick = function() {
         help.hidden = !help.hidden;
         helpBtn.setAttribute('aria-expanded', String(!help.hidden));
-        helpBtn.style.background = help.hidden ? '#333' : '#555';
       };
     })();
 
@@ -1036,12 +1047,8 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     var modeTouchBtn = document.getElementById('modeTouchBtn');
     function applyInputMode(mode) {
       inputMode = mode;
-      modeMouseBtn.style.background = mode === 'mouse' ? '#444' : '#333';
-      modeMouseBtn.style.color = mode === 'mouse' ? '#fff' : '#888';
-      modeMouseBtn.style.borderColor = mode === 'mouse' ? '#6af' : '#555';
-      modeTouchBtn.style.background = mode === 'touch' ? '#444' : '#333';
-      modeTouchBtn.style.color = mode === 'touch' ? '#fff' : '#888';
-      modeTouchBtn.style.borderColor = mode === 'touch' ? '#6af' : '#555';
+      modeMouseBtn.classList.toggle('on', mode === 'mouse');
+      modeTouchBtn.classList.toggle('on', mode === 'touch');
     }
     function setInputMode(mode) {
       applyInputMode(mode);
