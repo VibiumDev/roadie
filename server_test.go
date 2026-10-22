@@ -511,16 +511,16 @@ func TestUSBReset(t *testing.T) {
 	}
 }
 
-// A phone's /view is told which phone, for its Home button; a computer's
-// isn't, since GUI+H means something else there.
-func TestViewHomeButtonPlatform(t *testing.T) {
+// /view is told the target's platform, for a phone's own buttons and for
+// naming screenshots; with no --platform, it isn't told anything.
+func TestViewPlatformFlag(t *testing.T) {
 	for _, tc := range []struct {
 		platform Platform
 		want     string
 	}{
 		{PlatformIOS, "window.__roadiePlatform='ios'"},
 		{PlatformAndroid, "window.__roadiePlatform='android'"},
-		{PlatformMac, ""},
+		{PlatformMac, "window.__roadiePlatform='mac'"},
 		{"", ""},
 	} {
 		s, mux := newTestServer()
