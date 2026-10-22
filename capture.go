@@ -223,7 +223,14 @@ func (fb *FrameBuffer) LatestRaw() []byte {
 func (fb *FrameBuffer) SetContentRect(rect image.Rectangle) {
 	fb.mu.Lock()
 	fb.contentRect, fb.contentFrame = rect, fb.frameSize
-	fb.trackOrientation(orientationOf(rect))
+	// A target's screen spans at least half the frame one way or the
+	// other. Anything smaller (a dark app's one bright corner, a dongle's
+	// own message) says nothing about which way the target is turned.
+	o := orientationOf(rect)
+	if f := fb.frameSize; f.X > 0 && rect.Dx()*2 < f.X && rect.Dy()*2 < f.Y {
+		o = ""
+	}
+	fb.trackOrientation(o)
 	fb.mu.Unlock()
 }
 
@@ -963,6 +970,8 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 		var frameCount int
 		var prevBlack bool
 		var prevFingerprint uint64
+		var noSignalFP uint64 // the dongle's own No Signal screen, once recognised
+		var blank blankFrame
 		started := time.Now()
 		var detectedOnce bool
 		jpegOpts := &jpeg.Options{}
@@ -987,11 +996,22 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 			consecutiveErrors = 0
 			frameCount++
 
+			// The dongle's own No Signal screen (see nosignal.go) is never
+			// shown: a dark frame goes out in its place, and counts as no
+			// signal. It is recognised once, then by its fingerprint while
+			// it stays.
+			fp := sampleFingerprint(img)
+			if fp != noSignalFP && fp != prevFingerprint && dongleNoSignal(img) {
+				noSignalFP = fp
+			}
+			if noSignalFP != 0 && fp == noSignalFP {
+				img = blank.of(img.Bounds())
+			}
+
 			// No-signal detection: a real no-signal produces identical
 			// black frames.  Dark movie content varies frame-to-frame
 			// due to compression noise, so we require both conditions.
 			black := isBlackFrame(img)
-			fp := sampleFingerprint(img)
 			static := fp == prevFingerprint
 			prevFingerprint = fp
 			if black && static {
@@ -1010,8 +1030,11 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 
 			// Crop detection: the first good frame, then every ~1 s and on signal
 			// transitions.
-			transitioned := black != prevBlack
-			prevBlack = black
+			// Nor does a frame with nothing bright on it: the dongle's black
+			// is about 16, not 0, which isBlackFrame does not count.
+			dark := black || darkFrame(img)
+			transitioned := dark != prevBlack
+			prevBlack = dark
 			fullBounds := img.Bounds()
 			buf.setFrameSize(fullBounds.Size())
 			// A black frame says nothing about where the picture is or which
@@ -1020,7 +1043,7 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 			// seconds of frames: the dongle can send the picture torn
 			// sideways for a few seconds after it starts, which reads as an
 			// upright phone turned on its side.
-			detectNow := !black && time.Since(started) >= captureWarmup &&
+			detectNow := !dark && time.Since(started) >= captureWarmup &&
 				(!detectedOnce || transitioned || frameCount%fps == 0)
 			if detectNow {
 				detected := detectContentRect(img, cropThreshold)

@@ -243,7 +243,7 @@ Service status and device info.
 
 | Field | Description |
 |-------|-------------|
-| `status` | `ok`, `disconnected`, `connecting`, or `no_signal` |
+| `status` | `ok`, `disconnected`, `connecting`, or `no_signal` (the target sends no picture: its screen is off or locked, or the HDMI cable is out; the stream is dark meanwhile) |
 | `source_type` | `hardware` or `http` |
 | `crop` | Present only when active crop differs from full frame |
 | `crop_mode` | `saved`, `auto` or `off`: what decides the crop (see [`/api/crop`](#get-put-post-delete-apicrop)) |

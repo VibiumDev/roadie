@@ -229,7 +229,7 @@ real HTTPS.
 Plug in an HDMI-to-USB capture dongle. Roadie will detect it automatically in the background.
 
 **Stream shows black screen**
-The target device may not be outputting video. Check the HDMI connection and ensure the target is powered on. The `/health` endpoint will show `"status": "no_signal"` when connected but receiving no signal.
+The target device may not be outputting video: its screen is off or locked, it is powered off, or the HDMI cable is out. The `/health` endpoint shows `"status": "no_signal"` then, and `/view` says so over the picture. A capture dongle with nothing on its input sends a screen of its own (the UGREEN 15389's says "无信号 No Signal"); Roadie sends a dark frame in its place, in the saved crop's outline, and keeps the crop and the way the target is turned as they were.
 
 **Stream shows wrong resolution or stretched image**
 Adjust the capture resolution via the settings panel in `/view`, or use CLI flags:
