@@ -158,6 +158,11 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
   .hint { color:var(--ui-muted); }
   .err { color:var(--ui-error); }
   .divider { border-top:1px solid var(--ui-divider); }
+  /* Auto-hide: the toolbar tucks off the right edge when not wanted, and
+     floats over the picture when the picture needs its column. */
+  #toolbar { position:relative; transition:transform 0.15s ease-out; }
+  #toolbar.floating { position:fixed; right:0; top:0; z-index:20; }
+  #toolbar.tucked { transform:translateX(100%); }
   body { background:var(--page-bg); }
   @keyframes spin { to { transform:rotate(360deg); } }
   #onscreen-kbd .kr { display:flex; gap:3px; margin-bottom:3px; justify-content:center; }
@@ -241,7 +246,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       </div>
     </div>
   </div>
-  <div id="toolbar" style="position:relative; display:flex; flex-direction:column; gap:4px; padding:8px 6px;">
+  <div id="toolbar" style="display:flex; flex-direction:column; gap:4px; padding:8px 6px;">
     <style>#toolbar button { outline:none; } #toolbar button:focus { outline:none; }</style>
     <button id="qbtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Settings"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/></svg></button>
     <button id="unmute" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Toggle audio"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M6.717 3.55A.5.5 0 0 1 7 4v8a.5.5 0 0 1-.812.39L3.825 10.5H1.5A.5.5 0 0 1 1 10V6a.5.5 0 0 1 .5-.5h2.325l2.363-1.89a.5.5 0 0 1 .529-.06m7.137 2.096a.5.5 0 0 1 0 .708L12.207 8l1.647 1.646a.5.5 0 0 1-.708.708L11.5 8.707l-1.646 1.647a.5.5 0 0 1-.708-.708L10.793 8 9.146 6.354a.5.5 0 1 1 .708-.708L11.5 7.293l1.646-1.647a.5.5 0 0 1 .708 0"/></svg></button>
@@ -336,6 +341,10 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         <label style="min-width:55px;">Relay</label>
         <button id="resetRelayBtn" class="danger" style="padding:2px 10px; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>
       </div>
+      <div class="divider" style="display:flex; align-items:center; gap:8px; margin-top:8px; padding-top:8px;">
+        <label style="min-width:55px;">Toolbar</label>
+        <label title="Tuck the toolbar off the right edge; it comes back when the pointer reaches the edge" style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input id="tbAutoHide" type="checkbox"> Auto-hide</label>
+      </div>
     </div>
   </div>
   <script>
@@ -375,7 +384,10 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       nextURL = URL.createObjectURL(new Blob([bytes], {type: 'image/jpeg'}));
       img.src = nextURL;
     }
+    var shownSize = '';
     img.onload = function() {
+      var size = img.naturalWidth + 'x' + img.naturalHeight;
+      if (size !== shownSize) { shownSize = size; if (typeof relayout === 'function') relayout(); }
       if (shownURL) URL.revokeObjectURL(shownURL);
       shownURL = nextURL;
       nextURL = null;
@@ -770,12 +782,93 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       var vis = qslider.style.display !== 'none';
       if (vis) {
         qslider.style.display = 'none';
+        menuClosed();
       } else {
         positionPanel();
         qslider.style.display = 'block';
         cropRequest('GET');
       }
     };
+
+    // --- Toolbar auto-hide ---
+    // Tucked off the right edge until the pointer comes within half a
+    // button's width of it; tucked again once the pointer has left it,
+    // unless the menu is open. Where the picture fits beside the toolbar's
+    // column, the column stays and nothing moves. Where it doesn't (a
+    // narrow window), the tucked toolbar gives its column to the picture
+    // and floats over it when it comes back. The picture moves only when
+    // the toolbar slides away, or, turning auto-hide off, when the menu
+    // closes: never at the moment the box is ticked.
+    var toolbarEl = document.getElementById('toolbar');
+    var tbAutoHide = document.getElementById('tbAutoHide');
+    var REVEAL_PX = 18;
+    var autoHide = false;
+    var tuckTimer = null, overToolbar = false;
+    // Whether the picture, fitted to the window's height and zoomed, fits
+    // beside the toolbar's column: taking the column wouldn't enlarge it.
+    function roomBeside() {
+      var nw = img.naturalWidth, nh = img.naturalHeight;
+      if (!nw || !nh) return true;
+      var winW = document.documentElement.clientWidth;
+      var colW = toolbarEl.offsetWidth;
+      var h = document.getElementById('viewer').clientHeight;
+      var fit = function(w) { return Math.min(nw, w, nw * h / nh); };
+      var zoom = (parseInt(zoomRange.value, 10) || 100) / 100;
+      return fit(winW) <= fit(winW - colW) + 0.5 && fit(winW - colW) * zoom <= winW - colW + 0.5;
+    }
+    // A tucked toolbar keeps or gives up its column as the picture needs;
+    // a shown one floating where there is now room goes back to it.
+    function relayout() {
+      if (!autoHide) return;
+      var room = roomBeside();
+      if (toolbarEl.classList.contains('tucked')) toolbarEl.classList.toggle('floating', !room);
+      else if (room) toolbarEl.classList.remove('floating');
+    }
+    function tuck() {
+      if (autoHide && qslider.style.display === 'none' && !overToolbar) {
+        toolbarEl.classList.add('tucked');
+        relayout();
+      }
+    }
+    function scheduleTuck(ms) { clearTimeout(tuckTimer); tuckTimer = setTimeout(tuck, ms); }
+    function untuck() { clearTimeout(tuckTimer); toolbarEl.classList.remove('tucked'); }
+    function menuClosed() {
+      if (autoHide) scheduleTuck(600);
+      else toolbarEl.classList.remove('floating', 'tucked');
+    }
+    window.addEventListener('resize', relayout);
+    if (window.ResizeObserver) new ResizeObserver(relayout).observe(document.getElementById('viewer'));
+    zoomRange.addEventListener('input', relayout);
+    function applyAutoHide(on) {
+      autoHide = on;
+      tbAutoHide.checked = on;
+      if (on) scheduleTuck(600);
+      else if (qslider.style.display === 'none') menuClosed();
+    }
+    toolbarEl.addEventListener('mouseenter', function() { overToolbar = true; untuck(); });
+    toolbarEl.addEventListener('mouseleave', function() { overToolbar = false; scheduleTuck(600); });
+    document.addEventListener('mousemove', function(e) {
+      if (toolbarEl.classList.contains('tucked') && e.clientX >= window.innerWidth - REVEAL_PX) {
+        untuck();
+        scheduleTuck(1500);  // unless the pointer goes on to it
+      }
+    });
+    // A touch screen has no hover: a tap at the edge shows it, a tap
+    // anywhere else tucks it.
+    document.addEventListener('pointerdown', function(e) {
+      if (e.pointerType === 'mouse' || !autoHide) return;
+      if (e.clientX >= window.innerWidth - REVEAL_PX) untuck();
+      else if (!toolbarEl.contains(e.target)) { overToolbar = false; scheduleTuck(600); }
+    }, true);
+    tbAutoHide.onchange = function() {
+      saveSettings({toolbarAutoHide: tbAutoHide.checked});
+      applyAutoHide(tbAutoHide.checked);
+    };
+    (function() {
+      var saved = {};
+      try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+      if (saved.toolbarAutoHide) applyAutoHide(true);
+    })();
 
     function sendSettings(obj) {
       clearTimeout(settingsTimer);
@@ -1055,8 +1148,8 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       localStorage.setItem('roadie-input-mode', mode);
     }
     applyInputMode(inputMode);
-    modeMouseBtn.onclick = function() { setInputMode('mouse'); scheduleHide(); };
-    modeTouchBtn.onclick = function() { setInputMode('touch'); scheduleHide(); };
+    modeMouseBtn.onclick = function() { setInputMode('mouse'); };
+    modeTouchBtn.onclick = function() { setInputMode('touch'); };
 
     // --- Coordinate helpers ---
     function remapToAbsolute(px, py) {
