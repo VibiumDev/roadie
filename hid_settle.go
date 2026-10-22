@@ -233,6 +233,14 @@ func (h *settledHID) mark(at ...*time.Time) {
 	h.mu.Unlock()
 }
 
+// USBDevices passes through what the backend presents to the target.
+func (h *settledHID) USBDevices() []string {
+	if l, ok := h.HIDBackend.(usbDeviceLister); ok {
+		return l.USBDevices()
+	}
+	return nil
+}
+
 // USBState passes the gadget's USB state through for /api/hid/status.
 func (h *settledHID) USBState() string {
 	if g, ok := h.HIDBackend.(interface{ USBState() string }); ok {

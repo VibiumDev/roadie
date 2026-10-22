@@ -83,13 +83,13 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/api/settings", s.handleAPISettings)
 	mux.HandleFunc("/api/crop", s.handleAPICrop)
 	mux.HandleFunc("/audio", s.handleAudio)
-	mux.HandleFunc("/api/hid/audio", s.handleAudioIn)
+	mux.HandleFunc("/api/mic", s.handleMic)
 	mux.HandleFunc("/test", s.handleTest)
 	mux.HandleFunc("/soundcheck", s.handleSoundcheck)
 	mux.HandleFunc("/gestures", s.handleGestures)
 	mux.HandleFunc("/api/capture/reset", s.handleCaptureReset)
 	mux.HandleFunc("/api/hid/release", s.handleHIDRelease)
-	mux.HandleFunc("/api/hid/reset", s.handleHIDReset)
+	mux.HandleFunc("/api/usb/reset", s.handleUSBReset)
 	mux.HandleFunc("/api/relay/reset", s.handleRelayReset)
 	mux.HandleFunc("/api/hid/type", s.handleHIDType)
 	mux.HandleFunc("/api/hid/key", s.handleHIDKey)
@@ -195,6 +195,11 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	if s.HID != nil && s.HID.Backend() == BackendLinuxGadget {
 		fmt.Fprint(w, "\n<script>window.__roadieHIDBackend='linux-gadget';</script>")
 	}
+	// What a USB reset replugs, for the menu's explanation of it.
+	if d := s.usbDevices(); d != nil {
+		b, _ := json.Marshal(d)
+		fmt.Fprintf(w, "\n<script>window.__roadieUSBDevices=%s;</script>", b)
+	}
 
 	fmt.Fprint(w, `
 </head>
@@ -298,6 +303,11 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         </div>
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.1);">
+        <label style="min-width:55px;">Resets</label>
+        <button id="resetHelpBtn" aria-controls="resetHelp" aria-expanded="false" title="What each reset does" style="width:20px; height:20px; padding:0; border-radius:50%; background:#333; color:#ccc; border:1px solid #666; font-family:monospace; font-size:0.85em; cursor:pointer;">?</button>
+      </div>
+      <div id="resetHelp" hidden style="margin:6px 0 0 63px; color:#aaa; font-size:0.9em; max-width:260px; white-space:normal;"></div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">Video</label>
         <button id="resetVideoBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>
       </div>
@@ -602,7 +612,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       }
     };
 
-    // --- Voice input: mic toggle, browser mic -> /api/hid/audio -> target's USB mic ---
+    // --- Voice input: mic toggle, browser mic -> /api/mic -> target's USB mic ---
     var pttBtn = document.getElementById('ptt');
     var pttWs = null, pttCtx = null, pttStream = null, pttNode = null;
     var talking = false;
@@ -634,7 +644,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         if (!talking) { stream.getTracks().forEach(function(t){ t.stop(); }); return; }
         pttStream = stream;
         var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        pttWs = new WebSocket(proto + '//' + location.host + '/api/hid/audio');
+        pttWs = new WebSocket(proto + '//' + location.host + '/api/mic');
         pttWs.binaryType = 'arraybuffer';
         pttCtx = new AudioContext({ sampleRate: 16000 });
         var url = URL.createObjectURL(new Blob([pttWorkletCode], { type: 'application/javascript' }));
@@ -942,16 +952,53 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       btn.addEventListener('pointerleave', cancelHold);
     }
     setupResetBtn('resetVideoBtn', '/api/capture/reset');
-    setupResetBtn('resetHIDBtn', '/api/hid/reset');
+    setupResetBtn('resetHIDBtn', '/api/usb/reset');
     setupResetBtn('resetRelayBtn', '/api/relay/reset');
     // The Pi as the phone's USB devices: no HID or relay board, and its
     // keyboard, mouse, touch, audio and network are one USB device, reset
     // together.
-    if (window.__roadieHIDBackend === 'linux-gadget') {
+    var gadget = window.__roadieHIDBackend === 'linux-gadget';
+    if (gadget) {
       document.getElementById('resetHIDLabel').textContent = 'USB';
-      document.getElementById('resetHIDBtn').title = "Hold to unplug and replug Roadie's USB devices on the phone: keyboard, mouse, touch, audio and network. Ends a touch the phone is stuck on.";
       document.getElementById('resetRelayRow').style.display = 'none';
     }
+
+    // The "?" by Resets: what each reset shown does.
+    (function() {
+      var devs = window.__roadieUSBDevices || [];
+      var named = devs.length < 2 ? devs.join('')
+        : devs.slice(0, -1).join(', ') + ' and ' + devs[devs.length - 1];
+      var seen = named ? 'the target sees its ' + named + ' unplugged and plugged back in' : 'the target sees it unplugged and plugged back in';
+      var rows = [['Video', 'replugs the capture dongle, which renegotiates HDMI; the picture drops for a few seconds.']];
+      if (gadget) {
+        rows.push(['USB', 'the phone sees Roadie\u2019s ' + (named || 'USB devices') + ' unplugged and plugged back in. Ends a touch the phone is stuck on.']);
+      } else {
+        rows.push(['HID', 'reboots the HID board; ' + seen + '.']);
+        rows.push(['Relay', 'reboots the relay board on this machine; the target sees nothing.']);
+      }
+      var help = document.getElementById('resetHelp');
+      rows.forEach(function(r) {
+        var p = document.createElement('div');
+        p.style.margin = '0 0 4px';
+        var b = document.createElement('b');
+        b.textContent = r[0];
+        p.appendChild(b);
+        p.appendChild(document.createTextNode(': ' + r[1]));
+        help.appendChild(p);
+      });
+      var hold = document.createElement('div');
+      hold.textContent = 'Hold a button to reset.';
+      help.appendChild(hold);
+      document.getElementById('resetHIDBtn').title = gadget
+        ? 'Hold: the phone sees Roadie\u2019s ' + (named || 'USB devices') + ' unplugged and plugged back in'
+        : 'Hold: reboots the HID board';
+      var helpBtn = document.getElementById('resetHelpBtn');
+      helpBtn.onclick = function() {
+        help.hidden = !help.hidden;
+        helpBtn.setAttribute('aria-expanded', String(!help.hidden));
+        helpBtn.style.background = help.hidden ? '#333' : '#555';
+      };
+    })();
 
     // --- HID WebSocket ---
     var hidWs = null, hidReady = false;
@@ -1710,7 +1757,25 @@ func (s *Server) handleHIDRelease(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-func (s *Server) handleHIDReset(w http.ResponseWriter, r *http.Request) {
+// usbDeviceLister names what an input backend presents to the target over
+// USB: what a USB reset replugs.
+type usbDeviceLister interface {
+	USBDevices() []string
+}
+
+// usbDevices is what the target sees replugged by a USB reset, or nil when
+// the backend can't say.
+func (s *Server) usbDevices() []string {
+	if l, ok := s.HID.(usbDeviceLister); ok {
+		return l.USBDevices()
+	}
+	return nil
+}
+
+// handleUSBReset replugs every device Roadie presents to the target: the
+// HID board reboots, or the gadget is unplugged and plugged back in. The
+// answer names what the target saw replugged.
+func (s *Server) handleUSBReset(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -1723,8 +1788,12 @@ func (s *Server) handleHIDReset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	resp := map[string]any{"status": "ok"}
+	if d := s.usbDevices(); d != nil {
+		resp["replugged"] = d
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) handleRelayReset(w http.ResponseWriter, r *http.Request) {
@@ -1992,11 +2061,11 @@ func (s *Server) handleAudio(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleAudioIn receives PCM audio from the browser and forwards it to the
+// handleMic receives PCM audio from the browser and forwards it to the
 // HID board's USB microphone (voice input). Binary messages carry 16 kHz
 // S16LE mono PCM; the browser paces them in real time, and the board only
 // buffers ~100 ms ahead, so no server-side pacing is applied.
-func (s *Server) handleAudioIn(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleMic(w http.ResponseWriter, r *http.Request) {
 	if s.HID == nil {
 		http.Error(w, "HID not available", http.StatusServiceUnavailable)
 		return
@@ -2007,7 +2076,7 @@ func (s *Server) handleAudioIn(w http.ResponseWriter, r *http.Request) {
 	// unaffected; /soundcheck is served by roadie so it is same-origin.
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
-		log.Printf("/api/hid/audio websocket accept: %v", err)
+		log.Printf("/api/mic websocket accept: %v", err)
 		return
 	}
 	defer conn.CloseNow()
@@ -2022,16 +2091,16 @@ func (s *Server) handleAudioIn(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if err := s.HID.SendAudio(data); err != nil {
-			log.Printf("/api/hid/audio: %v", err)
+			log.Printf("/api/mic: %v", err)
 			return
 		}
 	}
 }
 
 // soundcheckPage is served at /soundcheck. It captures the browser's
-// microphone and streams it to /api/hid/audio, showing what arrives -- the same
+// microphone and streams it to /api/mic, showing what arrives -- the same
 // path the viewer's mic button uses. Served from roadie rather than from a
-// file so the page is same-origin with /api/hid/audio, which refuses cross-origin
+// file so the page is same-origin with /api/mic, which refuses cross-origin
 // connections.
 //
 //go:embed board/e2e/gesture-page.html

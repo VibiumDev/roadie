@@ -59,10 +59,10 @@ Device info, capture settings, and the [saved crop](#get-put-post-delete-apicrop
 ### `GET /soundcheck`
 
 A microphone check page. Opens the browser's microphone, converts it to
-16 kHz mono PCM, and streams it to `/api/hid/audio` — the same path `/view`'s mic
+16 kHz mono PCM, and streams it to `/api/mic` — the same path `/view`'s mic
 button uses, with a level meter and a status line.
 
-Served by roadie so that it is same-origin with `/api/hid/audio`, which refuses
+Served by roadie so that it is same-origin with `/api/mic`, which refuses
 connections from other origins. `make test-audio-browser` drives this page;
 it is also useful on its own for checking a microphone by hand.
 
@@ -101,7 +101,7 @@ Single JPEG frame (uncropped).
 ## Audio
 
 Audio *from* the target. Voice input *into* the target is
-[`WS /api/hid/audio`](#ws-apihidaudio), with the other endpoints that drive
+[`WS /api/mic`](#ws-apimic), with the other endpoints that drive
 the target.
 
 ### `GET /audio`
@@ -268,17 +268,18 @@ Only the dongle this instance is capturing from is reset, so it is safe to call 
 
 Requires Linux and a udev rule (installed by `make setup`). Returns `503` if capture is not available.
 
-### `POST /api/hid/reset`
-Reset the HID board. The relay sends a reset command over UART; the HID board reboots.
+### `POST /api/usb/reset`
+Replug every device Roadie presents to the target, which sees them unplugged
+and plugged back in. With the boards, the relay tells the HID board over UART
+to reboot. With `--hid-backend linux-gadget`, the Pi's whole USB gadget is
+disconnected and reconnected: its keyboard, mouse, touch, audio and network
+are one USB device, so they go together. It ends a touch the phone has got
+stuck on. Exceptional recovery, never done automatically; with the gadget it
+needs roadie's user in the `roadie` group.
 
-With `--hid-backend linux-gadget` the target instead sees the whole USB gadget
-unplugged and plugged back in (keyboard, mouse, touch, audio and Ethernet):
-exceptional recovery, never done automatically. Needs roadie's user in the
-`roadie` group.
-
-**Response:**
+**Response:** what the target saw replugged.
 ```json
-{"status": "ok"}
+{"status": "ok", "replugged": ["keyboard", "mouse", "touch", "microphone", "speaker", "network"]}
 ```
 
 ### `POST /api/relay/reset`
@@ -497,7 +498,7 @@ No server-to-client messages. Connection auto-reconnects on the `/test` page.
 
 ---
 
-### `WS /api/hid/audio`
+### `WS /api/mic`
 WebSocket endpoint for voice input: audio sent here plays out of the HID board's USB microphone (or, with `--hid-backend linux-gadget`, the Pi's USB gadget microphone, upsampled to 48 kHz), so the target hears it as mic input.
 
 **Protocol:**

@@ -60,7 +60,7 @@ const (
 	// long: it is not recording, and the audio would be stale when it did.
 	micStaleAfter = time.Second
 
-	// The browser's microphone format (/api/hid/audio).
+	// The browser's microphone format (/api/mic).
 	micInputRate = 16000
 
 	pcmRetryMax = 10 * time.Second
@@ -245,7 +245,7 @@ func (a *GadgetAudio) keepOpen(what string, playback bool, rate, channels, perio
 // ---- microphone ------------------------------------------------------------
 
 // micStream takes the browser's 16 kHz mono audio (Write, from
-// /api/hid/audio) and plays it into the gadget microphone (pump).
+// /api/mic) and plays it into the gadget microphone (pump).
 type micStream struct {
 	rate, channels int
 

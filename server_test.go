@@ -465,6 +465,9 @@ func TestHealthAudioSource(t *testing.T) {
 type gadgetHID struct{ keyHID }
 
 func (g *gadgetHID) Backend() string { return BackendLinuxGadget }
+func (g *gadgetHID) USBDevices() []string {
+	return []string{"keyboard", "mouse", "touch", "microphone", "speaker", "network"}
+}
 
 // With the Pi as the phone's USB devices, /view is told so, and offers one
 // USB reset in place of the boards' HID and relay resets; with the boards it
@@ -476,8 +479,34 @@ func TestViewHIDBackend(t *testing.T) {
 	if _, _, body := get(t, mux, "/view"); !strings.Contains(body, flag) {
 		t.Errorf("gadget backend: page lacks %s", flag)
 	}
+	if _, _, body := get(t, mux, "/view"); !strings.Contains(body, `window.__roadieUSBDevices=["keyboard","mouse","touch","microphone","speaker","network"]`) {
+		t.Errorf("gadget backend: page lacks what a USB reset replugs")
+	}
 	s.HID = &keyHID{}
 	if _, _, body := get(t, mux, "/view"); strings.Contains(body, flag) {
 		t.Errorf("boards backend: page has %s", flag)
+	}
+}
+
+// POST /api/usb/reset replugs and says what; the old paths are gone.
+func TestUSBReset(t *testing.T) {
+	s, mux := newTestServer()
+	s.HID = &gadgetHID{}
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("POST", "/api/usb/reset", nil))
+	var got struct {
+		Status    string
+		Replugged []string
+	}
+	json.Unmarshal(w.Body.Bytes(), &got)
+	if w.Code != http.StatusOK || got.Status != "ok" || len(got.Replugged) != 6 || got.Replugged[5] != "network" {
+		t.Errorf("POST /api/usb/reset: %d %s", w.Code, w.Body.String())
+	}
+	for _, old := range []string{"/api/hid/reset", "/api/hid/audio"} {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("POST", old, nil))
+		if w.Code != http.StatusNotFound {
+			t.Errorf("%s still answers: %d", old, w.Code)
+		}
 	}
 }

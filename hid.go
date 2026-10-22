@@ -538,6 +538,14 @@ func (hc *HIDController) ResetHID() error {
 	return hc.sendJSON(map[string]any{"cmd": "reset_hid"})
 }
 
+// USBDevices names what the HID board presents to the target, as its
+// reset replugs them: board/hid/boot.py enables the keyboard, mouse and
+// touch digitizer and the microphone, beside CircuitPython's drive and
+// serial port.
+func (hc *HIDController) USBDevices() []string {
+	return []string{"keyboard", "mouse", "touch", "microphone", "drive", "serial port"}
+}
+
 // ResetRelay sends a reset command that causes the relay board to reboot.
 // The serial connection will drop and reconnect automatically.
 func (hc *HIDController) ResetRelay() error {

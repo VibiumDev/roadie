@@ -16,7 +16,7 @@ built and why.
 | Input path | `server.go`/`bidi.go` → `*HIDController` (`hid.go`) → JSON over USB serial → relay board → UART → HID board → USB HID |
 | HID devices | One USB HID interface, three report IDs: boot keyboard (1), `absolute_mouse` (11), 2-contact digitizer (12) |
 | Coordinates | 0–32767 absolute on both axes, computed by the viewer/BiDi; the boards only clamp |
-| Microphone | `/api/hid/audio` takes 16 kHz S16LE mono; relay frames it to the HID board's `usb_audio` mic |
+| Microphone | `/api/mic` takes 16 kHz S16LE mono; relay frames it to the HID board's `usb_audio` mic |
 | Phone audio out | Phone sends audio over HDMI; the capture dongle's audio feeds `AudioBroadcaster` → `/audio` (f32 interleaved) |
 | Recovery | Relay ping round trip, soft reboot, USB re-enumeration (`hid.go`) |
 | Config | Command-line flags only; no config file |
@@ -67,7 +67,7 @@ boot → roadie-gadget.service  (oneshot, idempotent "up", no ExecStop)
   fingerprint it only re-applies permissions. A changed config, or a partial
   gadget from a failed run, is torn down and rebuilt — and logged as such.
 - Exceptional recovery is explicit: `roadie-gadget reset` (or
-  `POST /api/hid/reset`) toggles the UDC's `soft_connect`, which makes the phone
+  `POST /api/usb/reset`) toggles the UDC's `soft_connect`, which makes the phone
   see an unplug/replug without destroying device nodes. Roadie never does
   this on its own after an application error.
 
@@ -153,7 +153,7 @@ f_uac2 exposes an ALSA card on the Pi. Gadget-side **playback** is the phone's
   Android's kernel (`snd-usb-audio`).
 - ALSA is driven with its kernel ioctl ABI from Go (`alsa_linux.go`) — no
   cgo, no new dependency, and full control of software parameters.
-- **Mic:** `/api/hid/audio` still takes 16 kHz mono; a polyphase FIR upsamples
+- **Mic:** `/api/mic` still takes 16 kHz mono; a polyphase FIR upsamples
   ×3. A jitter buffer (bounded at 200 ms, oldest dropped) feeds ALSA one
   period at a time; when nothing is queued the writer sends silence, so the
   phone hears silence, not a replayed buffer. ALSA silence-fill and a

@@ -153,7 +153,7 @@ Every default is listed in the file:
 |---|---|---|
 | `AUDIO` | `uac2` | `uac1` for phones with poor UAC2 support; `none` |
 | `AUDIO_SPEAKER` | `1` | Phone plays audio over USB, roadie's `/audio` carries it. `0` keeps the phone's audio on HDMI (the dongle) |
-| `AUDIO_MIC` | `1` | Phone gets a USB microphone fed by `/api/hid/audio` |
+| `AUDIO_MIC` | `1` | Phone gets a USB microphone fed by `/api/mic` |
 | `NET` | `ecm` | `ncm`, `rndis` (deprecated; disabled in recent Android kernels), `none` |
 | `NET_HOST_MAC` | this Pi's eth0 MAC | Must be universally administered or Android ignores the link (see below) |
 | `USB_VENDOR_ID:USB_PRODUCT_ID` | `0x1d6b:0x0104` | Linux Foundation "Multifunction Composite Gadget"; use your own for a fleet |
@@ -182,7 +182,7 @@ exceptions (`ALLOW_DESTS`, `ALLOW_PI_TCP_PORTS`).
 
 ### Audio
 
-- Mic: the browser still sends 16 kHz mono to `/api/hid/audio`; roadie
+- Mic: the browser still sends 16 kHz mono to `/api/mic`; roadie
   upsamples to 48 kHz. A 40–200 ms jitter buffer smooths network bursts;
   silence is sent whenever nobody is talking, and an underrun plays
   silence, never a replayed buffer.
@@ -240,7 +240,7 @@ When something is still wrong, escalate in this order:
 | `POST /api/hid/release` | Lets go of buttons and fingers |
 | `POST /api/relay/reset` | Roadie reopens its device nodes; phone sees nothing |
 | `sudo systemctl restart roadie` | Same, plus audio; phone sees nothing |
-| `POST /api/hid/reset` or `roadie-gadget reset` | Phone sees an unplug/replug of every function |
+| `POST /api/usb/reset` or `roadie-gadget reset` | Phone sees an unplug/replug of every function |
 | `sudo roadie-gadget rebind` | Harder replug: controller unbound and rebound |
 | `sudo systemctl restart roadie-gadget` | Rebuilds the gadget only if the config changed |
 | `sudo reboot` | Last resort |

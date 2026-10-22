@@ -112,7 +112,7 @@ the report is dropped before it reaches the target.
 
 Resetting the HID board also clears it, by re-enumerating the keyboard:
 ```bash
-curl -X POST http://localhost:8080/api/hid/reset
+curl -X POST http://localhost:8080/api/usb/reset
 ```
 That is the heavier option; the modifier tap is instant and does not interrupt
 the session.
@@ -123,7 +123,7 @@ known cause). Releasing the buttons or clicking again doesn't end it;
 re-enumerating the mouse does. Hold **Reset** next to **USB** (or, with the
 boards, **HID**) in the viewer's settings panel, or:
 ```bash
-curl -X POST http://localhost:8080/api/hid/reset
+curl -X POST http://localhost:8080/api/usb/reset
 ```
 The phone sees Roadie's devices unplugged and plugged back in (with the Pi as
 its USB devices, its audio and network too), and the half-done swipe
@@ -142,7 +142,7 @@ This performs a USB unbind/rebind on the capture dongle, forcing HDMI re-negotia
 Reset the boards from the settings panel (hold **Reset** next to **HID** or
 **Relay**), or:
 ```bash
-curl -X POST http://localhost:8080/api/hid/reset    # reset HID board
+curl -X POST http://localhost:8080/api/usb/reset    # reboot the HID board
 curl -X POST http://localhost:8080/api/relay/reset   # reset relay board
 ```
 

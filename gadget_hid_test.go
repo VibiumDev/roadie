@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"syscall"
@@ -747,5 +748,41 @@ func TestGadgetPartialSendSaysSo(t *testing.T) {
 	err := g.MouseClick(1)
 	if err == nil || !strings.Contains(err.Error(), "1 of 2 reports sent") || !errors.Is(err, errHostNotReading) {
 		t.Errorf("partial click error: %v", err)
+	}
+}
+
+// A USB reset replugs what the gadget's configuration holds, and nothing it
+// doesn't: no speaker when the phone's audio stays on HDMI, no network
+// when there is none.
+func TestGadgetUSBDevices(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		links   []string
+		cChmask string
+		want    []string
+	}{
+		{"everything", []string{"ecm.phone", "hid.keyboard", "hid.mouse", "hid.touch", "uac2.audio"}, "3",
+			[]string{"keyboard", "mouse", "touch", "microphone", "speaker", "network"}},
+		{"no speaker, no network", []string{"hid.keyboard", "hid.mouse", "hid.touch", "uac2.audio"}, "0",
+			[]string{"keyboard", "mouse", "touch", "microphone"}},
+		{"input only", []string{"hid.keyboard", "hid.mouse", "hid.touch"}, "3",
+			[]string{"keyboard", "mouse", "touch"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := gadgetPaths{sys: filepath.Join(t.TempDir(), "sys")}
+			for _, l := range tc.links {
+				if err := os.MkdirAll(filepath.Join(p.gadget(), "configs", "c.1", l), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			audio := p.function("uac2.audio")
+			os.MkdirAll(audio, 0o755)
+			os.WriteFile(filepath.Join(audio, "p_chmask"), []byte("1\n"), 0o644)
+			os.WriteFile(filepath.Join(audio, "c_chmask"), []byte(tc.cChmask+"\n"), 0o644)
+			g := &GadgetHID{paths: p}
+			if got := g.USBDevices(); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

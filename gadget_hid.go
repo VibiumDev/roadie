@@ -824,7 +824,7 @@ func (g *GadgetHID) releaseLocked(f *hidFunction, timeout time.Duration, force b
 // ResetHID makes the phone see the whole gadget unplugged and plugged back
 // in, by dropping and restoring the controller's pull-up. Device nodes, the
 // sound card and the network interface all survive. This is for exceptional
-// recovery and runs only when asked (POST /api/hid/reset).
+// recovery and runs only when asked (POST /api/usb/reset).
 func (g *GadgetHID) ResetHID() error {
 	udc := g.Port()
 	if udc == "" {
@@ -843,6 +843,41 @@ func (g *GadgetHID) ResetHID() error {
 	g.resetInputState()
 	g.nudge()
 	return nil
+}
+
+// USBDevices names what the gadget presents to the phone, as a reset
+// replugs them, from the functions in its configuration: a gadget set up
+// without audio or network doesn't claim them.
+func (g *GadgetHID) USBDevices() []string {
+	entries, err := os.ReadDir(filepath.Join(g.paths.gadget(), "configs", "c.1"))
+	if err != nil {
+		return nil
+	}
+	has := map[string]bool{}
+	for _, e := range entries {
+		name := e.Name()
+		switch kind, _, _ := strings.Cut(name, "."); kind {
+		case "hid":
+			has[strings.TrimPrefix(name, "hid.")] = true
+		case "uac1", "uac2":
+			on := func(attr string) bool {
+				b, err := os.ReadFile(filepath.Join(g.paths.function(name), attr))
+				v := strings.TrimSpace(string(b))
+				return err == nil && v != "" && v != "0"
+			}
+			has["microphone"] = has["microphone"] || on("p_chmask")
+			has["speaker"] = has["speaker"] || on("c_chmask")
+		case "ecm", "ncm", "rndis":
+			has["network"] = true
+		}
+	}
+	var out []string
+	for _, d := range []string{"keyboard", "mouse", "touch", "microphone", "speaker", "network"} {
+		if has[d] {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // ResetRelay restarts roadie's side of the link: closes and reopens every
