@@ -310,7 +310,6 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     var img = document.getElementById('feed');
     var overlay = document.getElementById('overlay');
     var unmuteBtn = document.getElementById('unmute');
-    var wasOk = false;
 
     var healthOk = false;
     var cropX = 0, cropY = 0, cropW = 0, cropH = 0, fullW = 0, fullH = 0;
@@ -323,34 +322,106 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       overlay.textContent = msg || 'Disconnected \u2014 waiting for capture device\u2026';
       overlay.style.display = 'flex';
     }
-    function startStream() {
-      if (!wasOk) {
-        img.src = '/stream?' + Date.now();
-        img.style.display = '';
-        wasOk = true;
-      }
-    }
     function tryHideOverlay() {
       if (healthOk) {
         overlay.style.display = 'none';
       }
     }
 
-    img.onload = function() { tryHideOverlay(); syncKbdWidth(); };
-    img.onerror = function() { wasOk = false; showOverlay(); };
-    var prevHealthOk = true;
+    // The feed: /stream read with fetch and each frame shown in the <img>.
+    // An <img> given /stream itself freezes on its last frame when the
+    // stream ends, with no event to say so; this way the page knows when it
+    // ends, or stalls, and starts it again.
+    var stream = null;      // the AbortController of the stream being read
+    var lastFrame = 0;      // when its last frame arrived
+    var shownURL = null, nextURL = null;
+    var STALL_MS = 4000;
+    function showFrame(bytes) {
+      lastFrame = Date.now();
+      if (nextURL) return;  // the last one is still decoding: skip this one
+      nextURL = URL.createObjectURL(new Blob([bytes], {type: 'image/jpeg'}));
+      img.src = nextURL;
+    }
+    img.onload = function() {
+      if (shownURL) URL.revokeObjectURL(shownURL);
+      shownURL = nextURL;
+      nextURL = null;
+      img.style.display = '';
+      tryHideOverlay();
+    };
+    img.onerror = function() {
+      if (nextURL) URL.revokeObjectURL(nextURL);
+      nextURL = null;
+    };
+    function indexOfCRLF2(buf) {
+      for (var i = 0; i + 3 < buf.length; i++) {
+        if (buf[i] === 13 && buf[i+1] === 10 && buf[i+2] === 13 && buf[i+3] === 10) return i;
+      }
+      return -1;
+    }
+    // takeFrames shows each whole frame in buf (parts of
+    // "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: N\r\n\r\n"
+    // and N bytes) and returns what is left of the next.
+    var decoder = new TextDecoder();
+    function takeFrames(buf) {
+      for (;;) {
+        var end = indexOfCRLF2(buf);
+        if (end < 0) return buf;
+        var m = /Content-Length:\s*(\d+)/i.exec(decoder.decode(buf.subarray(0, end)));
+        var start = end + 4;
+        if (!m) { buf = buf.subarray(start); continue; }
+        var len = parseInt(m[1], 10);
+        if (buf.length < start + len) return buf;
+        showFrame(buf.slice(start, start + len));
+        buf = buf.subarray(start + len);
+      }
+    }
+    function startStream() {
+      if (stream) stream.abort();
+      var ctl = new AbortController();
+      stream = ctl;
+      lastFrame = Date.now();
+      fetch('/stream', {signal: ctl.signal, cache: 'no-store'}).then(function(r) {
+        if (!r.ok || !r.body) throw new Error('stream: ' + r.status);
+        var reader = r.body.getReader();
+        var buf = new Uint8Array(0);
+        function pump() {
+          return reader.read().then(function(res) {
+            if (res.done) throw new Error('stream ended');
+            var joined = new Uint8Array(buf.length + res.value.length);
+            joined.set(buf);
+            joined.set(res.value, buf.length);
+            buf = takeFrames(joined);
+            return pump();
+          });
+        }
+        return pump();
+      }).catch(function() {
+        if (stream === ctl) stream = null;  // the watchdog starts another
+      });
+    }
+    // The watchdog: a stream that ended, or has sent nothing for STALL_MS
+    // (a network that dropped it silently, a laptop back from sleep), is
+    // started again once roadie is serving.
+    setInterval(function() {
+      if (stream && Date.now() - lastFrame > STALL_MS) {
+        stream.abort();
+        stream = null;
+      }
+      if (!stream && healthOk) startStream();
+    }, 1000);
 
     function poll() {
-      fetch('/health').then(function(r){ return r.json(); }).then(function(data){
+      var ctl = new AbortController();
+      var timeout = setTimeout(function() { ctl.abort(); }, 3000);
+      fetch('/health', {signal: ctl.signal}).then(function(r){ return r.json(); }).then(function(data){
+        clearTimeout(timeout);
         if (data.status === 'ok') {
-          if (!prevHealthOk) { wasOk = false; }
           healthOk = true;
-          prevHealthOk = true;
-          startStream();
+          if (!stream) startStream();
           tryHideOverlay();
         } else {
           healthOk = false;
-          prevHealthOk = false;
           if (data.status === 'no_signal') { showOverlay('No signal \u2014 check HDMI connection to capture device'); }
           else if (data.status === 'connecting') { showOverlay('Connecting\u2026'); }
           else { showOverlay(); }
@@ -371,7 +442,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         }
         // Show unmute button when audio is available.
         if (data.audio) { unmuteBtn.style.display = 'flex'; }
-      }).catch(function(){ showOverlay(); });
+      }).catch(function(){ clearTimeout(timeout); healthOk = false; showOverlay(); });
     }
     poll();
     setInterval(poll, 1000);
@@ -1342,9 +1413,9 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 			frame := s.Source.Latest()
 			if frame == nil {
 				if hadFrame {
-					// Device disconnected — close the stream so the
-					// browser's <img> fires onerror and reconnects
-					// when capture resumes.
+					// Device disconnected: end the stream, so the
+					// viewer sees it end and starts another once
+					// capture resumes.
 					return
 				}
 				time.Sleep(interval)
