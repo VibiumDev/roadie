@@ -190,6 +190,12 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "\n<script>window.__roadiePointerSpace='screen';</script>")
 	}
 
+	// With the Pi as the phone's USB devices there are no boards to reset:
+	// the menu offers one reset that replugs them all.
+	if s.HID != nil && s.HID.Backend() == BackendLinuxGadget {
+		fmt.Fprint(w, "\n<script>window.__roadieHIDBackend='linux-gadget';</script>")
+	}
+
 	fmt.Fprint(w, `
 </head>
 <body style="margin:0; display:flex; height:100vh; overflow:hidden; overscroll-behavior:none;">
@@ -296,10 +302,10 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         <button id="resetVideoBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
-        <label style="min-width:55px;">HID</label>
+        <label id="resetHIDLabel" style="min-width:55px;">HID</label>
         <button id="resetHIDBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>
       </div>
-      <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+      <div id="resetRelayRow" style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">Relay</label>
         <button id="resetRelayBtn" style="padding:2px 10px; background:#633; color:#fff; border:1px solid #955; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>
       </div>
@@ -938,6 +944,14 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     setupResetBtn('resetVideoBtn', '/api/capture/reset');
     setupResetBtn('resetHIDBtn', '/api/hid/reset');
     setupResetBtn('resetRelayBtn', '/api/relay/reset');
+    // The Pi as the phone's USB devices: no HID or relay board, and its
+    // keyboard, mouse, touch, audio and network are one USB device, reset
+    // together.
+    if (window.__roadieHIDBackend === 'linux-gadget') {
+      document.getElementById('resetHIDLabel').textContent = 'USB';
+      document.getElementById('resetHIDBtn').title = "Hold to unplug and replug Roadie's USB devices on the phone: keyboard, mouse, touch, audio and network. Ends a touch the phone is stuck on.";
+      document.getElementById('resetRelayRow').style.display = 'none';
+    }
 
     // --- HID WebSocket ---
     var hidWs = null, hidReady = false;

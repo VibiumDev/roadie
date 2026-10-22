@@ -120,7 +120,8 @@ the session.
 **iPhone: moving the pointer drags, as if a finger were still down**
 iOS has lost the end of a touch (seen after a right-click, and once with no
 known cause). Releasing the buttons or clicking again doesn't end it;
-re-enumerating the mouse does:
+re-enumerating the mouse does. Hold **Reset** next to **USB** (or, with the
+boards, **HID**) in the viewer's settings panel, or:
 ```bash
 curl -X POST http://localhost:8080/api/hid/reset
 ```
@@ -138,11 +139,16 @@ curl -X POST http://localhost:8080/api/capture/reset
 This performs a USB unbind/rebind on the capture dongle, forcing HDMI re-negotiation. Requires `make setup` to install the udev rule.
 
 **HID or relay board unresponsive**
-Reset the boards from the settings panel, or:
+Reset the boards from the settings panel (hold **Reset** next to **HID** or
+**Relay**), or:
 ```bash
 curl -X POST http://localhost:8080/api/hid/reset    # reset HID board
 curl -X POST http://localhost:8080/api/relay/reset   # reset relay board
 ```
+
+With the Pi as the phone's USB devices there are no boards: the panel shows
+one **USB** reset instead, which unplugs and replugs Roadie's keyboard, mouse,
+touch, audio and network on the phone together.
 
 **The relay stops responding on its own**
 Roadie notices and fixes this without being asked. It pings the relay every

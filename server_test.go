@@ -460,3 +460,24 @@ func TestHealthAudioSource(t *testing.T) {
 		}
 	}
 }
+
+// gadgetHID is a backend that reports itself as the Linux USB gadget.
+type gadgetHID struct{ keyHID }
+
+func (g *gadgetHID) Backend() string { return BackendLinuxGadget }
+
+// With the Pi as the phone's USB devices, /view is told so, and offers one
+// USB reset in place of the boards' HID and relay resets; with the boards it
+// isn't.
+func TestViewHIDBackend(t *testing.T) {
+	const flag = "window.__roadieHIDBackend='linux-gadget'"
+	s, mux := newTestServer()
+	s.HID = &gadgetHID{}
+	if _, _, body := get(t, mux, "/view"); !strings.Contains(body, flag) {
+		t.Errorf("gadget backend: page lacks %s", flag)
+	}
+	s.HID = &keyHID{}
+	if _, _, body := get(t, mux, "/view"); strings.Contains(body, flag) {
+		t.Errorf("boards backend: page has %s", flag)
+	}
+}
