@@ -286,6 +286,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     <button id="backBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Back (Esc)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M11.5 2.8v10.4a.5.5 0 0 1-.77.42L3.4 8.42a.5.5 0 0 1 0-.84l7.33-5.2a.5.5 0 0 1 .77.42"/></svg></button>
     <button id="homeBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Home"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M8 .8.6 7.3l.8.9.6-.5V15h4.5v-4h3v4H14V7.7l.6.5.8-.9z"/></svg></button>
     <button id="recentsBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Recent apps (Alt+Tab)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M3 3.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5zm1.5 1v7h7v-7z"/></svg></button>
+    <button id="lockBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Lock"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"></svg></button>
     <button id="shotBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Save a screenshot"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M10.5 8.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"/><path d="M2 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1.17a2 2 0 0 1-1.42-.59l-.82-.82A2 2 0 0 0 9.17 2H6.83a2 2 0 0 0-1.42.59l-.82.82A2 2 0 0 1 3.17 4zm6 1.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6"/></svg></button>
     <div id="qslider" style="display:none; position:absolute; top:8px; z-index:21; border-radius:8px; padding:10px 14px; font-family:monospace; font-size:0.85em; white-space:nowrap;">
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
@@ -402,6 +403,8 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     var unmuteBtn = document.getElementById('unmute');
 
     var healthOk = false;
+    // The target's screen dark (no signal): the Lock button wakes it then.
+    var screenDark = false, updateLockBtn = function() {};
     // Whether roadie is serving pictures: when it is fine, and also with no
     // signal, when the picture is dark in the target's outline.
     var serving = false;
@@ -523,6 +526,10 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       fetch('/health', {signal: ctl.signal}).then(function(r){ return r.json(); }).then(function(data){
         clearTimeout(timeout);
         serving = data.status === 'ok' || data.status === 'no_signal';
+        if ((data.status === 'no_signal') !== screenDark) {
+          screenDark = data.status === 'no_signal';
+          updateLockBtn();
+        }
         if (serving && !stream) startStream();
         if (data.status === 'ok') {
           healthOk = true;
@@ -973,6 +980,25 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         b.style.display = 'flex';
         b.onclick = function() { sendKeys(buttons[id]); };
       });
+      // Lock and wake, like the phone's side button: iOS locks on Ctrl+Cmd+Q
+      // and wakes on any key, Shift being one that types nothing; Android's
+      // power key (the keyboard Power usage) does both. While the screen is
+      // dark (roadie sees no signal) the button wakes; otherwise it locks.
+      var lockBtn = document.getElementById('lockBtn');
+      var LOCK = '<path d="M8 1a3 3 0 0 0-3 3v2.5H4.5A1.5 1.5 0 0 0 3 8v5.5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5V8a1.5 1.5 0 0 0-1.5-1.5H11V4a3 3 0 0 0-3-3m-1.5 3a1.5 1.5 0 1 1 3 0v2.5h-3z"/>';
+      var WAKE = '<path d="M8 4.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7"/><path d="M8 0a.6.6 0 0 1 .6.6v1.8a.6.6 0 0 1-1.2 0V.6A.6.6 0 0 1 8 0m0 13a.6.6 0 0 1 .6.6v1.8a.6.6 0 0 1-1.2 0v-1.8A.6.6 0 0 1 8 13m8-5a.6.6 0 0 1-.6.6h-1.8a.6.6 0 0 1 0-1.2h1.8A.6.6 0 0 1 16 8M3 8a.6.6 0 0 1-.6.6H.6a.6.6 0 0 1 0-1.2h1.8A.6.6 0 0 1 3 8m10.66-5.66a.6.6 0 0 1 0 .85l-1.27 1.27a.6.6 0 1 1-.85-.85l1.27-1.27a.6.6 0 0 1 .85 0m-9.2 9.2a.6.6 0 0 1 0 .85l-1.27 1.27a.6.6 0 1 1-.85-.85l1.27-1.27a.6.6 0 0 1 .85 0m9.2 2.12a.6.6 0 0 1-.85 0l-1.27-1.27a.6.6 0 1 1 .85-.85l1.27 1.27a.6.6 0 0 1 0 .85m-9.2-9.2a.6.6 0 0 1-.85 0L2.34 3.19a.6.6 0 1 1 .85-.85l1.27 1.27a.6.6 0 0 1 0 .85"/>';
+      var lockKeys = plat === 'ios' ? [224, GUI, 20] : [102];   // Ctrl+Cmd+Q; Power
+      var wakeKeys = plat === 'ios' ? [225] : [102];            // Shift; Power
+      updateLockBtn = function() {
+        lockBtn.title = screenDark
+          ? (plat === 'ios' ? 'Wake (Shift)' : 'Wake (Power)')
+          : (plat === 'ios' ? 'Lock (Ctrl+\u2318Q)' : 'Lock (Power)');
+        lockBtn.querySelector('svg').innerHTML = screenDark ? WAKE : LOCK;
+      };
+      updateLockBtn();
+      lockBtn.style.display = 'flex';
+      lockBtn.onclick = function() { sendKeys(screenDark ? wakeKeys : lockKeys); };
+
       var homeBtn = document.getElementById('homeBtn');
       if (plat === 'ios') {
         homeBtn.title = 'Home (\u2318H)';
