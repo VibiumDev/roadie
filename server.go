@@ -158,6 +158,13 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
   .hint { color:var(--ui-muted); }
   .err { color:var(--ui-error); }
   .divider { border-top:1px solid var(--ui-divider); }
+  #overlay { position:absolute; inset:0; background:rgba(0,0,0,0.85); color:#fff; font-family:monospace; font-size:1.2em;
+    justify-content:center; align-items:center; text-align:center; z-index:10; }
+  /* No signal: a message over the picture, which stays visible (dark, in
+     the target's outline) instead of being covered. */
+  #overlay.notice { background:transparent; align-items:flex-start; pointer-events:none; }
+  #overlay.notice span { margin-top:16px; padding:8px 14px; border-radius:6px; background:rgba(0,0,0,0.75);
+    font-size:0.85em; max-width:80%; }
   #toolbarNote { position:fixed; right:12px; bottom:12px; z-index:30; max-width:260px; padding:8px 12px; border-radius:6px;
     background:var(--ui-panel); color:var(--ui-text); border:1px solid var(--ui-btn-border); font-family:monospace; font-size:0.85em;
     transition:opacity 0.4s; }
@@ -250,7 +257,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 <body class="tb-right" style="margin:0; display:flex; height:100vh; overflow:hidden; overscroll-behavior:none;">
   <div style="flex:1; min-width:0; min-height:0; display:flex; flex-direction:column;">
     <div id="viewer" style="position:relative; flex:1; min-width:0; min-height:0; overflow:hidden;">
-      <div id="overlay" style="display:flex; position:absolute; inset:0; background:rgba(0,0,0,0.85); color:#fff; font-family:monospace; font-size:1.2em; justify-content:center; align-items:center; text-align:center; z-index:10;">
+      <div id="overlay" style="display:flex;">
         Connecting&hellip;
       </div>
       <img id="feed" draggable="false" oncontextmenu="return false" style="max-width:100%; max-height:100%; display:none; touch-action:none; cursor:crosshair;">
@@ -395,6 +402,9 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     var unmuteBtn = document.getElementById('unmute');
 
     var healthOk = false;
+    // Whether roadie is serving pictures: when it is fine, and also with no
+    // signal, when the picture is dark in the target's outline.
+    var serving = false;
     var cropX = 0, cropY = 0, cropW = 0, cropH = 0, fullW = 0, fullH = 0;
     // Where the target's picture sits in the frame, whether or not we crop
     // to it. With autocrop off the whole frame is served, and input still
@@ -402,7 +412,17 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     var contentX = 0, contentY = 0, contentW = 0, contentH = 0;
 
     function showOverlay(msg) {
+      overlay.classList.remove('notice');
       overlay.textContent = msg || 'Disconnected \u2014 waiting for capture device\u2026';
+      overlay.style.display = 'flex';
+    }
+    // A message over the picture rather than covering it.
+    function showNotice(msg) {
+      overlay.classList.add('notice');
+      overlay.textContent = '';
+      var span = document.createElement('span');
+      span.textContent = msg;
+      overlay.appendChild(span);
       overlay.style.display = 'flex';
     }
     function tryHideOverlay() {
@@ -494,7 +514,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         stream.abort();
         stream = null;
       }
-      if (!stream && healthOk) startStream();
+      if (!stream && serving) startStream();
     }, 1000);
 
     function poll() {
@@ -502,13 +522,14 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       var timeout = setTimeout(function() { ctl.abort(); }, 3000);
       fetch('/health', {signal: ctl.signal}).then(function(r){ return r.json(); }).then(function(data){
         clearTimeout(timeout);
+        serving = data.status === 'ok' || data.status === 'no_signal';
+        if (serving && !stream) startStream();
         if (data.status === 'ok') {
           healthOk = true;
-          if (!stream) startStream();
           tryHideOverlay();
         } else {
           healthOk = false;
-          if (data.status === 'no_signal') { showOverlay('No signal \u2014 check HDMI connection to capture device'); }
+          if (data.status === 'no_signal') { showNotice('No signal: the target\u2019s screen is off or locked, or its HDMI cable is out'); }
           else if (data.status === 'connecting') { showOverlay('Connecting\u2026'); }
           else { showOverlay(); }
         }
@@ -528,7 +549,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         }
         // Show unmute button when audio is available.
         if (data.audio) { unmuteBtn.style.display = 'flex'; }
-      }).catch(function(){ clearTimeout(timeout); healthOk = false; showOverlay(); });
+      }).catch(function(){ clearTimeout(timeout); healthOk = serving = false; showOverlay(); });
     }
     poll();
     setInterval(poll, 1000);
