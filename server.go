@@ -281,7 +281,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         <button id="cropSaveBtn" title="Save the crop of what is on screen now, for the way the device is turned. Show something bright to its edges first, such as a white page." style="padding:2px 10px; background:#444; color:#fff; border:1px solid #666; border-radius:4px; font-family:monospace; cursor:pointer;">Save</button>
         <button id="cropClearBtn" title="Forget the saved crops" style="padding:2px 10px; background:#444; color:#fff; border:1px solid #666; border-radius:4px; font-family:monospace; cursor:pointer;">Clear</button>
       </div>
-      <div id="cropStatus" style="margin:4px 0 0 63px; color:#aaa; font-size:0.9em; max-width:260px;"></div>
+      <div id="cropStatus" hidden style="margin:4px 0 0 63px; color:#f99; font-size:0.9em; max-width:260px; white-space:normal;"></div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">Zoom</label>
         <input id="zoomRange" type="range" min="50" max="400" value="100" style="width:120px; vertical-align:middle;">
@@ -811,9 +811,18 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       var any = saved.length > 0;
       cropBtns.saved.disabled = cropClearBtn.disabled = !any;
       cropBtns.saved.style.opacity = cropClearBtn.style.opacity = any ? '' : '0.4';
+      // Which crops are saved, and which is in use, for whoever hovers over
+      // Saved; the menu itself only speaks up when something went wrong.
       var text = any ? 'Saved: ' + saved.join(', ') + '.' : 'No crop saved.';
       if (d.use === 'saved' && d.mode !== 'saved') text += ' None for ' + (d.orientation || 'this way') + ': auto for now.';
-      cropStatus.textContent = text;
+      cropBtns.saved.title = 'Use the crop saved for the way the device is turned. ' + text;
+    }
+    var cropErrorTimer = null;
+    function cropError(msg) {
+      cropStatus.textContent = msg;
+      cropStatus.hidden = false;
+      clearTimeout(cropErrorTimer);
+      cropErrorTimer = setTimeout(function() { cropStatus.hidden = true; }, 8000);
     }
     function cropRequest(method, body) {
       var opts = {method: method};
@@ -821,7 +830,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       fetch('/api/crop', opts).then(function(r) {
         if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
         return r.json();
-      }).then(showCrop).catch(function(e) { cropStatus.textContent = e.message; });
+      }).then(function(d) { cropStatus.hidden = true; showCrop(d); }).catch(function(e) { cropError(e.message); });
     }
     Object.keys(cropBtns).forEach(function(u) {
       cropBtns[u].onclick = function() { cropRequest('PUT', {use: u}); };
