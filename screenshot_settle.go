@@ -44,6 +44,15 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // have stopped changing for settleQuiet, or at settleLimit. With no input
 // that recent it returns the latest frame at once.
 func settledFrame(ctx context.Context, src FrameSource, lastInput time.Time, clk settleClock) []byte {
+	return settledFrameOr(ctx, src, lastInput, clk, nil)
+}
+
+// settledFrameOr is settledFrame, but returns sooner with the first frame
+// from reactDelay on that enough accepts, when enough isn't nil: a caller
+// that knows what it is waiting for needn't wait for an animation to end.
+// Each frame is shown to it once.
+func settledFrameOr(ctx context.Context, src FrameSource, lastInput time.Time, clk settleClock,
+	enough func(*image.Gray) bool) []byte {
 	deadline := lastInput.Add(settleLimit)
 	if !clk.now().Before(deadline) {
 		return src.Latest()
@@ -57,6 +66,9 @@ func settledFrame(ctx context.Context, src FrameSource, lastInput time.Time, clk
 	// the one before it, so a slow fade adds up to a change.
 	latest := src.Latest()
 	ref := decodeGray(latest)
+	if enough != nil && enough(ref) {
+		return latest
+	}
 	quietSince := clk.now()
 	for {
 		now := clk.now()
@@ -71,7 +83,11 @@ func settledFrame(ctx context.Context, src FrameSource, lastInput time.Time, clk
 			continue
 		}
 		latest = cur
-		if img := decodeGray(cur); framesDiffer(ref, img) {
+		img := decodeGray(cur)
+		if enough != nil && enough(img) {
+			return latest
+		}
+		if framesDiffer(ref, img) {
 			ref, quietSince = img, clk.now()
 		}
 	}

@@ -136,22 +136,32 @@ func screenFacing(o string) image.Rectangle {
 	return image.Rect(0, 0, 184, 400)
 }
 
-// draw puts the open page in the picture, as its grid of white on dark.
+// draw puts the open page in the picture.
 func (h *menuPhone) draw() {
-	r := h.src.contentRect
+	h.src.show(menuFrame(h.t, h.src.contentRect, h.page, h.mid, 40))
+}
+
+// menuFrame is a picture of a screen r with a page of the menu open around
+// mid, as its grid of white on dark, and its top left corner at that level.
+func menuFrame(t *testing.T, r image.Rectangle, page string, mid image.Point, corner uint8) []byte {
 	img := image.NewGray(r)
 	for i := range img.Pix {
 		img.Pix[i] = 40
 	}
+	for y := range 30 {
+		for x := range 30 {
+			img.Pix[img.PixOffset(r.Min.X+x, r.Min.Y+y)] = corner
+		}
+	}
 	var grid []bool
 	for _, ref := range menuRefs {
-		if ref.page == h.page {
+		if ref.page == page {
 			grid = ref.grid
 		}
 	}
 	if grid != nil {
 		side := int(math.Round(menuSide * float64(min(r.Dx(), r.Dy()))))
-		x0, y0 := h.mid.X-side/2, h.mid.Y-side/2
+		x0, y0 := mid.X-side/2, mid.Y-side/2
 		for y := range side {
 			for x := range side {
 				if grid[y*menuGrid/side*menuGrid+x*menuGrid/side] {
@@ -162,9 +172,9 @@ func (h *menuPhone) draw() {
 	}
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 95}); err != nil {
-		h.t.Fatal(err)
+		t.Fatal(err)
 	}
-	h.src.show(buf.Bytes())
+	return buf.Bytes()
 }
 
 // menuScreen is the phone's picture as Roadie gets it. With lag, a change
@@ -594,3 +604,49 @@ type posHID struct {
 }
 
 func (p *posHID) MouseMove(x, y int) error { p.at = append(p.at, [2]int{x, y}); return nil }
+
+// inputAt is a HID whose last input was at a time.
+type inputAt struct {
+	keyHID
+	at time.Time
+}
+
+func (h *inputAt) LastInput() time.Time { return h.at }
+
+// A look that knows which page it waits for takes it once two frames in a
+// row show it, while the menu is still animating; one that doesn't waits
+// for the screen to settle.
+func TestMenuLookTakesThePageItWaitsFor(t *testing.T) {
+	start := time.Unix(1000, 0)
+	r := screenFacing(OrientationPortrait)
+	mid := r.Min.Add(image.Pt(r.Dx()/2, r.Dy()/2))
+	frames := []timedFrame{{0, menuFrame(t, r, "", mid, 40)}}
+	for i := range 90 { // the page from 350 ms, beside something that never stops changing
+		at := 350*time.Millisecond + time.Duration(i)*33*time.Millisecond
+		frames = append(frames, timedFrame{at, menuFrame(t, r, pageDevice, mid, uint8(40+i%2*160))})
+	}
+	for _, tc := range []struct {
+		name string
+		want func(menuSeen) bool
+		took time.Duration
+	}{
+		{"waiting for the page", showing(pageDevice), 383 * time.Millisecond},
+		{"waiting for nothing", nil, settleLimit},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := start
+			saved := rotateClock
+			rotateClock = fakeSettleClock(&clock)
+			t.Cleanup(func() { rotateClock = saved })
+			s, _ := newTestServer()
+			s.Source = &timedSource{clock: &clock, start: start, frames: frames}
+			s.HID = &inputAt{at: start}
+			if seen := s.lookAtMenu(tc.want); seen.page != pageDevice {
+				t.Errorf("saw %s, want the device page", seen)
+			}
+			if took := clock.Sub(start); took < tc.took || took > tc.took+settlePoll {
+				t.Errorf("took %v, want %v", took, tc.took)
+			}
+		})
+	}
+}

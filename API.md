@@ -317,13 +317,15 @@ Turns an iPhone's screen (`--platform ios`) to portrait or landscape.
 No key says which way an iPhone's screen faces, but AssistiveTouch's menu
 does. Roadie opens it with mouse button 5, which opens it around the
 pointer, and clicks Device, Rotate Screen, and Portrait or Left (landscape),
-then closes it: 6 to 7 s in all, most of it looking at the menu before each
-click. The phone needs button 5 set up once: see
+then closes it: 4 to 5 s in all, most of it the phone showing each click
+(about 6 s on a screen that can't turn, where Roadie waits 2 s for a turn
+that doesn't come). The phone needs button 5 set up once: see
 [Connect a Phone](docs/how-to/connect-a-phone.md#turning-the-screen).
 
 Roadie looks before every click. It finds the menu near the middle of the
 picture by comparing it with stored images of each page (no AI, about 40 ms),
-and clicks an item only once the page holding it shows, where it shows. So a
+and clicks an item only once the page holding it shows, where it shows: in
+two frames in a row, without waiting for the menu to stop animating. So a
 menu that was already open, opened off the middle, or on another page is
 dealt with, and when there's no menu nothing lands on the app. If a click
 misses its item (the phone reads the pointer turned, as after a restart of

@@ -69,6 +69,7 @@ func TestSettledFrame(t *testing.T) {
 		name     string
 		input    time.Duration // when the last input was, relative to start
 		frames   []timedFrame
+		enough   func(*image.Gray) bool
 		want     []byte
 		returnAt time.Duration // when settledFrame should return
 	}{{
@@ -101,6 +102,14 @@ func TestSettledFrame(t *testing.T) {
 		want:     grayJPEG(t, 180),
 		returnAt: 695*time.Millisecond + settleQuiet,
 	}, {
+		name:  "returns with the frame the caller waits for, still changing",
+		input: 0,
+		frames: []timedFrame{{0, before}, {350 * time.Millisecond, during},
+			{400 * time.Millisecond, after}},
+		enough:   func(g *image.Gray) bool { return g != nil && g.Pix[0] > 100 && g.Pix[0] < 140 },
+		want:     during,
+		returnAt: 350 * time.Millisecond,
+	}, {
 		name:     "input that changes nothing costs only the reaction time",
 		input:    0,
 		frames:   []timedFrame{{0, before}},
@@ -128,7 +137,7 @@ func TestSettledFrame(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			clock := start
 			src := &timedSource{clock: &clock, start: start, frames: tc.frames}
-			got := settledFrame(context.Background(), src, start.Add(tc.input), fakeSettleClock(&clock))
+			got := settledFrameOr(context.Background(), src, start.Add(tc.input), fakeSettleClock(&clock), tc.enough)
 			if tc.want != nil && !bytes.Equal(got, tc.want) {
 				t.Errorf("returned the wrong frame")
 			}

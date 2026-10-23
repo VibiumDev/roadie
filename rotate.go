@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
 	"log"
 	"net/http"
 	"sync"
@@ -165,11 +166,10 @@ func (s *Server) rotate(to string) error {
 	presses, flipped, waits := 0, false, 0
 	// The page last clicked on, and the one it leads to: anyMenu after
 	// button 5.
-	const anyMenu = "any"
 	from, expect := "", ""
 	for range 20 {
 		var err error
-		seen := s.lookAtMenu()
+		seen := s.lookAtMenu(showing(expect))
 		log.Printf("rotate to %s: menu %s", to, seen)
 		switch {
 		case expect == "" || seen.page == expect || expect == anyMenu && seen.page != "":
@@ -222,18 +222,32 @@ func (s *Server) rotate(to string) error {
 	return s.giveUp(errMenuLost)
 }
 
+// anyMenu is what button 5 leads to: any page of the menu.
+const anyMenu = "any"
+
+// showing accepts the page a click leads to; nil when none is expected.
+func showing(page string) func(menuSeen) bool {
+	switch page {
+	case "":
+		return nil
+	case anyMenu:
+		return func(m menuSeen) bool { return m.page != "" }
+	}
+	return func(m menuSeen) bool { return m.page == page }
+}
+
 // giveUp closes the menu, if it is open in the middle, and returns err.
 func (s *Server) giveUp(err error) error {
-	s.closeMenu()
+	s.closeMenu(nil)
 	return err
 }
 
 // closeMenu closes the menu open in the middle of the screen, and reports
 // whether none is left there. Button 5 closes it, or takes another page
 // back to the main one; after each press the picture gets a few looks to
-// show it.
-func (s *Server) closeMenu() bool {
-	seen := s.lookAtMenu()
+// show it. The first look takes what open accepts (see lookAtMenu).
+func (s *Server) closeMenu(open func(menuSeen) bool) bool {
+	seen := s.lookAtMenu(open)
 	for presses := 0; ; presses++ {
 		log.Printf("rotate: closing the menu: %s", seen)
 		if seen.page == "" {
@@ -243,8 +257,9 @@ func (s *Server) closeMenu() bool {
 			return false
 		}
 		was := seen.page
+		gone := func(m menuSeen) bool { return m.page != was }
 		for range 3 {
-			if seen = s.lookAtMenu(); seen.page != was {
+			if seen = s.lookAtMenu(gone); seen.page != was {
 				break
 			}
 		}
@@ -263,7 +278,8 @@ func (s *Server) turned(to string) error {
 	}
 	s.waitOrientation(to, rotateShows)
 	s.turn.landscape.Store(land)
-	if !s.closeMenu() {
+	// The menu stays on its page, and turns with the screen.
+	if !s.closeMenu(showing(pageRotate)) {
 		return errMenuOpen
 	}
 	return nil
@@ -298,28 +314,45 @@ func menuAt(seen menuSeen, at menuSpot) (int, int) {
 }
 
 // lookAtMenu finds the page of the menu open near the middle of the screen
-// once it has caught up with the last click. The pointer waits in a corner
-// meanwhile.
-func (s *Server) lookAtMenu() menuSeen {
+// once it has caught up with the last click: once the screen has settled,
+// or sooner, once what want accepts shows the same in two frames in a row.
+// A page shows a third of a second before the menu stops animating it. The
+// pointer waits in a corner meanwhile.
+func (s *Server) lookAtMenu(want func(menuSeen) bool) menuSeen {
 	if s.HID.MouseMove(menuPark, menuPark) != nil {
 		return menuSeen{}
 	}
-	return findMenu(decodeGray(s.settled()))
+	var last menuSeen
+	early := false
+	var enough func(*image.Gray) bool
+	if want != nil {
+		enough = func(g *image.Gray) bool {
+			seen := findMenu(g)
+			early = g != nil && seen == last && want(seen)
+			last = seen
+			return early
+		}
+	}
+	frame := s.settled(enough)
+	if early {
+		return last
+	}
+	return findMenu(decodeGray(frame))
 }
 
 // settled waits for the screen to catch up with the last input, and returns
-// it.
-func (s *Server) settled() []byte {
+// it: see settledFrameOr.
+func (s *Server) settled(enough func(*image.Gray) bool) []byte {
 	last := time.Now()
 	if h, ok := s.HID.(interface{ LastInput() time.Time }); ok {
 		last = h.LastInput()
 	}
-	return settledFrame(context.Background(), s.Source, last, rotateClock)
+	return settledFrameOr(context.Background(), s.Source, last, rotateClock, enough)
 }
 
 // waitOrientation waits up to d for the picture to face that way.
 func (s *Server) waitOrientation(to string, d time.Duration) bool {
-	for end := time.Now().Add(d); ; rotateSleep(200 * time.Millisecond) {
+	for end := time.Now().Add(d); ; rotateSleep(50 * time.Millisecond) {
 		if s.orientation() == to {
 			return true
 		}
