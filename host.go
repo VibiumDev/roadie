@@ -21,6 +21,10 @@ type hostStats struct {
 	CPUPercent *float64 `json:"cpu_percent,omitempty"` // this process, across all cores
 	Load1      *float64 `json:"load1,omitempty"`
 	TempC      *float64 `json:"temp_c,omitempty"`
+	// Memory of the whole machine: in use is what isn't available to new
+	// programs without swapping.
+	MemTotalMB     *float64 `json:"mem_total_mb,omitempty"`
+	MemUsedPercent *float64 `json:"mem_used_percent,omitempty"`
 }
 
 const clockTicksPerSecond = 100 // _SC_CLK_TCK, 100 on every Linux worth the name
@@ -107,6 +111,40 @@ func cpuTemperature() *float64 {
 	return &c
 }
 
+// memory returns the machine's memory in MB and the percentage in use.
+func memory() (totalMB, usedPercent *float64) {
+	raw, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return nil, nil
+	}
+	return parseMeminfo(string(raw))
+}
+
+func parseMeminfo(raw string) (totalMB, usedPercent *float64) {
+	kB := map[string]float64{}
+	for _, line := range strings.Split(raw, "\n") {
+		name, rest, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		if f := strings.Fields(rest); len(f) > 0 {
+			if v, err := strconv.ParseFloat(f[0], 64); err == nil {
+				kB[name] = v
+			}
+		}
+	}
+	total, avail := kB["MemTotal"], kB["MemAvailable"]
+	if total <= 0 {
+		return nil, nil
+	}
+	mb := math.Round(total / 1024)
+	if _, ok := kB["MemAvailable"]; !ok {
+		return &mb, nil
+	}
+	used := (total - avail) / total * 100
+	return &mb, &used
+}
+
 // round1 keeps these readable: a tenth is as much precision as any of
 // these numbers deserves.
 func round1(v *float64) *float64 {
@@ -120,12 +158,15 @@ func round1(v *float64) *float64 {
 // readHostStats returns nil when the machine tells us nothing, so /health
 // omits the field entirely rather than carrying an empty object.
 func readHostStats() *hostStats {
+	total, used := memory()
 	h := hostStats{
-		CPUPercent: round1(processCPUPercent()),
-		Load1:      loadAverage1(),
-		TempC:      round1(cpuTemperature()),
+		CPUPercent:     round1(processCPUPercent()),
+		Load1:          loadAverage1(),
+		TempC:          round1(cpuTemperature()),
+		MemTotalMB:     total,
+		MemUsedPercent: round1(used),
 	}
-	if h.CPUPercent == nil && h.Load1 == nil && h.TempC == nil {
+	if h == (hostStats{}) {
 		return nil
 	}
 	return &h

@@ -237,7 +237,8 @@ Service status and device info.
   "audio": {"sampleRate": 48000, "channels": 2},
   "platform": "ios",
   "pointer_space": "screen",
-  "input_mode": "touch"
+  "input_mode": "touch",
+  "host": {"cpu_percent": 68, "load1": 1.71, "temp_c": 80.3, "mem_total_mb": 7809, "mem_used_percent": 25}
 }
 ```
 
@@ -253,6 +254,7 @@ Service status and device info.
 | `pointer_space` | `screen` or `frame` — which space the target reads absolute coordinates in (see `--platform`) |
 | `rotating` | `true` while [`/api/rotate`](#post-apirotate) is turning the screen, and absent otherwise. `/view` holds back its input meanwhile |
 | `input_mode` | The mode viewers start in: `--input`, else the platform default |
+| `host` | The machine Roadie runs on: Roadie's own CPU use (`cpu_percent`, 100 is one core), the 1-minute load average, the CPU temperature in °C, total memory in MB, and the percentage of memory in use (not available to new programs). Whatever the machine doesn't tell is left out |
 
 ---
 
