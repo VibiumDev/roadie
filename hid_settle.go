@@ -48,8 +48,12 @@ type settledHID struct {
 	placed   bool
 	held     int  // buttons down
 	glide    bool // jumps glide (see glidePath)
-	now      func() time.Time
-	sleep    func(time.Duration)
+	// turned, when it reports true, turns the pointer a quarter turn: the
+	// target reads it as if held on its side while its screen is upright
+	// (see Server.pointerTurned).
+	turned func() bool
+	now    func() time.Time
+	sleep  func(time.Duration)
 
 	touchMu    sync.Mutex // one touch translated at a time
 	fingerDown bool
@@ -90,7 +94,11 @@ func (h *settledHID) moveTo(x, y int, mayGlide bool) error {
 		if i > 0 {
 			h.sleep(glideFrame)
 		}
-		if err = h.HIDBackend.MouseMove(p[0], p[1]); err != nil {
+		px, py := p[0], p[1]
+		if h.turned != nil && h.turned() {
+			px, py = py, hidCoordMax-px
+		}
+		if err = h.HIDBackend.MouseMove(px, py); err != nil {
 			break
 		}
 	}

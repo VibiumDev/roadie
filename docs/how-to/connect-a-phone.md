@@ -53,7 +53,7 @@ For a phone that scripts, agents and people drive through roadie, under
 | Show Onscreen Keyboard | Touch → AssistiveTouch | Off | roadie is the keyboard; the onscreen one covers half of every screenshot |
 | Full Keyboard Access | Keyboards & Typing | Off | It outlines whatever has keyboard focus, and the outline shows in screenshots; roadie's shortcuts (⌘H, ⌘Space) work without it |
 | Double-Tap, Long Press | Touch → AssistiveTouch → Custom Actions | None | A stray click on the floating button does nothing |
-| Additional buttons | Touch → AssistiveTouch → Devices → Roadie | None | See the right button, below |
+| Additional buttons | Touch → AssistiveTouch → Devices → Roadie | Button 5: Open Menu; no others | How Roadie [turns the screen](#turning-the-screen); and see the right button, below |
 | Always Show Menu | Touch → AssistiveTouch | On, the button at an edge, Idle Opacity low | Its menu is the only way to Rotate Screen, open Control Center, or leave the Today view; where it sits it takes clicks, and it shows in screenshots |
 | Pointer Size | Pointer Control | Small | The pointer shows in screenshots: Automatically Hide Pointer only hides it 15 s after it stops |
 | Reachability | Touch | Off | A swipe along the bottom edge pulls the screen down |
@@ -66,6 +66,27 @@ buttons, exists only on iPad.
 Don't use the right button. On an iPhone a right-click acts as a long press,
 and once left a touch that never ended. If moving the pointer drags, see
 [Troubleshooting](troubleshooting.md#stuck-keys).
+
+### Turning the screen
+
+An iPhone has no key for which way its screen faces, but AssistiveTouch's
+menu turns it: Device → Rotate Screen. The Rotate button in `/view`, or
+[`POST /api/rotate`](../../API.md#post-apirotate), opens the menu with mouse
+button 5 and clicks through it, in a few seconds. To set the phone up once:
+
+1. Open **Touch → AssistiveTouch → Devices → Roadie → Customize Additional
+   Buttons**. When it asks for a button, have Roadie press button 5:
+
+   ```bash
+   curl -X POST localhost:8080/api/hid/mouse/click -d '{"buttons": 16}'
+   ```
+
+2. Choose **Open Menu**.
+
+Button 5 opens the menu around the pointer. Roadie finds it in the picture
+by comparing it with stored images of each page, and clicks an item only once
+its page shows. The app on screen has to turn too; the home screen and
+Settings don't, and there Roadie turns the pointer to match.
 
 Safari's microphone prompt ("Would Like to Access the Microphone") sometimes
 ignores a click. If it's still up, click again without moving.

@@ -47,6 +47,9 @@ type Server struct {
 	// them only until roadie stops.
 	CropFile string
 	cropMu   sync.Mutex
+
+	// turn is which way the phone takes itself to be held (see rotate.go).
+	turn phoneTurn
 }
 
 // pageTitle names the browser tab after the target this instance drives. The
@@ -90,6 +93,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/api/capture/reset", s.handleCaptureReset)
 	mux.HandleFunc("/api/hid/release", s.handleHIDRelease)
 	mux.HandleFunc("/api/usb/reset", s.handleUSBReset)
+	mux.HandleFunc("/api/rotate", s.handleRotate)
 	mux.HandleFunc("/api/relay/reset", s.handleRelayReset)
 	mux.HandleFunc("/api/hid/type", s.handleHIDType)
 	mux.HandleFunc("/api/hid/key", s.handleHIDKey)
@@ -147,6 +151,17 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
   @media (prefers-color-scheme:light) { :root[data-theme="system"] { --ui-btn:rgba(255,255,255,0.9); --ui-btn-border:rgba(0,0,0,0.15); --ui-icon:#444; --ui-panel:rgba(255,255,255,0.97); --ui-text:#1a1a1a; --ui-muted:#666; --ui-ctl:#f2f2f5; --ui-ctl-text:#777; --ui-ctl-border:#c9c9d0; --ui-ctl-on:#fff; --ui-ctl-on-text:#111; --ui-accent:#2f7fe0; --ui-btn2:#fff; --ui-btn2-border:#bbb; --ui-danger:#fbe3e3; --ui-danger-border:#e0a0a0; --ui-danger-text:#8b1e1e; --ui-divider:rgba(0,0,0,0.1); --ui-error:#c0392b; color-scheme:light; } }
   .tbtn { background:var(--ui-btn); border:1px solid var(--ui-btn-border); color:var(--ui-icon); }
   .tbtn.live { background:rgba(180,40,40,0.95); color:#fff; }
+  .tbtn.busy { animation:tbbusy 1.2s ease-in-out infinite; cursor:progress; }
+  /* While Roadie turns the screen: the picture greyed, a note at its top
+     (the menu Roadie clicks is in the middle), and input held back (see
+     setTurning). */
+  #feed { transition:filter 0.2s; }
+  #feed.turning { cursor:progress !important; filter:grayscale(0.7) brightness(0.7); }
+  #turnNote { position:absolute; display:none; justify-content:center; align-items:flex-start;
+    pointer-events:none; z-index:9; }
+  #turnNote span { margin-top:16px; padding:8px 14px; border-radius:6px; background:rgba(0,0,0,0.75); color:#fff;
+    font-family:monospace; font-size:0.85em; }
+  @keyframes tbbusy { 50% { opacity:0.35; } }
   #qslider { background:var(--ui-panel); border:1px solid var(--ui-btn-border); color:var(--ui-text); }
   #qslider select { background:var(--ui-ctl); color:var(--ui-text); border:1px solid var(--ui-ctl-border); }
   .seg button { background:var(--ui-ctl); color:var(--ui-ctl-text); border:1px solid var(--ui-ctl-border); }
@@ -261,6 +276,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         Connecting&hellip;
       </div>
       <img id="feed" draggable="false" oncontextmenu="return false" style="max-width:100%; max-height:100%; display:none; touch-action:none; cursor:crosshair;">
+      <div id="turnNote"><span>Rotating the screen&hellip;</span></div>
     </div>
     <div id="onscreen-kbd" style="display:none; user-select:none; -webkit-user-select:none; overflow-x:auto;">
       <div id="kbd-inner" style="padding:6px 8px;">
@@ -286,6 +302,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     <button id="backBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Back (Esc)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M11.5 2.8v10.4a.5.5 0 0 1-.77.42L3.4 8.42a.5.5 0 0 1 0-.84l7.33-5.2a.5.5 0 0 1 .77.42"/></svg></button>
     <button id="homeBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Home"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M8 .8.6 7.3l.8.9.6-.5V15h4.5v-4h3v4H14V7.7l.6.5.8-.9z"/></svg></button>
     <button id="recentsBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Recent apps (Alt+Tab)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M3 3.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5zm1.5 1v7h7v-7z"/></svg></button>
+    <button id="rotateBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Rotate"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/><rect x="5.9" y="5.1" width="4.2" height="5.8" rx="0.7" fill="none" stroke="currentColor" stroke-width="1.1"/></svg></button>
     <button id="lockBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Lock"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"></svg></button>
     <button id="shotBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Save a screenshot"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M10.5 8.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"/><path d="M2 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1.17a2 2 0 0 1-1.42-.59l-.82-.82A2 2 0 0 0 9.17 2H6.83a2 2 0 0 0-1.42.59l-.82.82A2 2 0 0 1 3.17 4zm6 1.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6"/></svg></button>
     <div id="qslider" style="display:none; position:absolute; top:8px; z-index:21; border-radius:8px; padding:10px 14px; font-family:monospace; font-size:0.85em; white-space:nowrap;">
@@ -404,7 +421,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 
     var healthOk = false;
     // The target's screen dark (no signal): the Lock button wakes it then.
-    var screenDark = false, updateLockBtn = function() {};
+    var screenDark = false, updateLockBtn = function() {}, updateRotateBtn = function() {};
     // Whether roadie is serving pictures: when it is fine, and also with no
     // signal, when the picture is dark in the target's outline.
     var serving = false;
@@ -528,6 +545,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       fetch('/health', {signal: ctl.signal}).then(function(r){ return r.json(); }).then(function(data){
         clearTimeout(timeout);
         serving = data.status === 'ok' || data.status === 'no_signal';
+        setTurning(!!data.rotating);
         if ((data.status === 'no_signal') !== screenDark) {
           screenDark = data.status === 'no_signal';
           updateLockBtn();
@@ -555,6 +573,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         if (data.content) {
           contentX = data.content.x; contentY = data.content.y;
           contentW = data.content.width; contentH = data.content.height;
+          updateRotateBtn();
         }
         // Show unmute button when audio is available.
         if (data.audio) { unmuteBtn.style.display = 'flex'; }
@@ -1001,6 +1020,45 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       lockBtn.style.display = 'flex';
       lockBtn.onclick = function() { sendKeys(screenDark ? wakeKeys : lockKeys); };
 
+      // Rotate: /api/rotate turns an iPhone through AssistiveTouch's menu,
+      // in a few seconds.
+      if (plat === 'ios') {
+        var rotBtn = document.getElementById('rotateBtn');
+        rotBtn.style.display = 'flex';
+        var nextTurn = function() {
+          var w = contentW || img.naturalWidth, h = contentH || img.naturalHeight;
+          return w > h ? 'portrait' : 'landscape';
+        };
+        // The icon is the turn it makes: the phone turns Left, so an arrow
+        // counterclockwise round a wide screen to landscape, clockwise round
+        // a tall one back.
+        updateRotateBtn = function() {
+          var land = nextTurn() === 'landscape';
+          var svg = rotBtn.querySelector('svg'), rect = svg.querySelector('rect');
+          svg.style.transform = land ? 'scaleX(-1)' : '';
+          rect.setAttribute('x', land ? 5.1 : 5.9); rect.setAttribute('y', land ? 5.9 : 5.1);
+          rect.setAttribute('width', land ? 5.8 : 4.2); rect.setAttribute('height', land ? 4.2 : 5.8);
+          if (!turning) rotBtn.title = land ? 'Rotate to landscape' : 'Rotate to portrait';
+        };
+        updateRotateBtn();
+        rotBtn.onclick = function() {
+          if (turning) return;
+          var to = nextTurn();
+          turningHere = true;
+          setTurning(true);
+          rotBtn.title = 'Rotating to ' + to + '\u2026';
+          fetch('/api/rotate', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({to: to})})
+            .then(function(r) { return r.ok ? '' : r.text(); }, function(e) { return e.message; })
+            .then(function(err) {
+              turningHere = false;
+              setTurning(false);
+              updateRotateBtn();
+              if (err) toolbarNote(err.trim());
+            });
+        };
+      }
+
       var homeBtn = document.getElementById('homeBtn');
       if (plat === 'ios') {
         homeBtn.title = 'Home (\u2318H)';
@@ -1372,7 +1430,31 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       hidWs.onerror = function() { hidReady = false; };
     }
     function hidSend(msg) {
+      if (turning) return;
       if (hidWs && hidReady) hidWs.send(JSON.stringify(msg));
+    }
+
+    // While Roadie turns the screen it clicks through AssistiveTouch's menu,
+    // and the pointer moving under it would spoil that: this viewer's input
+    // waits until the turn is done, whoever asked for it (/health says so).
+    // Whatever is held is let go first.
+    var turning = false, turningHere = false;
+    function setTurning(on) {
+      on = on || turningHere;
+      var note = document.getElementById('turnNote');
+      if (on) {
+        // Over the picture, which can change shape as the screen turns.
+        var r = img.getBoundingClientRect(), v = img.parentNode.getBoundingClientRect();
+        note.style.left = (r.left - v.left) + 'px'; note.style.top = (r.top - v.top) + 'px';
+        note.style.width = r.width + 'px'; note.style.height = r.height + 'px';
+      }
+      if (on === turning) return;
+      if (on) releaseEverythingHeld();
+      turning = on;
+      img.classList.toggle('turning', on);
+      note.style.display = on ? 'flex' : 'none';
+      var b = document.getElementById('rotateBtn');
+      if (b) b.classList.toggle('busy', on);
     }
     hidConnect();
 
@@ -1954,6 +2036,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if s.Platform != "" {
 		resp["platform"] = string(s.Platform)
 		resp["pointer_space"] = s.Platform.PointerSpace()
+	}
+	if s.turn.rotating.Load() {
+		resp["rotating"] = true
 	}
 	if status == "ok" || status == "no_signal" {
 		resp["device"] = s.Device
@@ -3355,6 +3440,22 @@ func (s *Server) handleHIDTouch(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+// releasesOnly is whether a viewer's input only lets go of something.
+func releasesOnly(cmd string, contacts []TouchContact) bool {
+	switch cmd {
+	case "mouse_release", "key_release":
+		return true
+	case "touch":
+		for _, c := range contacts {
+			if c.Tip {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 func (s *Server) handleHIDWebSocket(w http.ResponseWriter, r *http.Request) {
 	if s.HID == nil {
 		http.Error(w, "HID not available", http.StatusServiceUnavailable)
@@ -3386,6 +3487,13 @@ func (s *Server) handleHIDWebSocket(w http.ResponseWriter, r *http.Request) {
 			Contacts []TouchContact `json:"contacts"`
 		}
 		if err := json.Unmarshal(data, &msg); err != nil {
+			continue
+		}
+		// While Roadie turns the screen it clicks through AssistiveTouch's
+		// menu, and a viewer's pointer moving under it would spoil that.
+		// Viewers hold back once /health says so, a second later at most;
+		// meanwhile only releases go through, so nothing stays held.
+		if s.turn.rotating.Load() && !releasesOnly(msg.Cmd, msg.Contacts) {
 			continue
 		}
 		switch msg.Cmd {

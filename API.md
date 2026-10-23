@@ -14,7 +14,7 @@ Index page with links to all endpoints.
 ### `GET /view`
 Live video feed with full HID control. The browser tab is titled
 `Roadie — <name>` when `--name` is set, so several targets open at once stay
-tellable apart. Click/touch the stream to send mouse or touch events to the target. Keyboard events are captured automatically (except when interacting with the toolbar). Includes audio toggle, microphone toggle (voice input to the target; needs https or localhost), quality/FPS/resolution settings, and mouse/touch input mode toggle. A Screenshot button saves the picture as it is, sending nothing to the target. With `--platform ios` or `android` the toolbar also has the phone's own buttons, sent as the shortcuts a phone takes from a hardware keyboard, so no consumer-control device is needed: Home is GUI+H (Cmd+H on iOS, Meta+H on Android); Lock, like the phone's side button, locks (Ctrl+Cmd+Q on iOS, the keyboard Power key on Android) and, while the screen is dark (`no_signal`), wakes it instead (Shift on iOS, Power on Android); and Android also gets Back (Escape), Recents (Alt+Tab) and volume up and down (the keyboard volume keys). iOS has no system-wide Back or Recents shortcut, and its volume is fixed while Roadie's audio is its output. Input mode persists across page refreshes via `localStorage`.
+tellable apart. Click/touch the stream to send mouse or touch events to the target. Keyboard events are captured automatically (except when interacting with the toolbar). Includes audio toggle, microphone toggle (voice input to the target; needs https or localhost), quality/FPS/resolution settings, and mouse/touch input mode toggle. A Screenshot button saves the picture as it is, sending nothing to the target. With `--platform ios` or `android` the toolbar also has the phone's own buttons, sent as the shortcuts a phone takes from a hardware keyboard, so no consumer-control device is needed: Home is GUI+H (Cmd+H on iOS, Meta+H on Android); Lock, like the phone's side button, locks (Ctrl+Cmd+Q on iOS, the keyboard Power key on Android) and, while the screen is dark (`no_signal`), wakes it instead (Shift on iOS, Power on Android); and Android also gets Back (Escape), Recents (Alt+Tab) and volume up and down (the keyboard volume keys). iOS has no system-wide Back or Recents shortcut, and its volume is fixed while Roadie's audio is its output. On iOS, Rotate turns the screen through [`/api/rotate`](#post-apirotate). Input mode persists across page refreshes via `localStorage`.
 
 | Param | Description |
 |-------|-------------|
@@ -251,6 +251,7 @@ Service status and device info.
 | `hid_board` | `not_answering` when the far end is not taking input: the HID board is silent (RP2040), or no phone has enumerated the gadget (linux-gadget) |
 | `platform` | Present only when `--platform` is set |
 | `pointer_space` | `screen` or `frame` — which space the target reads absolute coordinates in (see `--platform`) |
+| `rotating` | `true` while [`/api/rotate`](#post-apirotate) is turning the screen, and absent otherwise. `/view` holds back its input meanwhile |
 | `input_mode` | The mode viewers start in: `--input`, else the platform default |
 
 ---
@@ -293,6 +294,59 @@ nodes and forgets what was held; the target sees nothing.
 ```json
 {"status": "ok"}
 ```
+
+---
+
+## Rotation
+
+### `POST /api/rotate`
+Turns an iPhone's screen (`--platform ios`) to portrait or landscape.
+
+**Request:**
+```json
+{"to": "landscape"}
+```
+
+**Response:**
+```json
+{"status": "ok", "orientation": "landscape"}
+```
+
+No key says which way an iPhone's screen faces, but AssistiveTouch's menu
+does. Roadie opens it with mouse button 5, which opens it around the
+pointer, and clicks Device, Rotate Screen, and Portrait or Left (landscape),
+then closes it: 6 to 9 s in all, most of it waiting for the picture to show
+the turn. The phone needs button 5 set up once: see
+[Connect a Phone](docs/how-to/connect-a-phone.md#turning-the-screen).
+
+Roadie looks before every click. It finds the menu near the middle of the
+picture by comparing it with stored images of each page (no AI, about 40 ms),
+and clicks an item only once the page holding it shows, where it shows. So a
+menu that was already open, opened off the middle, or on another page is
+dealt with, and when there's no menu nothing lands on the app. If a click
+misses its item (the phone reads the pointer turned, as after a restart of
+Roadie while the phone took itself to be on its side), Roadie tries the
+other way once.
+
+While a turn is under way, [`/health`](#get-health) says `"rotating": true`:
+the pointer moving under Roadie's clicks would spoil them. `/view` greys the
+picture, says "Rotating the screen…", and holds back the viewer's mouse,
+touch and keys, letting go of anything held first. Roadie also drops input
+arriving over [`WS /api/hid/ws`](#ws-apihidws) meanwhile, all but releases.
+Other clients of the HID API aren't held back, so they should wait too.
+
+`orientation` is the picture's. The app on screen turns with the phone if it
+can; the home screen and Settings don't. The phone still takes itself to be
+on its side there, and reads the pointer that way; Roadie turns the pointer
+to match, so taps land where they're aimed, until `{"to": "portrait"}` turns
+it upright.
+
+| Status | When |
+|---|---|
+| `409` | A turn is already under way. |
+| `422` | The menu didn't open (button 5 isn't set to Open Menu), or didn't show the page expected; Roadie stopped clicking. |
+| `501` | `--platform` isn't `ios`. |
+| `503` | No picture from the phone, or no HID. |
 
 ---
 
@@ -414,7 +468,7 @@ Mouse button click, press, or release.
 
 | Field | Description |
 |-------|-------------|
-| `buttons` | Button mask: `1` = left, `2` = right, `4` = middle. Default: `1` |
+| `buttons` | Button mask: `1` = left, `2` = right, `4` = middle, `8` = button 4, `16` = button 5. Default: `1` |
 | `action` | `click` (default), `press`, or `release` |
 
 **Response:**
@@ -496,6 +550,9 @@ WebSocket for real-time HID control. Accepts the same JSON command format used b
 ```
 
 No server-to-client messages. Connection auto-reconnects on the `/test` page.
+While [`/api/rotate`](#post-apirotate) turns the screen, messages are dropped
+unless they only let go of something (`key_release`, `mouse_release`, a
+`touch` with no finger down).
 
 ---
 

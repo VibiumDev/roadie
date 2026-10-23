@@ -129,6 +129,22 @@ The phone sees Roadie's devices unplugged and plugged back in (with the Pi as
 its USB devices, its audio and network too), and the half-done swipe
 finishes. Turning AssistiveTouch off and on, on the phone, also works.
 
+**iPhone: taps land a quarter or half turn away from where they're aimed**
+The phone takes itself to be held another way than its screen faces, and
+reads the pointer that way. That happens when it is turned without Roadie
+(Rotate Screen chosen by hand from AssistiveTouch's menu, or Full Keyboard
+Access's Rotate Device, Tab R), or Roadie restarts, while a screen that can't
+turn, such as the home screen, is up. Turn it upright with Rotate:
+```bash
+curl -X POST http://localhost:8080/api/rotate -d '{"to": "portrait"}'
+```
+Its first click into the menu misses too; Roadie sees that and tries the
+other way. If the phone was turned Right or upside down, that doesn't help:
+open an app that turns, such as Calculator (⌘Space, type Calculator, Return),
+where the screen faces the way the phone thinks it's held and taps line up,
+and Rotate there.
+See [Turning the screen](connect-a-phone.md#turning-the-screen).
+
 ## Device Reset
 
 **Glitchy HDMI signal (wrong colors, static on first connection)**

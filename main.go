@@ -307,6 +307,7 @@ func main() {
 	if mux != nil {
 		srv.AudioSource = mux.Source
 	}
+	settled.turned = srv.pointerTurned
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", listenPort),
 		Handler: NewMux(srv),
