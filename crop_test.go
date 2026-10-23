@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/jpeg"
 	"net/http"
 	"net/http/httptest"
@@ -53,6 +54,37 @@ func TestOrientationNeedsTwoDetections(t *testing.T) {
 	step(nearBlack, OrientationPortrait) // can't tell: keeps it
 	step(wide, OrientationPortrait)
 	step(wide, OrientationLandscape) // two in a row turn it
+}
+
+// The rough picture taken of every frame says which way the target faces,
+// and a change of shape has the edges detected in the frames after it.
+func TestPictureTurnSeenAtOnce(t *testing.T) {
+	frame := func(r image.Rectangle) image.Image {
+		img := image.NewRGBA(image.Rectangle{Max: hd})
+		draw.Draw(img, img.Bounds(), image.NewUniform(color.RGBA{16, 16, 16, 255}), image.Point{}, draw.Src)
+		draw.Draw(img, r, image.NewUniform(color.RGBA{200, 200, 200, 255}), image.Point{}, draw.Src)
+		return img
+	}
+	for r, want := range map[image.Rectangle]string{
+		tall: OrientationPortrait, tallDark: OrientationPortrait, wide: OrientationLandscape, nearBlack: "",
+	} {
+		if got := shapeOf(brightBox(frame(r)), hd); got != want {
+			t.Errorf("shape of a frame showing %v = %q, want %q", r, got, want)
+		}
+	}
+
+	var w shapeWatch
+	var got []bool
+	for _, s := range []string{
+		OrientationPortrait, "", OrientationPortrait, // the first shape isn't a change
+		OrientationLandscape, OrientationLandscape, "", // turned: three frames detected
+		OrientationLandscape, OrientationLandscape, OrientationPortrait,
+	} {
+		got = append(got, w.see(s, 3))
+	}
+	if want := []bool{false, false, false, true, true, true, false, false, true}; !reflect.DeepEqual(got, want) {
+		t.Errorf("detected %v, want %v", got, want)
+	}
 }
 
 // The saved crop for the way the device is turned is used instead of what

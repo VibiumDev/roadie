@@ -62,8 +62,8 @@ func TestDongleNoSignalScreen(t *testing.T) {
 		if got := dongleNoSignal(tc.img); got != tc.noSignal {
 			t.Errorf("%s: dongleNoSignal = %v", tc.name, got)
 		}
-		if got := darkFrame(tc.img); got != tc.dark {
-			t.Errorf("%s: darkFrame = %v", tc.name, got)
+		if got := brightBox(tc.img).Empty(); got != tc.dark {
+			t.Errorf("%s: dark = %v", tc.name, got)
 		}
 	}
 }

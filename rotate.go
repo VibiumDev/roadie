@@ -57,8 +57,10 @@ var (
 	// after the click before it.
 	rotateClock = realSettleClock
 	// rotateShows is how long an app gets to turn with the phone and
-	// Roadie's reading of the picture to see it, which takes 2 to 3 s.
-	rotateShows = 4 * time.Second
+	// Roadie's reading of the picture to see it: the picture changes shape
+	// half a second after the click, and is seen to in a frame or two (see
+	// shapeWatch). A screen that can't turn waits it out.
+	rotateShows = 2 * time.Second
 	rotateSleep = time.Sleep
 )
 

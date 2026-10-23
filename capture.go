@@ -223,15 +223,46 @@ func (fb *FrameBuffer) LatestRaw() []byte {
 func (fb *FrameBuffer) SetContentRect(rect image.Rectangle) {
 	fb.mu.Lock()
 	fb.contentRect, fb.contentFrame = rect, fb.frameSize
-	// A target's screen spans at least half the frame one way or the
-	// other. Anything smaller (a dark app's one bright corner, a dongle's
-	// own message) says nothing about which way the target is turned.
-	o := orientationOf(rect)
-	if f := fb.frameSize; f.X > 0 && rect.Dx()*2 < f.X && rect.Dy()*2 < f.Y {
-		o = ""
-	}
-	fb.trackOrientation(o)
+	fb.trackOrientation(shapeOf(rect, fb.frameSize))
 	fb.mu.Unlock()
+}
+
+// shapeOf names which way a picture is turned, from where it sits in a frame
+// of that size. A target's screen spans at least half the frame one way or
+// the other: anything smaller (a dark app's one bright corner, a dongle's
+// own message) says nothing.
+func shapeOf(r image.Rectangle, frame image.Point) string {
+	if frame.X > 0 && r.Dx()*2 < frame.X && r.Dy()*2 < frame.Y {
+		return ""
+	}
+	return orientationOf(r)
+}
+
+// shapeWatch says when to detect the picture's edges at once, rather than
+// in the next second: for a second's frames after the picture changes
+// shape, so a target that turned is seen turned in two frames (the two
+// detections in a row trackOrientation wants), and a crop that has to follow
+// settles. An iPhone's picture changes shape half a second after it is
+// told to turn, then turns inside it for half a second more. The shape it
+// watches is brightBox's, cheap enough to take of every frame.
+type shapeWatch struct {
+	last string // the shape last seen
+	left int    // frames still to detect
+}
+
+// see takes a frame's shape, and reports whether to detect its edges.
+func (w *shapeWatch) see(shape string, frames int) bool {
+	if shape != "" && shape != w.last {
+		if w.last != "" {
+			w.left = frames
+		}
+		w.last = shape
+	}
+	if w.left == 0 {
+		return false
+	}
+	w.left--
+	return true
 }
 
 // trackOrientation follows the picture's shape, but only once two
@@ -972,6 +1003,7 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 		var prevFingerprint uint64
 		var noSignalFP uint64 // the dongle's own No Signal screen, once recognised
 		var blank blankFrame
+		var shapes shapeWatch
 		started := time.Now()
 		var detectedOnce bool
 		jpegOpts := &jpeg.Options{}
@@ -1028,11 +1060,12 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 				consecutiveStatic = 0
 			}
 
-			// Crop detection: the first good frame, then every ~1 s and on signal
-			// transitions.
+			// Crop detection: the first good frame, then every ~1 s, on signal
+			// transitions, and when the picture changes shape.
 			// Nor does a frame with nothing bright on it: the dongle's black
 			// is about 16, not 0, which isBlackFrame does not count.
-			dark := black || darkFrame(img)
+			box := brightBox(img)
+			dark := black || box.Empty()
 			transitioned := dark != prevBlack
 			prevBlack = dark
 			fullBounds := img.Bounds()
@@ -1043,8 +1076,9 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 			// seconds of frames: the dongle can send the picture torn
 			// sideways for a few seconds after it starts, which reads as an
 			// upright phone turned on its side.
+			turned := shapes.see(shapeOf(box, fullBounds.Size()), fps)
 			detectNow := !dark && time.Since(started) >= captureWarmup &&
-				(!detectedOnce || transitioned || frameCount%fps == 0)
+				(!detectedOnce || transitioned || turned || frameCount%fps == 0)
 			if detectNow {
 				detected := detectContentRect(img, cropThreshold)
 				if detected != (image.Rectangle{}) {

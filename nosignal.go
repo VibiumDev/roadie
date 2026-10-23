@@ -10,22 +10,25 @@ import "image"
 // side. So Roadie recognises it, sends a dark frame in its place, and
 // counts it as no signal.
 
-// darkFrame reports whether a frame has nothing bright enough to be content
-// anywhere on a sparse grid (cropThreshold, as detection uses). Dark frames
+// brightBox is the box round what is bright enough to be content
+// (cropThreshold, as detection uses) on a sparse grid: a rough picture,
+// cheap enough to take of every frame (0.2 ms on a Pi 4, where
+// detectContentRect takes 5 to 17), and empty for a dark frame. Dark frames
 // say nothing about where the picture is or which way it is turned. The
 // dongle's own black is not 0 but about 16, so isBlackFrame alone misses
 // them.
-func darkFrame(img image.Image) bool {
+func brightBox(img image.Image) image.Rectangle {
 	b := img.Bounds()
 	stepX, stepY := max(b.Dx()/64, 1), max(b.Dy()/36, 1)
+	var box image.Rectangle
 	for y := b.Min.Y + stepY/2; y < b.Max.Y; y += stepY {
 		for x := b.Min.X + stepX/2; x < b.Max.X; x += stepX {
 			if brightAt(img, x, y) {
-				return false
+				box = box.Union(image.Rect(x, y, x+1, y+1))
 			}
 		}
 	}
-	return true
+	return box
 }
 
 func brightAt(img image.Image, x, y int) bool {

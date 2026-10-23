@@ -37,7 +37,7 @@ accessibility features, the ones built for people who can't:
 | Tap, swipe, long press | AssistiveTouch's pointer, with Perform Touch Gestures |
 | Home | ⌘H |
 | Lock, and wake | Ctrl+⌘Q, and any key |
-| Turn the screen | AssistiveTouch's menu, opened by a mouse button: [`/api/rotate`](../../API.md#post-apirotate), 6 to 9 s |
+| Turn the screen | AssistiveTouch's menu, opened by a mouse button: [`/api/rotate`](../../API.md#post-apirotate) |
 | Two fingers at once | Out of reach: AssistiveTouch has one pointer |
 | Volume | Out of reach so far: iOS ignores a keyboard's volume keys |
 
