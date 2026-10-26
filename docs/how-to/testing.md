@@ -239,14 +239,18 @@ and the iOS settings:
 
 ```bash
 make test-e2e-android    # opens the page with the keyboard, then tests it
-make test-e2e-iphone     # the same, through Spotlight and Safari, then again over BiDi
+make test-e2e-iphone     # the same, through Spotlight and Safari: API, BiDi, /view
 make test-e2e-pc         # prints a URL for another computer
 ```
 
 Input goes through roadie's HTTP API (`/api/hid/...`). With `--via bidi` the
 same checks send it through WebDriver BiDi instead: a session on `/session`,
 and `input.performActions` for the pointer, keys, touch and wheel, placed in
-the viewport's pixels. `make test-e2e-iphone` runs both.
+the viewport's pixels. With `--via view` they go in as a person gives them to
+`/view`: a headless Chromium, driven through Vibium (`board/e2e/view-driver.cjs`,
+needing node), moves the mouse over `/view`'s picture, clicks, types and turns
+the wheel, and drags in its Touch mode for touch. `make test-e2e-iphone` runs
+all three.
 
 The phone targets start roadie with `--platform android` or `--platform ios`,
 so the viewer maps pointers the way that device expects if you open `/view`

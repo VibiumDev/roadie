@@ -244,12 +244,14 @@ test-multitouch:  ## Two contacts and gestures, checked at /dev/input
 test-e2e-android:  ## The whole stack into Chrome on an Android phone (opens it by keyboard)
 	python3 board/test_e2e.py --target android
 
-test-e2e-iphone:  ## The whole stack into Safari on an iPhone, through the API and BiDi
-	@# Both ways in: /api/hid, then WebDriver BiDi's /session. The second
-	@# skips the soundcheck, which tests audio, not the way input arrives.
+test-e2e-iphone:  ## The whole stack into Safari on an iPhone: API, BiDi and /view
+	@# Every way in: /api/hid, WebDriver BiDi's /session, and /view in a
+	@# headless browser. The last two skip the soundcheck, which tests
+	@# audio, not the way input arrives.
 	@rc=0; \
 	python3 board/test_e2e.py --target iphone || rc=1; \
 	python3 board/test_e2e.py --target iphone --via bidi --skip speaker --skip mic || rc=1; \
+	python3 board/test_e2e.py --target iphone --via view --skip speaker --skip mic || rc=1; \
 	exit $$rc
 
 test-e2e-pc:  ## The whole stack into a browser on another computer

@@ -954,6 +954,170 @@ class BiDiInput:
         self.bidi.close()
 
 
+# ---------------------------------------------------------------------------
+# /view: the same input as a person gives it, in a headless browser
+# ---------------------------------------------------------------------------
+
+VIEW_DRIVER = SCRIPT_DIR / "e2e" / "view-driver.cjs"
+
+
+def vibium_package():
+    """Where the vibium npm package is, fetching it with npx if need be."""
+    def found():
+        roots = sorted(Path.home().glob(".npm/_npx/*/node_modules/vibium"),
+                       key=lambda p: p.stat().st_mtime)
+        try:
+            out = subprocess.run(["npm", "root", "-g"], capture_output=True,
+                                 text=True, timeout=30).stdout.strip()
+            if out and (Path(out) / "vibium").is_dir():
+                roots.append(Path(out) / "vibium")
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return roots[-1] if roots else None
+    pkg = found()
+    if pkg is None and shutil.which("npx"):
+        subprocess.run(["npx", "--yes", "vibium", "--version"],
+                       capture_output=True, timeout=300)
+        pkg = found()
+    return pkg
+
+
+class ViewInput:
+    """What the checks send to /api/hid, given to roadie's /view instead:
+    the mouse, keys and wheel on its picture, in a headless browser driven
+    through Vibium (e2e/view-driver.cjs). /view turns them into its own
+    commands, so its mapping, timers and modes are under test too.
+
+    A HID position becomes a place on the picture through the inverse of
+    /view's remapToAbsolute, from /health. Touch is /view's Touch mode with
+    the mouse, one finger, as a person at a desk gives it.
+    """
+
+    NOTCH_PX = 25   # /view: at 100% Scroll, 25 pixels of wheel are a notch
+
+    def __init__(self, base):
+        pkg = vibium_package()
+        if pkg is None:
+            raise OSError("no vibium package: install node, then npx vibium")
+        if not shutil.which("node"):
+            raise OSError("node not found")
+        health = http_json(f"{base}/health")
+        self.space = health.get("pointer_space")
+        self.crop = health.get("crop") or {}
+        self.content = health.get("content") or {}
+        self.full = [int(v) for v in health["resolution"].split("x")]
+        self.log = open("/tmp/roadie-e2e-view.log", "w")
+        self.proc = subprocess.Popen(
+            ["node", str(VIEW_DRIVER), str(pkg), f"{base}/view"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log,
+            text=True, bufsize=1)
+        first = self._answer(90)
+        if not first.get("ready"):
+            raise OSError(f"/view didn't come up: {first.get('error')}")
+        self.rect = self.op("rect")
+        self.held = False
+        self.finger = False
+
+    def _answer(self, timeout):
+        box = {}
+        t = threading.Thread(target=lambda: box.update(line=self.proc.stdout.readline()),
+                             daemon=True)
+        t.start()
+        t.join(timeout)
+        line = box.get("line")
+        if not line:
+            raise OSError("the /view driver stopped answering "
+                          "(see /tmp/roadie-e2e-view.log)")
+        return json.loads(line)
+
+    def op(self, name, **args):
+        self.proc.stdin.write(json.dumps(dict(op=name, **args)) + "\n")
+        self.proc.stdin.flush()
+        out = self._answer(60)
+        if not out.get("ok"):
+            raise RuntimeError(f"/view {name}: {out.get('error')}")
+        return out
+
+    def page_at(self, hx, hy):
+        """The place on /view's picture that /view sends as (hx, hy)."""
+        fx, fy = hx / HID_MAX, hy / HID_MAX
+        fw, fh = self.full
+        c, k = self.crop, self.content
+        if self.space == "screen":
+            whole = not c or (c.get("width") == fw and c.get("height") == fh)
+            if whole and k.get("width"):
+                fx = (fx * k["width"] + k["x"]) / fw
+                fy = (fy * k["height"] + k["y"]) / fh
+        elif c.get("width"):
+            fx = (fx * fw - c["x"]) / c["width"]
+            fy = (fy * fh - c["y"]) / c["height"]
+        r = self.rect
+        return r["x"] + fx * r["width"], r["y"] + fy * r["height"]
+
+    def move(self, hx, hy):
+        x, y = self.page_at(hx, hy)
+        self.op("move", x=x, y=y)
+
+    def hid(self, path, payload):
+        if path == "mouse/move":
+            self.move(payload["x"], payload["y"])
+        elif path == "mouse/click":
+            if payload.get("buttons", 1) != 1:
+                raise ValueError("/view's picture is clicked with the left button here")
+            action = payload.get("action", "click")
+            if action in ("press", "click"):
+                self.op("down")
+                self.held = True
+            if action in ("release", "click"):
+                self.op("up")
+                self.held = False
+        elif path == "type":
+            self.op("type", text=payload["text"])
+        elif path == "touch":
+            self.touch(payload["contacts"])
+        elif path == "mouse/scroll":
+            # One turn of all of it, as a quick flick of a wheel comes. A
+            # notch a turn would be truer to a slow wheel, but Vibium takes
+            # about 170 ms a turn, and an iPhone scrolls only for notches
+            # closer together than that.
+            self.op("wheel", dy=self.NOTCH_PX * payload["amount"])
+        else:
+            raise ValueError(f"no /view for /api/hid/{path}")
+        return {}
+
+    def touch(self, contacts):
+        down = [c for c in contacts if c.get("tip", True)]
+        if len(down) > 1:
+            raise ValueError("/view gives one finger from a mouse")
+        if down:
+            if not self.finger:
+                self.op("mode", mode="touch")
+            self.move(down[0]["x"], down[0]["y"])
+            if not self.finger:
+                self.op("down")
+                self.finger = True
+        elif self.finger:
+            self.op("up")
+            self.finger = False
+            self.op("mode", mode="mouse")
+
+    def release(self):
+        if self.held or self.finger:
+            self.op("up")
+        if self.finger:
+            self.op("mode", mode="mouse")
+        self.held = self.finger = False
+
+    def close(self):
+        try:
+            self.proc.stdin.write(json.dumps({"op": "quit"}) + "\n")
+            self.proc.stdin.flush()
+            self.proc.wait(timeout=20)
+        except (OSError, subprocess.SubprocessError, ValueError):
+            self.proc.kill()
+        self.log.close()
+
+
 class Suite:
     def __init__(self, base, collector, geom, tolerance, settle, local=True,
                  page_relative=False, hud=False, via=None):
@@ -1607,9 +1771,10 @@ def main():
     parser.add_argument("--target", default="pi",
                         choices=["pi", "android", "iphone", "pc"],
                         help="which device the HID board is plugged into")
-    parser.add_argument("--via", default="http", choices=["http", "bidi"],
-                        help="send input through roadie's /api/hid (http) or "
-                             "its WebDriver BiDi /session (bidi)")
+    parser.add_argument("--via", default="http", choices=["http", "bidi", "view"],
+                        help="send input through roadie's /api/hid (http), its "
+                             "WebDriver BiDi /session (bidi), or its /view page "
+                             "in a headless browser (view)")
     parser.add_argument("--roadie", default="http://127.0.0.1:8080",
                         help="base URL of a running roadie "
                              "(one is started if this isn't answering)")
@@ -1653,7 +1818,8 @@ def main():
 
     heading(f"test-e2e-{args.target}",
             "input through roadie's " +
-            ("WebDriver BiDi /session" if args.via == "bidi" else "API") +
+            {"bidi": "WebDriver BiDi /session", "view": "/view, in a headless browser"}
+            .get(args.via, "API") +
             ", checked in a real browser")
     step("Harness")
     local = args.target == "pi"
@@ -1796,6 +1962,14 @@ def main():
             collector.stop()
             fail(f"Couldn't start a WebDriver BiDi session at {base}/session: {e}")
         check("bidi session", f"{base.replace('http', 'ws', 1)}/session")
+    elif args.via == "view":
+        try:
+            via = ViewInput(base)
+        except (OSError, RuntimeError) as e:
+            roadie.stop()
+            collector.stop()
+            fail(f"Couldn't open {base}/view in a headless browser: {e}")
+        check("view", f"{base}/view in headless Chromium, through Vibium")
     suite = Suite(base, collector, geom, args.tolerance, args.settle,
                   local=local, page_relative=ios, hud=args.hud, via=via)
     try:
@@ -1891,7 +2065,7 @@ def main():
     passed = sum(1 for _, ok, _ in suite.results if ok)
     total = len(suite.results)
     print()
-    name = f"test-e2e-{args.target}" + (" (bidi)" if via else "")
+    name = f"test-e2e-{args.target}" + (f" ({args.via})" if via else "")
     if passed == total:
         result(f"{name:<18} {passed}/{total} checks")
     else:
