@@ -500,11 +500,6 @@ returns after `amount` × 8 ms. Measured in Safari, on a picture 972 px tall:
 |---------|---|---|---|---|---|----|
 | Scrolled | 0 px | 35 px | 97 px | 168 px | 343 px | 626 px |
 
-An iPhone stops taking the wheel after a drag (a press, moved, released)
-followed by Home (Cmd+H), and takes it again only once Roadie's USB is reset
-([`POST /api/usb/reset`](#post-apiusbreset)). Clicks, keys and the pointer
-go on working.
-
 **Response:**
 ```json
 {"status": "ok"}

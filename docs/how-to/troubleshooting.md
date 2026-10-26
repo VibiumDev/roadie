@@ -149,9 +149,7 @@ See [Turning the screen](connect-a-phone.md#turning-the-screen).
 A turn or two of the wheel doesn't scroll an iPhone: it scrolls only for a
 run of notches no more than about 100 ms apart, three or more (see
 [`/api/hid/mouse/scroll`](../../API.md#post-apihidmousescroll)). If a longer
-run doesn't scroll either, iOS has stopped taking the wheel. A drag (press,
-move, release) followed by Home (Cmd+H) does that, every time; another drag
-or a click doesn't bring it back, but resetting Roadie's USB does:
+run doesn't scroll either, reset Roadie's USB:
 ```bash
 curl -X POST http://localhost:8080/api/usb/reset
 ```

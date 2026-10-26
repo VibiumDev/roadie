@@ -1637,8 +1637,7 @@ class Suite:
                           f"{start:.0f} → {end or 0:.0f} px "
                           f"({wheels} wheel events)")
                 if not wheels:
-                    detail += ("; an iPhone stops taking the wheel after a "
-                               "drag and then Home, until POST /api/usb/reset")
+                    detail += "; POST /api/usb/reset brings the wheel back"
                 self.record(f"mouse scroll {name}", ok, detail)
                 start = end or 0
         finally:
