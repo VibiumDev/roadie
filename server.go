@@ -335,6 +335,11 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
           <button id="modeTouchBtn" style="padding:2px 10px; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Touch</button>
         </div>
       </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px;" title="How far the wheel scrolls the target">
+        <label style="min-width:55px;">Scroll</label>
+        <input id="scrollRange" type="range" min="25" max="200" step="5" value="100" style="width:120px; vertical-align:middle;">
+        <span id="scrollVal" style="min-width:3em; text-align:right;">100%</span>
+      </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
         <label style="min-width:55px;">Keys</label>
         <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input id="kbdCaptureCheck" type="checkbox" checked> Capture</label>
@@ -1532,14 +1537,34 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       }
     }, 50);
 
-    var pendingScroll = 0, scrollDirty = false;
+    // Notches of the wheel go out as they add up (see the wheel handler).
+    // An iPhone scrolls only for a run of notches at most about 100 ms
+    // apart, and not at all for one alone, and the closer they come the
+    // further it goes: there, while the wheel turns, a notch goes out at
+    // least every runGap, so a slow scroll scrolls too, and Scroll sets how
+    // fast that is.
+    var pendingScroll = 0, scrollDirty = false, scrollSpeed = 1;
+    var wheelDir = 0, wheelAt = 0, scrollAt = 0;
+    var wheelRuns = window.__roadiePlatform === 'ios';
+    // 80 ms at 25% (iOS drops notches much further apart), 50 at 100%, 25
+    // at 200%.
+    function runGap() {
+      return scrollSpeed <= 1 ? 80 - (scrollSpeed - 0.25) * 40 : 50 - (scrollSpeed - 1) * 25;
+    }
     setInterval(function() {
+      var now = performance.now();
+      if (wheelRuns && wheelAt > scrollAt && !scrollDirty && now - scrollAt >= runGap()) {
+        pendingScroll = wheelDir;
+        wheelRest = 0;
+        scrollDirty = true;
+      }
       if (scrollDirty) {
         hidSend({cmd:'mouse_scroll', amount:pendingScroll});
         pendingScroll = 0;
         scrollDirty = false;
+        scrollAt = now;
       }
-    }, 50);
+    }, 10);
 
     // --- Mouse handlers on feed ---
     img.addEventListener('mousemove', function(e) {
@@ -1607,18 +1632,43 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     });
 
     // --- Scroll wheel on feed ---
+    // In notches: at 100% Scroll a line is one, 25 pixels are one, a page
+    // twenty. What is left over adds up, so a trackpad's and a smooth
+    // wheel's small steps scroll too.
+    var wheelRest = 0;
     img.addEventListener('wheel', function(e) {
       e.preventDefault();
-      if (inputMode !== 'mouse') return;
-      var amount;
-      if (e.deltaMode === 1) { amount = Math.round(e.deltaY); }
-      else { amount = Math.round(e.deltaY / 25); }
-      amount = Math.max(-127, Math.min(127, amount));
-      if (amount !== 0) {
-        pendingScroll = amount;
+      if (inputMode !== 'mouse' || !e.deltaY) return;
+      var steps = e.deltaMode === 1 ? e.deltaY : e.deltaMode === 2 ? e.deltaY * 20 : e.deltaY / 25;
+      wheelRest += steps * scrollSpeed;
+      wheelDir = e.deltaY > 0 ? 1 : -1;
+      wheelAt = performance.now();
+      var notches = Math.trunc(wheelRest);
+      if (notches !== 0) {
+        wheelRest -= notches;
+        pendingScroll = Math.max(-127, Math.min(127, pendingScroll + notches));
         scrollDirty = true;
       }
     }, {passive: false});
+
+    // Scroll: how far the wheel goes, for this viewer.
+    var scrollRange = document.getElementById('scrollRange');
+    var scrollVal = document.getElementById('scrollVal');
+    function applyScrollSpeed(pct) {
+      scrollSpeed = pct / 100;
+      scrollRange.value = pct;
+      scrollVal.textContent = pct + '%';
+    }
+    scrollRange.oninput = function() {
+      var pct = parseInt(scrollRange.value, 10);
+      applyScrollSpeed(pct);
+      saveSettings({scrollSpeed: pct});
+    };
+    (function() {
+      var saved = {};
+      try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+      if (saved.scrollSpeed >= 25 && saved.scrollSpeed <= 200) applyScrollSpeed(saved.scrollSpeed);
+    })();
 
     // --- Touch handlers on feed ---
     function touchToContacts(e) {
@@ -3033,20 +3083,17 @@ mouse device until you switch back.</div>
   }
 
   // --- Scroll wheel (mouse mode) ---
+  // In notches, as /view counts them: small steps add up.
+  var wheelRest = 0;
   trackpad.addEventListener('wheel', function(e) {
     e.preventDefault();
-    var amount;
-    if (e.deltaMode === 1) {
-      amount = Math.round(e.deltaY);
-    } else {
-      amount = Math.round(e.deltaY / 25);
-    }
-    amount = Math.max(-127, Math.min(127, amount));
-    if (amount !== 0) {
-      if (inputMode === 'mouse') {
-        pendingScroll = amount;
-        scrollDirty = true;
-      }
+    if (inputMode !== 'mouse') return;
+    wheelRest += e.deltaMode === 1 ? e.deltaY : e.deltaMode === 2 ? e.deltaY * 20 : e.deltaY / 25;
+    var notches = Math.trunc(wheelRest);
+    if (notches !== 0) {
+      wheelRest -= notches;
+      pendingScroll = Math.max(-127, Math.min(127, pendingScroll + notches));
+      scrollDirty = true;
     }
   }, {passive: false});
 

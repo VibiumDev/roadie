@@ -438,13 +438,6 @@ func TestBiDiToHIDScreenPointerSpace(t *testing.T) {
 	}
 }
 
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
-
 func TestBiDiKeyMapping(t *testing.T) {
 	tests := []struct {
 		value string
@@ -563,6 +556,59 @@ func TestBiDiShiftedCharacters(t *testing.T) {
 	s.releaseAllInput(sess)
 	if got, want := strings.Join(hid.log, " "), "+225 +56 -56 -225"; got != want {
 		t.Errorf("release all: %s, want %s", got, want)
+	}
+}
+
+// A wheel source's scroll turns the wheel with the pointer where it says, a
+// notch per bidiNotchShare-th of the viewport's height (at least one), and
+// puts the pointer back. A sideways scroll, one from anywhere but the
+// viewport, or one from a pointer source is refused.
+func TestBiDiScroll(t *testing.T) {
+	inner := &wheelHID{}
+	h := newSettledHID(inner)
+	h.sleep = func(time.Duration) {}
+	s := &Server{HID: h, Source: &timedSource{clock: new(time.Time)}, Buf: &FrameBuffer{}}
+	h.MouseMove(100, 200)
+	inner.log = nil
+	scroll := func(src string, a bidiAction) error {
+		a.Type = "scroll"
+		return s.executeBiDiAction(&bidiSession{}, src, "", "wheel", a)
+	}
+
+	// A 1920x1080 viewport: 135 px is four notches; 5 px, less than one.
+	for _, dy := range []float64{135, -5} {
+		if err := scroll("wheel", bidiAction{X: 960, Y: 540, DeltaY: dy}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{"move 16384,16384", "wheel 4", "move 100,200", "move 16384,16384", "wheel -1", "move 100,200"}
+	if got := inner.log; strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("calls = %v, want %v", got, want)
+	}
+
+	// On an iPhone, notches enough for about the distance asked, and never
+	// fewer than move it at all.
+	ios := &Server{Platform: PlatformIOS}
+	for dy, want := range map[float64]int{540: 9, -100: -4, 10: 3, 0: 0} {
+		if got := ios.bidiNotches(dy, 1080); got != want {
+			t.Errorf("iPhone, %v px of 1080: %d notches, want %d", dy, got, want)
+		}
+	}
+
+	inner.log = nil
+	for name, a := range map[string]bidiAction{
+		"sideways":         {DeltaX: 50, DeltaY: 10},
+		"from the pointer": {DeltaY: 10, Origin: "pointer"},
+	} {
+		if scroll("wheel", a) == nil {
+			t.Errorf("%s: not refused", name)
+		}
+	}
+	if scroll("pointer", bidiAction{DeltaY: 10}) == nil {
+		t.Error("a pointer source's scroll: not refused")
+	}
+	if len(inner.log) != 0 {
+		t.Errorf("refused scrolls reached the target: %v", inner.log)
 	}
 }
 

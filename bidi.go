@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"log"
@@ -287,12 +288,15 @@ type bidiPointerParam struct {
 }
 
 type bidiAction struct {
-	Type     string  `json:"type"`               // pointerMove, pointerDown, pointerUp, keyDown, keyUp, pause
-	X        float64 `json:"x,omitempty"`        // pixel coords for pointer
-	Y        float64 `json:"y,omitempty"`        // pixel coords for pointer
+	Type     string  `json:"type"`               // pointerMove, pointerDown, pointerUp, keyDown, keyUp, scroll, pause
+	X        float64 `json:"x,omitempty"`        // pixel coords for pointer and scroll
+	Y        float64 `json:"y,omitempty"`        // pixel coords for pointer and scroll
 	Button   int     `json:"button,omitempty"`   // 0=left, 1=middle, 2=right
 	Value    string  `json:"value,omitempty"`    // key value for keyDown/keyUp
 	Duration int     `json:"duration,omitempty"` // pause duration in ms
+	DeltaX   float64 `json:"deltaX,omitempty"`   // scroll, in pixels
+	DeltaY   float64 `json:"deltaY,omitempty"`   // scroll, in pixels; positive scrolls down
+	Origin   any     `json:"origin,omitempty"`   // scroll: "viewport" only
 }
 
 func (s *Server) bidiPerformActions(conn *websocket.Conn, ctx context.Context, cmd bidiCommand) {
@@ -414,6 +418,9 @@ func (s *Server) executeBiDiAction(sess *bidiSession, srcType, ptrType, srcID st
 			time.Sleep(time.Duration(action.Duration) * time.Millisecond)
 		}
 		return nil
+
+	case "scroll":
+		return s.bidiScroll(srcType, action)
 
 	case "pointerMove":
 		// Get starting position for interpolation.
@@ -661,6 +668,64 @@ func (s *Server) viewportSize() map[string]int {
 		return map[string]int{"width": s.Buf.Width(), "height": s.Buf.Height()}
 	}
 	return map[string]int{"width": crop.Dx(), "height": crop.Dy()}
+}
+
+// How far notches of the wheel scroll, for turning a scroll's deltaY into
+// notches. The target decides, so deltaY is a guide. An iPhone speeds a run
+// up: in Safari on one, notches 8 ms apart (see notchesIOS) scrolled a 972
+// px picture 0 px for 2, 35 for 3, 97 for 4, and about 88 px more for each
+// one after (626 for 10), the same each time. Anywhere else a notch is
+// taken to be a 32nd of the viewport.
+const (
+	iosNotch       = 88.0 / 972  // of the viewport, each notch past the start of a run
+	iosRunStart    = 271.0 / 972 // what a run takes to get going, likewise
+	iosFewest      = 3           // the fewest notches that move an iPhone
+	bidiNotchShare = 32
+)
+
+// bidiNotches is how many notches scroll about dy pixels of a viewport h
+// pixels tall; positive scrolls down.
+func (s *Server) bidiNotches(dy, h float64) int {
+	if dy == 0 || h <= 0 {
+		return 0
+	}
+	var n int
+	if s.Platform == PlatformIOS {
+		n = max(int(math.Round((math.Abs(dy)/h+iosRunStart)/iosNotch)), iosFewest)
+	} else {
+		n = max(int(math.Round(math.Abs(dy)*bidiNotchShare/h)), 1)
+	}
+	if dy < 0 {
+		n = -n
+	}
+	return n
+}
+
+// bidiScroll turns the wheel for a wheel source's scroll action, with the
+// pointer at (x, y) in the viewport, deltaY pixels. The pointer goes back
+// where it was.
+func (s *Server) bidiScroll(srcType string, action bidiAction) error {
+	if srcType != "wheel" {
+		return fmt.Errorf("scroll is an action of a wheel source, not %s", srcType)
+	}
+	if o, ok := action.Origin.(string); action.Origin != nil && (!ok || o != "viewport") {
+		return errors.New(`scroll: only the "viewport" origin is supported`)
+	}
+	if action.DeltaX != 0 {
+		return errors.New("scroll: only vertical scrolling is supported (deltaX must be 0)")
+	}
+	notches := s.bidiNotches(action.DeltaY, float64(s.viewportSize()["height"]))
+	if notches == 0 {
+		return nil
+	}
+	x, y := s.bidiToHID(action.X, action.Y)
+	if at, ok := s.HID.(interface{ ScrollAt(x, y, amount int) error }); ok {
+		return at.ScrollAt(x, y, notches)
+	}
+	if err := s.HID.MouseMove(x, y); err != nil {
+		return err
+	}
+	return s.HID.MouseScroll(notches)
 }
 
 // Coordinate translation: BiDi pixel coords → HID 0-32767.

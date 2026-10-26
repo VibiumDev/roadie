@@ -270,6 +270,7 @@ func main() {
 	}
 	settled := newSettledHID(hid)
 	settled.touchAsPointer = platform.TouchAsPointer()
+	settled.wheelIOS = platform == PlatformIOS
 	settled.SetGlide(*glide)
 	hid = settled
 	go hid.Run()

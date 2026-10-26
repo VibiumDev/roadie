@@ -145,6 +145,16 @@ where the screen faces the way the phone thinks it's held and taps line up,
 and Rotate there.
 See [Turning the screen](connect-a-phone.md#turning-the-screen).
 
+**iPhone: the scroll wheel does nothing**
+A turn or two of the wheel doesn't scroll an iPhone: it scrolls only for a
+run of notches no more than about 100 ms apart, three or more (see
+[`/api/hid/mouse/scroll`](../../API.md#post-apihidmousescroll)). If a longer
+run doesn't scroll either, iOS has stopped taking the wheel; one did until
+Roadie's USB was replugged:
+```bash
+curl -X POST http://localhost:8080/api/usb/reset
+```
+
 ## Device Reset
 
 **Glitchy HDMI signal (wrong colors, static on first connection)**

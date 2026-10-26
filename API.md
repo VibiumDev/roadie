@@ -481,7 +481,7 @@ Mouse button click, press, or release.
 ```
 
 ### `POST /api/hid/mouse/scroll`
-Scroll the mouse wheel.
+Turn the mouse wheel, scrolling what is under the pointer.
 
 **Request:**
 ```json
@@ -490,7 +490,19 @@ Scroll the mouse wheel.
 
 | Field | Description |
 |-------|-------------|
-| `amount` | Scroll amount: positive = down, negative = up. Range: -127 to 127 |
+| `amount` | Notches: positive scrolls down, negative up, on every platform. Range: -127 to 127 |
+
+An iPhone (`--platform ios`) scrolls only for a run of notches, and speeds
+a run up. Roadie sends each scroll as single notches 8 ms apart, so a call
+returns after `amount` × 8 ms. Measured in Safari, on a picture 972 px tall:
+
+| Notches | 2 | 3 | 4 | 5 | 7 | 10 |
+|---------|---|---|---|---|---|----|
+| Scrolled | 0 px | 35 px | 97 px | 168 px | 343 px | 626 px |
+
+If an iPhone ignores the wheel altogether, reset Roadie's USB
+([`POST /api/usb/reset`](#post-apiusbreset)): one did until its USB was
+replugged.
 
 **Response:**
 ```json
@@ -593,7 +605,7 @@ Roadie implements a minimal subset of BiDi — only the methods that map to hard
 | `browsingContext.getTree` | Returns a single context (`"screen"`) representing the target display |
 | `browsingContext.captureScreenshot` | Returns a base64-encoded JPEG of the current frame. Right after input, it first waits for the screen to show it: at least 300 ms, then until the picture stops changing (at most 2 s after the input) |
 | `roadie:screen.getViewport` | Returns the current viewport (cropped image) width and height |
-| `input.performActions` | Execute keyboard, mouse, and touch actions. On an iPhone touch arrives as the pointer, one finger at a time; a gesture with more fingers is refused before any of it runs (see [`/api/hid/touch`](#post-apihidtouch)) |
+| `input.performActions` | Execute keyboard, mouse, touch and wheel actions. On an iPhone touch arrives as the pointer, one finger at a time; a gesture with more fingers is refused before any of it runs (see [`/api/hid/touch`](#post-apihidtouch)). A `wheel` source's `scroll` turns the wheel with the pointer at `x`, `y` (viewport origin only), then puts the pointer back; `deltaY` (vertical only) becomes notches of [the wheel](#post-apihidmousescroll): on an iPhone as many as scroll about that far, elsewhere one per 32nd of the viewport |
 | `input.releaseActions` | Release all held keys, buttons, and touches |
 
 **Example session (using [websocat](https://github.com/vi/websocat)):**
@@ -608,7 +620,8 @@ websocat ws://localhost:8080/session
 {"id": 3, "method": "browsingContext.captureScreenshot", "params": {"context": "screen"}}
 {"id": 4, "method": "input.performActions", "params": {"context": "screen", "actions": [{"type": "pointer", "id": "mouse", "actions": [{"type": "pointerMove", "x": 243, "y": 530}, {"type": "pointerDown", "button": 0}, {"type": "pointerUp", "button": 0}]}]}}
 {"id": 5, "method": "input.performActions", "params": {"context": "screen", "actions": [{"type": "pointer", "id": "finger0", "parameters": {"pointerType": "touch"}, "actions": [{"type": "pointerMove", "x": 243, "y": 530}, {"type": "pointerDown", "button": 0}, {"type": "pointerUp", "button": 0}]}]}}
-{"id": 6, "method": "session.end", "params": {}}
+{"id": 6, "method": "input.performActions", "params": {"context": "screen", "actions": [{"type": "wheel", "id": "wheel", "actions": [{"type": "scroll", "x": 243, "y": 530, "deltaX": 0, "deltaY": 300}]}]}}
+{"id": 7, "method": "session.end", "params": {}}
 ```
 
 **Example: draw a checkbox with touch (using [websocat](https://github.com/vi/websocat)):**

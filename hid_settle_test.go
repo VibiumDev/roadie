@@ -101,6 +101,64 @@ type usbStateHID struct {
 
 func (u *usbStateHID) USBState() string { return u.state }
 
+// wheelHID records where the pointer goes and how the wheel turns.
+type wheelHID struct {
+	keyHID
+	log []string
+}
+
+func (w *wheelHID) MouseMove(x, y int) error {
+	w.log = append(w.log, fmt.Sprintf("move %d,%d", x, y))
+	return nil
+}
+
+func (w *wheelHID) MouseScroll(n int) error {
+	w.log = append(w.log, fmt.Sprintf("wheel %d", n))
+	return nil
+}
+
+// An iPhone scrolls down for the wheel turned the other way, and only for a
+// run of notches: a scroll reaches it as single notches, notchGap apart.
+// Any other target gets the amount as it is.
+func TestWheelOnIOS(t *testing.T) {
+	for _, tc := range []struct {
+		ios    bool
+		amount int
+		want   []string
+	}{
+		{true, 3, []string{"wheel -1", "wait 8ms", "wheel -1", "wait 8ms", "wheel -1"}},
+		{true, -2, []string{"wheel 1", "wait 8ms", "wheel 1"}},
+		{true, 0, nil},
+		{false, 3, []string{"wheel 3"}},
+	} {
+		inner := &wheelHID{}
+		h := newSettledHID(inner)
+		h.wheelIOS = tc.ios
+		h.sleep = func(d time.Duration) { inner.log = append(inner.log, "wait "+d.String()) }
+		if err := h.MouseScroll(tc.amount); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(inner.log, tc.want) {
+			t.Errorf("iOS %v, scroll %d: %v, want %v", tc.ios, tc.amount, inner.log, tc.want)
+		}
+	}
+}
+
+// Scrolling at a point takes the pointer there, and back.
+func TestScrollAtPutsThePointerBack(t *testing.T) {
+	inner := &wheelHID{}
+	h := newSettledHID(inner)
+	h.sleep = func(time.Duration) {}
+	h.MouseMove(100, 200)
+	inner.log = nil
+	if err := h.ScrollAt(300, 400, 2); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"move 300,400", "wheel 2", "move 100,200"}; !reflect.DeepEqual(inner.log, want) {
+		t.Errorf("calls = %v, want %v", inner.log, want)
+	}
+}
+
 // On a target that takes touch as its pointer, a finger down is a press
 // there, moving it drags, lifting it releases, and a second finger is
 // refused; elsewhere touch goes to the touchscreen as it is.

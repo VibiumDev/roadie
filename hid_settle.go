@@ -39,6 +39,8 @@ const (
 type settledHID struct {
 	HIDBackend
 	touchAsPointer bool
+	// wheelIOS scrolls the way an iPhone takes the wheel (see notchesIOS).
+	wheelIOS bool
 
 	mu       sync.Mutex
 	moved    time.Time
@@ -146,10 +148,70 @@ func (h *settledHID) MouseClick(buttons int) error {
 	return err
 }
 
+// MouseScroll turns the wheel amount notches; positive scrolls down.
 func (h *settledHID) MouseScroll(amount int) error {
+	if h.wheelIOS {
+		return h.notchesIOS(amount)
+	}
 	err := h.HIDBackend.MouseScroll(amount)
 	h.mark(&h.input)
 	return err
+}
+
+// notchesIOS turns the wheel as an iPhone takes it. It scrolls down for
+// the wheel turned the way every other target scrolls up, and it scrolls
+// for a run of notches, not for one report however large: on an iPhone,
+// one report of 30 moved Safari 0 px, five notches of 1, 8 to 30 ms apart,
+// 150 to 190 px; and a run goes further the longer it is. So a scroll goes
+// as single notches, notchGap apart, quick enough to keep up with /view.
+func (h *settledHID) notchesIOS(amount int) error {
+	step := 1
+	if amount > 0 {
+		step = -1
+	}
+	for i := range min(abs(amount), maxNotches) {
+		if i > 0 {
+			h.sleep(notchGap)
+		}
+		if err := h.HIDBackend.MouseScroll(step); err != nil {
+			return err
+		}
+		h.mark(&h.input)
+	}
+	return nil
+}
+
+const (
+	notchGap = 8 * time.Millisecond
+	// maxNotches bounds one scroll: 127, the most the API takes, is a
+	// second of notches.
+	maxNotches = 127
+)
+
+// ScrollAt turns the wheel with the pointer at (x, y), then puts it back:
+// the wheel scrolls what is under the pointer, and a scroll leaves the
+// pointer where it was.
+func (h *settledHID) ScrollAt(x, y, amount int) error {
+	h.mu.Lock()
+	px, py, placed := h.x, h.y, h.placed
+	h.mu.Unlock()
+	if err := h.moveTo(x, y, false); err != nil {
+		return err
+	}
+	if err := h.MouseScroll(amount); err != nil {
+		return err
+	}
+	if !placed {
+		return nil
+	}
+	return h.moveTo(px, py, false)
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 func (h *settledHID) Type(text string) error {
