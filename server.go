@@ -271,7 +271,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 </head>
 <body class="tb-right" style="margin:0; display:flex; height:100vh; overflow:hidden; overscroll-behavior:none;">
   <div style="flex:1; min-width:0; min-height:0; display:flex; flex-direction:column;">
-    <div id="viewer" style="position:relative; flex:1; min-width:0; min-height:0; overflow:hidden;">
+    <div id="viewer" style="position:relative; flex:1; min-width:0; min-height:0; overflow:hidden; user-select:none; -webkit-user-select:none;">
       <div id="overlay" style="display:flex;">
         Connecting&hellip;
       </div>
@@ -894,6 +894,31 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         cropRequest('GET');
       }
     };
+
+    // A press anywhere but the menu and its button closes the menu, as on a
+    // Mac, and does nothing else: a click meant to close the menu doesn't
+    // also tap the phone, type a key or press another button. Everything
+    // the press would set off, up to its click, is swallowed.
+    var swallowing = false;
+    document.addEventListener('pointercancel', function() { swallowing = false; }, true);
+    document.addEventListener('pointerdown', function(e) {
+      swallowing = false;  // a release lost outside the window ends it too
+      if (qslider.style.display === 'none' || qslider.contains(e.target) || qbtn.contains(e.target)) return;
+      qslider.style.display = 'none';
+      menuClosed();
+      swallowing = true;
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
+    ['mousedown', 'mouseup', 'touchstart', 'touchmove', 'touchend', 'pointermove', 'pointerup', 'click', 'contextmenu'].forEach(function(type) {
+      document.addEventListener(type, function(e) {
+        if (!swallowing) return;
+        e.preventDefault();
+        e.stopPropagation();
+        // The click comes straight after the release, if at all.
+        if (type === 'pointerup') setTimeout(function() { swallowing = false; }, 0);
+      }, {capture: true, passive: false});
+    });
 
     // --- Toolbar auto-hide ---
     // Tucked off the right edge until the pointer comes within half a
@@ -1571,7 +1596,9 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       var p = posFromFeed(e);
       if (inputMode === 'mouse') {
         pendingX = p.x; pendingY = p.y; mouseDirty = true;
-      } else if (e.buttons > 0) {
+      } else if (feedPressed) {
+        // Only a press that began on the picture: one dragged in from
+        // beside it was never sent, and would never be lifted.
         pendingContacts = [{id:0, tip:true, x:p.x, y:p.y}];
         touchDirty = true;
       }
