@@ -239,9 +239,14 @@ and the iOS settings:
 
 ```bash
 make test-e2e-android    # opens the page with the keyboard, then tests it
-make test-e2e-iphone     # the same, through Spotlight and Safari
+make test-e2e-iphone     # the same, through Spotlight and Safari, then again over BiDi
 make test-e2e-pc         # prints a URL for another computer
 ```
+
+Input goes through roadie's HTTP API (`/api/hid/...`). With `--via bidi` the
+same checks send it through WebDriver BiDi instead: a session on `/session`,
+and `input.performActions` for the pointer, keys, touch and wheel, placed in
+the viewport's pixels. `make test-e2e-iphone` runs both.
 
 The phone targets start roadie with `--platform android` or `--platform ios`,
 so the viewer maps pointers the way that device expects if you open `/view`
@@ -253,9 +258,12 @@ two-finger check is skipped, because a pointer is one finger. The mouse needs
 AssistiveTouch turned on, with Perform Touch Gestures, or nothing responds at
 all — see [Connect a Phone](connect-a-phone.md#iphone) for the settings and the
 wiring.
-In place of the wheel, a drag check traces the Vibium mark with the button
-held, which is how iOS scrolls and swipes; the page has to see every stroke
-through to the end.
+A drag check traces the Vibium mark with the button held, which is how iOS
+scrolls and swipes; the page has to see every stroke through to the end. The
+test page holds still under the wheel, so for the wheel Safari goes to a page
+that scrolls (`board/e2e/scroll-page.html`): ten notches down, then ten up,
+each moving it at least a third of the screen. If it doesn't move at all, see
+"the scroll wheel does nothing" in [Troubleshooting](troubleshooting.md).
 
 The iPhone run ends with a soundcheck both ways. For the speaker, the test
 page plays five notes and roadie listens on `/audio`. Safari only gives the
@@ -265,6 +273,8 @@ a static page): **Mic** records while roadie plays the notes into the phone,
 then plays back what it heard, which roadie listens for. Set that site's
 microphone to **Allow** once (Safari, **aA** → **Website Settings**), or the
 test taps Allow on Safari's prompt. `--soundcheck URL` uses another copy.
+Its host can take a while to wake, so the run asks it first, for up to a
+minute, and stops if it doesn't answer.
 
 The phone loads the test page from this machine, so it needs Wi-Fi on the
 same network. With the [Linux gadget](linux-gadget.md), the phone's USB
@@ -283,7 +293,14 @@ does the work:
 
 Shortcuts vary by launcher and the phone has to be unlocked, so this is
 best-effort: if the page has not reported in by the timeout, the test prints the
-URL and waits for you to open it by hand rather than failing. (`Escape` first on
+URL and waits for you to open it by hand rather than failing.
+
+A run starts and ends on the home screen, and checks it got there from
+`/snapshot`: Home pressed again changes nothing on the home screen, and at
+the end the screen has to match the one the run started on (the status bar
+aside). A phone that won't settle there stops the run before it starts; one
+that doesn't get back fails the run. `--keep-open` leaves the page up
+instead. The check needs `python3-pil` (`make setup`). (`Escape` first on
 iPhone: a text field still focused on the page Safari comes back to keeps
 `Cmd`+`L` from the address bar.)
 

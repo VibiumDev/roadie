@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>roadie e2e scroll</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: ui-monospace, "DejaVu Sans Mono", monospace;
+    background: #10131a; color: #e8ecf4; font-size: 14px;
+  }
+  .row {
+    height: 100px; padding: 8px; border-bottom: 1px solid #2d3650;
+    background: repeating-linear-gradient(90deg, #171c28 0 39px, #1e2436 39px 40px);
+  }
+  #at {
+    position: fixed; top: 8px; right: 8px; padding: 2px 8px;
+    background: #1f7a4d; border-radius: 3px;
+  }
+</style>
+</head>
+<body>
+<div id="at">0</div>
+<div id="rows"></div>
+<script>
+// The wheel's check on a phone: the test page holds still, this one
+// scrolls the way any page does, and says how far it has gone.
+const rows = document.getElementById('rows');
+for (let i = 0; i < 80; i++) {
+  const d = document.createElement('div');
+  d.className = 'row';
+  d.textContent = `${i * 100} px`;
+  rows.append(d);
+}
+const atEl = document.getElementById('at');
+let seq = 0;
+
+function report(kind, data) {
+  data.kind = kind;
+  data.seq = seq++;
+  data.scrollY = window.scrollY;
+  fetch('/report', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data),
+    keepalive: true,
+  }).catch(() => {});
+}
+
+// A report per frame at most while it scrolls.
+let queued = false;
+window.addEventListener('scroll', () => {
+  if (queued) return;
+  queued = true;
+  requestAnimationFrame(() => {
+    queued = false;
+    atEl.textContent = Math.round(window.scrollY);
+    report('scroll', {});
+  });
+}, {passive: true});
+// Whether the wheel reached the page as wheel events, for the result.
+window.addEventListener('wheel', (e) => report('wheel', {deltaY: e.deltaY}),
+                        {passive: true});
+
+function announce() {
+  report('scroll-ready', {innerH: window.innerHeight});
+}
+window.addEventListener('load', announce);
+if (document.readyState === 'complete') announce();
+</script>
+</body>
+</html>

@@ -41,6 +41,7 @@ import argparse
 import atexit
 import base64
 import glob
+import io
 import json
 import math
 import os
@@ -56,6 +57,7 @@ import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -66,6 +68,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 REPO_ROOT = SCRIPT_DIR.parent
 PAGE = SCRIPT_DIR / "e2e" / "page.html"
+SCROLL_PAGE = SCRIPT_DIR / "e2e" / "scroll-page.html"
 HUD = SCRIPT_DIR / "e2e" / "hud.js"
 
 HID_MAX = 32767  # absolute HID coordinate range is 0..32767 inclusive
@@ -128,8 +131,13 @@ class Collector:
                 self.wfile.write(body)
 
             def do_GET(self):
-                if self.path in ("/", "/index.html"):
+                # At /e2e, not /: Safari completes a typed address to one
+                # it has been to that begins with it, so going back to
+                # .../ by typing it landed on .../scroll.
+                if self.path in ("/", "/index.html", "/e2e"):
                     self.send(outer._html, "text/html; charset=utf-8")
+                elif self.path == "/scroll":
+                    self.send(SCROLL_PAGE.read_bytes(), "text/html; charset=utf-8")
                 elif self.path == "/hud.js" and outer._hud:
                     self.send(outer._hud, "text/javascript; charset=utf-8")
                 elif self.path == "/status":
@@ -233,6 +241,24 @@ SOUNDCHECK = "https://soundcheck.vibium.dev/"
 # its buttons are off, so a tap at Allow with no prompt up does nothing.
 MIC_BUTTON = (0.50, 0.65)
 ALLOW_MIC = (0.67, 0.56)
+
+
+def soundcheck_up(url, timeout=60):
+    """Whether the soundcheck page answers, asked until it does or timeout
+    runs out. Its host can take a while to wake, and gave Safari "Service
+    Unavailable" meanwhile, which the check then heard as silence. Returns
+    None when it is up, or what went wrong."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            with urllib.request.urlopen(url, timeout=15) as r:
+                r.read()
+            return None
+        except (urllib.error.URLError, OSError) as e:
+            why = f"HTTP {e.code}" if isinstance(e, urllib.error.HTTPError) else str(e)
+        if time.monotonic() > deadline:
+            return why
+        time.sleep(3)
 
 
 def record_target_audio(base, secs, path, on_tick=None):
@@ -372,7 +398,68 @@ def hid_combo(base, *names):
     time.sleep(0.4)
 
 
-def open_with_keyboard(base, url, target):
+def screen_picture(base):
+    """The phone's screen, small and grey, for telling screens apart. The
+    status bar is left out: its clock changes."""
+    from PIL import Image
+    with urllib.request.urlopen(f"{base}/snapshot", timeout=10) as r:
+        im = Image.open(io.BytesIO(r.read())).convert("L")
+    w, h = im.size
+    return im.crop((0, int(h * 0.07), w, h)).resize((24, 48), Image.BILINEAR)
+
+
+def picture_diff(a, b):
+    """How far apart two pictures are: the mean difference, 0 to 255. On an
+    iPhone the same screen measured up to 1.2 with the pointer anywhere on
+    it; Safari against the home screen, 93."""
+    from PIL import ImageChops, ImageStat
+    return ImageStat.Stat(ImageChops.difference(a, b)).mean[0]
+
+
+SAME_SCREEN = 4
+
+
+def settled_picture(base, timeout=6):
+    """The screen once it has stopped changing: three looks in a row the
+    same. None if it is still changing at the timeout."""
+    looks = [screen_picture(base)]
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        time.sleep(0.3)
+        looks = looks[-2:] + [screen_picture(base)]
+        if len(looks) == 3 and all(picture_diff(a, b) < 1.5
+                                   for a, b in zip(looks, looks[1:])):
+            return looks[-1]
+    return None
+
+
+def go_home(base, target, home=None):
+    """To the phone's home screen, Cmd+H on an iPhone and Meta+H on Android,
+    and checked: Home again changes nothing there, and with home, the
+    picture of it from the start of the run, the screen must match it.
+    Returns the home screen's picture, or None if it never got there.
+
+    A run starts there, for a known starting point, and ends there, so it
+    leaves the phone as a person would find it.
+    """
+    for _ in range(3):
+        if target == "iphone":
+            # Home doesn't close Spotlight; Escape twice does (the first
+            # clears what was typed). On Android Escape is Back: not there.
+            for _ in range(2):
+                hid_key(base, KEY["escape"], "click")
+                time.sleep(0.5)
+        hid_combo(base, "gui", "h")
+        before = settled_picture(base)
+        hid_combo(base, "gui", "h")
+        after = settled_picture(base)
+        if (before and after and picture_diff(before, after) < SAME_SCREEN
+                and (home is None or picture_diff(after, home) < SAME_SCREEN)):
+            return after
+    return None
+
+
+def open_with_keyboard(base, url, target, home=None):
     """Drive the target's own keyboard to open the page.
 
     roadie is a keyboard to the target, so it can do this itself rather
@@ -388,18 +475,21 @@ def open_with_keyboard(base, url, target):
     """
     if target == "android":
         note("asking the phone to open the page (Meta+B, then the URL)")
-        hid_combo(base, "gui", "h")        # home, for a known starting point
-        time.sleep(1.0)
         hid_combo(base, "gui", "b")        # the browser shortcut
         time.sleep(3.0)
         hid_combo(base, "ctrl", "l")       # focus the address bar
         time.sleep(0.8)
     else:
         note("asking the phone to open the page (Spotlight, then Safari)")
-        hid_combo(base, "gui", "h")        # home
-        time.sleep(1.0)
-        hid_combo(base, "gui", "space")    # Spotlight
-        time.sleep(1.2)
+        # Spotlight. Cmd+Space right after Home is sometimes dropped, so
+        # with the home screen's picture, it is pressed until the screen
+        # is no longer the home screen.
+        for _ in range(3):
+            hid_combo(base, "gui", "space")
+            time.sleep(1.2)
+            if home is None or picture_diff(screen_picture(base), home) >= SAME_SCREEN:
+                break
+            note("Spotlight didn't open; Cmd+Space again")
         http_json(f"{base}/api/hid/type", {"text": "safari"})
         time.sleep(1.2)
         hid_key(base, KEY["enter"], "click")
@@ -671,10 +761,205 @@ class Browser:
 # The legs
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# WebDriver BiDi: the same input through roadie's /session
+# ---------------------------------------------------------------------------
+
+class BiDiClient:
+    """A WebDriver BiDi connection to roadie's /session: a session for the
+    run, and commands answered in turn. Plain sockets, like /audio above."""
+
+    def __init__(self, base):
+        host, _, port = base.split("//", 1)[1].partition(":")
+        self.sock = socket.create_connection((host, int(port or 80)), timeout=30)
+        key = base64.b64encode(os.urandom(16)).decode()
+        self.sock.sendall(
+            f"GET /session HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\n"
+            f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
+            "Sec-WebSocket-Version: 13\r\n\r\n".encode())
+        self.buf = b""
+        while b"\r\n\r\n" not in self.buf:
+            more = self.sock.recv(4096)
+            if not more:
+                raise OSError("roadie closed /session")
+            self.buf += more
+        head, self.buf = self.buf.split(b"\r\n\r\n", 1)
+        if b" 101 " not in head.split(b"\r\n")[0]:
+            raise OSError(f"/session: {head.splitlines()[0].decode()}")
+        self.next_id = 0
+        self.send("session.new", {"capabilities": {}})
+
+    def _write(self, text):
+        data = text.encode()
+        mask = os.urandom(4)
+        n = len(data)
+        head = bytes([0x81])
+        if n < 126:
+            head += bytes([0x80 | n])
+        elif n < 65536:
+            head += bytes([0x80 | 126]) + struct.pack(">H", n)
+        else:
+            head += bytes([0x80 | 127]) + struct.pack(">Q", n)
+        self.sock.sendall(head + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+
+    def _read(self):
+        while True:
+            if len(self.buf) >= 2:
+                n, off = self.buf[1] & 0x7F, 2
+                if n == 126:
+                    n, off = struct.unpack(">H", self.buf[2:4])[0], 4
+                elif n == 127:
+                    n, off = struct.unpack(">Q", self.buf[2:10])[0], 10
+                if len(self.buf) >= off + n:
+                    op, data = self.buf[0] & 0x0F, self.buf[off:off + n]
+                    self.buf = self.buf[off + n:]
+                    if op == 8:
+                        raise OSError("roadie closed /session")
+                    if op == 1:
+                        return json.loads(data)
+                    continue
+            more = self.sock.recv(65536)
+            if not more:
+                raise OSError("roadie closed /session")
+            self.buf += more
+
+    def send(self, method, params):
+        """A command and its result; an error answer raises."""
+        self.next_id += 1
+        self._write(json.dumps({"id": self.next_id, "method": method, "params": params}))
+        while True:
+            msg = self._read()
+            if msg.get("id") != self.next_id:
+                continue   # an event
+            if msg.get("type") == "error":
+                raise RuntimeError(f"{method}: {msg.get('error')}: {msg.get('message')}")
+            return msg.get("result", {})
+
+    def close(self):
+        try:
+            self.send("session.end", {})
+        except Exception:
+            pass
+        self.sock.close()
+
+
+class BiDiInput:
+    """What the checks send to /api/hid, sent as WebDriver BiDi instead.
+
+    The checks speak in HID units (0-32767 across the pointer's range);
+    BiDi in pixels of the viewport, the cropped picture. Positions go
+    through the inverse of roadie's own mapping (bidiToHID), from /health:
+    on a phone whose pointer spans its own screen (pointer_space "screen")
+    the range is the phone's picture, otherwise the whole frame.
+    """
+
+    MOUSE = "mouse"
+    FINGERS = ("finger0", "finger1")
+
+    def __init__(self, base):
+        health = http_json(f"{base}/health")
+        crop = health["crop"]
+        if health.get("pointer_space") == "screen":
+            area = health.get("content") or crop
+        else:
+            w, h = (int(v) for v in health["resolution"].split("x"))
+            area = {"x": 0, "y": 0, "width": w, "height": h}
+        self.crop, self.area = crop, area
+        self.ios = health.get("platform") == "ios"
+        self.bidi = BiDiClient(base)
+        self.at = (0.0, 0.0)          # where the mouse source last moved
+        self.down = {}                # touch contact id -> source id
+
+    def px(self, hx, hy):
+        a, c = self.area, self.crop
+        return (a["x"] + hx / HID_MAX * a["width"] - c["x"],
+                a["y"] + hy / HID_MAX * a["height"] - c["y"])
+
+    def act(self, *sources):
+        self.bidi.send("input.performActions",
+                       {"context": "screen", "actions": list(sources)})
+
+    def mouse(self, *actions):
+        self.act({"type": "pointer", "id": self.MOUSE,
+                  "parameters": {"pointerType": "mouse"}, "actions": list(actions)})
+
+    def hid(self, path, payload):
+        if path == "mouse/move":
+            x, y = self.px(payload["x"], payload["y"])
+            self.at = (x, y)
+            self.mouse({"type": "pointerMove", "x": x, "y": y})
+        elif path == "mouse/click":
+            buttons = [b for bit, b in ((1, 0), (4, 1), (2, 2))
+                       if payload.get("buttons", 1) & bit]
+            action = payload.get("action", "click")
+            steps = []
+            if action in ("press", "click"):
+                steps += [{"type": "pointerDown", "button": b} for b in buttons]
+            if action in ("release", "click"):
+                steps += [{"type": "pointerUp", "button": b} for b in buttons]
+            self.mouse(*steps)
+        elif path == "type":
+            steps = []
+            for ch in payload["text"]:
+                steps += [{"type": "keyDown", "value": ch}, {"type": "keyUp", "value": ch}]
+            self.act({"type": "key", "id": "keyboard", "actions": steps})
+        elif path == "touch":
+            self.touch(payload["contacts"])
+        elif path == "mouse/scroll":
+            self.scroll(payload["amount"])
+        else:
+            raise ValueError(f"no BiDi for /api/hid/{path}")
+        return {}
+
+    def touch(self, contacts):
+        """A touch report's contacts as finger sources: down where one
+        appears, moved while it stays, up where it goes."""
+        now = {c["id"]: c for c in contacts if c.get("tip", True)}
+        sources = []
+        for cid, c in now.items():
+            x, y = self.px(c["x"], c["y"])
+            steps = [{"type": "pointerMove", "x": x, "y": y}]
+            if cid not in self.down:
+                self.down[cid] = self.FINGERS[len(self.down) % 2]
+                steps.append({"type": "pointerDown", "button": 0})
+            sources.append({"type": "pointer", "id": self.down[cid],
+                            "parameters": {"pointerType": "touch"}, "actions": steps})
+        for cid in [cid for cid in self.down if cid not in now]:
+            sources.append({"type": "pointer", "id": self.down.pop(cid),
+                            "parameters": {"pointerType": "touch"},
+                            "actions": [{"type": "pointerUp", "button": 0}]})
+        if sources:
+            self.act(*sources)
+
+    def scroll(self, notches):
+        """The wheel, at the mouse, for about that many notches. BiDi asks
+        for a distance; this is the deltaY roadie turns into that many
+        (bidiNotches, the inverse of)."""
+        h = self.crop["height"]
+        n = abs(notches)
+        if self.ios:
+            dy = (n * 88.0 / 972 - 271.0 / 972) * h
+        else:
+            dy = n * h / 32
+        x, y = self.at
+        self.act({"type": "wheel", "id": "wheel", "actions": [
+            {"type": "scroll", "x": round(x), "y": round(y),
+             "deltaX": 0, "deltaY": round(dy if notches > 0 else -dy)}]})
+
+    def release(self):
+        self.bidi.send("input.releaseActions", {"context": "screen"})
+        self.down = {}
+
+    def close(self):
+        self.bidi.close()
+
+
 class Suite:
     def __init__(self, base, collector, geom, tolerance, settle, local=True,
-                 page_relative=False, hud=False):
+                 page_relative=False, hud=False, via=None):
         self.local = local
+        # How input is sent: None for roadie's /api/hid, or a BiDiInput.
+        self.via = via
         # Paced to be watched: the pointer glides and the keys are typed one
         # by one. What is checked is the same.
         self.hud = hud
@@ -693,6 +978,8 @@ class Suite:
         self.results = []
 
     def hid(self, path, payload):
+        if self.via:
+            return self.via.hid(path, payload)
         return http_json(f"{self.base}/api/hid/{path}", payload)
 
     def to_screen(self, hx, hy):
@@ -702,9 +989,15 @@ class Suite:
 
     def release_everything(self):
         """Let go of any button or contact, whatever happened."""
+        if self.via:
+            try:
+                self.via.release()
+            except Exception:
+                pass
         try:
-            self.hid("mouse/click", {"buttons": 7, "action": "release"})
-            self.hid("touch", {"contacts": []})
+            http_json(f"{self.base}/api/hid/mouse/click",
+                      {"buttons": 7, "action": "release"})
+            http_json(f"{self.base}/api/hid/touch", {"contacts": []})
         except Exception:
             pass
 
@@ -885,9 +1178,9 @@ class Suite:
     def leg_trace(self):
         """Drag the Vibium mark: press, move with the button held, let go.
 
-        On iOS a drag is how a finger scrolls and swipes, so this stands in
-        for the wheel there. The size of the path is checked rather than its
-        place, which holds whatever offset the page has from the screen.
+        On iOS a drag is how a finger scrolls and swipes. The size of the
+        path is checked rather than its place, which holds whatever offset
+        the page has from the screen.
         """
         self.collector.drain()
         w, h = self.screen_w, self.screen_h
@@ -1061,6 +1354,10 @@ class Suite:
         from test_audio import TONE_SECS, make_tone, stream_api
         secs = math.ceil(TONE_SECS) + 6          # room for Safari's prompt
         path = "/tmp/roadie_e2e_mic.wav"
+        down = soundcheck_up(soundcheck)
+        if down:
+            self.record("microphone", False, f"{soundcheck} is down ({down})")
+            return
         sep = "&" if "?" in soundcheck else "?"
         safari_go(self.base, f"{soundcheck}{sep}seconds={secs}")
         time.sleep(5.0)          # the page can't say it loaded: give it time
@@ -1124,6 +1421,64 @@ class Suite:
             self.record("mouse scroll", True, f"page saw wheel dy={got['deltaY']}")
         else:
             self.record("mouse scroll", False, "page saw no wheel event")
+
+    def leg_scroll_ios(self, page_url):
+        """The wheel on an iPhone, on a page that scrolls.
+
+        The test page holds still under a finger, so Safari goes to one that
+        scrolls (scroll-page.html) and says how far. Ten notches down, then
+        ten up: in Safari each moves the page about two thirds of the
+        screen (see /api/hid/mouse/scroll). Then back to the test page.
+        """
+        def latest(evs):
+            ys = [e["scrollY"] for e in evs if "scrollY" in e]
+            return ys[-1] if ys else None
+
+        def settled(timeout):
+            """Where the page came to rest after a scroll, or None."""
+            deadline = time.monotonic() + timeout
+            last, since = latest(self.collector.snapshot()), time.monotonic()
+            while time.monotonic() < deadline:
+                time.sleep(0.1)
+                y = latest(self.collector.snapshot())
+                if y != last:
+                    last, since = y, time.monotonic()
+                elif time.monotonic() - since > 1.0:
+                    break
+            return last
+
+        self.collector.drain()
+        safari_go(self.base, urllib.parse.urljoin(page_url, "/scroll"))
+        ready = self.collector.wait_for(
+            lambda evs: next((e for e in evs
+                              if e.get("kind") == "scroll-ready"), None), 15)
+        if not ready:
+            self.record("mouse scroll", False, "the scroll page never loaded")
+            self.back_to_page(page_url)
+            return
+        self.move(HID_MAX // 2, HID_MAX // 2)
+        time.sleep(self.settle)
+        start = settled(2) or 0
+        try:
+            for amount, name in ((10, "down"), (-10, "up")):
+                self.hid("mouse/scroll", {"amount": amount})
+                end = settled(5)
+                moved = (end or 0) - start
+                wheels = sum(1 for e in self.collector.snapshot()
+                             if e.get("kind") == "wheel")
+                # A third of the viewport is well short of what ten
+                # notches scroll, and well past anything else moving it.
+                ok = moved * amount > 0 and abs(moved) > ready["innerH"] / 3
+                detail = (f"{amount} notches scrolled the page "
+                          f"{start:.0f} → {end or 0:.0f} px "
+                          f"({wheels} wheel events)")
+                if not wheels:
+                    detail += ("; an iPhone stops taking the wheel after a "
+                               "drag and then Home, until POST /api/usb/reset")
+                self.record(f"mouse scroll {name}", ok, detail)
+                start = end or 0
+        finally:
+            self.back_to_page(page_url)
 
     def page_to_screen(self, check, what, want, have):
         """Where on the screen a press the page reports at `have` was.
@@ -1252,6 +1607,9 @@ def main():
     parser.add_argument("--target", default="pi",
                         choices=["pi", "android", "iphone", "pc"],
                         help="which device the HID board is plugged into")
+    parser.add_argument("--via", default="http", choices=["http", "bidi"],
+                        help="send input through roadie's /api/hid (http) or "
+                             "its WebDriver BiDi /session (bidi)")
     parser.add_argument("--roadie", default="http://127.0.0.1:8080",
                         help="base URL of a running roadie "
                              "(one is started if this isn't answering)")
@@ -1276,7 +1634,7 @@ def main():
     parser.add_argument("--skip", action="append", default=[], choices=LEGS,
                         help="skip a leg (repeatable)")
     parser.add_argument("--keep-open", action="store_true",
-                        help="leave the browser running at the end")
+                        help="leave the browser running at the end (on a phone, the page up)")
     parser.add_argument("--soundcheck", default=SOUNDCHECK,
                         help="the soundcheck page (soundcheck/index.html) "
                              "the iPhone's microphone is checked on; it has to "
@@ -1294,17 +1652,19 @@ def main():
         fail(f"Test page missing: {PAGE}")
 
     heading(f"test-e2e-{args.target}",
-            "input through roadie's API, checked in a real browser")
+            "input through roadie's " +
+            ("WebDriver BiDi /session" if args.via == "bidi" else "API") +
+            ", checked in a real browser")
     step("Harness")
     local = args.target == "pi"
     collector = Collector(hud=args.hud)
     if local:
         port = collector.start("127.0.0.1")
-        url = f"http://127.0.0.1:{port}/"
+        url = f"http://127.0.0.1:{port}/e2e"
     else:
         # A phone or another PC has to be able to reach us.
         port = collector.start("0.0.0.0")
-        url = f"http://{lan_address()}:{port}/"
+        url = f"http://{lan_address()}:{port}/e2e"
     check("collector", url)
 
     platform = {"android": "android", "iphone": "ios"}.get(args.target)
@@ -1338,6 +1698,15 @@ def main():
         fail(f"Relay board is not connected (status: {status!r}). "
              "Plug in the relay board.")
     check("relay", status.get("port"))
+    # Woken now, so it is up by the time the mic check gets to it.
+    if args.target == "iphone" and "mic" not in args.skip:
+        down = soundcheck_up(args.soundcheck)
+        if down:
+            roadie.stop()
+            collector.stop()
+            fail(f"The soundcheck page is down ({down}): {args.soundcheck}. "
+                 "Try again, or --skip mic.")
+        check("soundcheck", args.soundcheck)
     collector.set_status(link={
         "host": host_model(),
         "backend": status.get("backend", "rp2040"),
@@ -1347,16 +1716,24 @@ def main():
 
     step(f"Opening the test page on target '{args.target}'")
     browser = None
+    home = None
     if local:
         browser = Browser(detect_browser(args.browser), url,
                           args.display, args.xauthority)
         started["browser"] = browser
         browser.launch()
     elif args.target in ("android", "iphone"):
+        home = go_home(base, args.target)
+        if home is None:
+            roadie.stop()
+            collector.stop()
+            fail("The phone didn't settle on its home screen. Is it awake "
+                 "and unlocked?")
+        check("home screen", "where the run starts")
         if args.open == "adb":
             open_on_android(url)
         else:
-            open_with_keyboard(base, url, args.target)
+            open_with_keyboard(base, url, args.target, home)
     else:
         ask_by_hand(url, args.target)
 
@@ -1386,7 +1763,8 @@ def main():
          f"viewport {geom['innerW']}x{geom['innerH']}, dpr {geom['dpr']}")
     check("touch points", f"navigator.maxTouchPoints = {geom.get('maxTouchPoints')}")
     ios = args.target == "iphone"
-    # A drag stands in for the wheel on iOS, and finishes a HUD run.
+    # A drag is how a finger scrolls and swipes on iOS, and finishes a HUD
+    # run.
     drag = "drag" not in args.skip and (ios or args.hud)
     plan = [(leg, title, checks) for leg, title, checks, wanted in [
         ("mouse", "POINTER CALIBRATION", 3, True),
@@ -1396,6 +1774,9 @@ def main():
         ("touch", "TOUCH SURFACE", 1, True),
         ("multitouch", "MULTI-CONTACT", 1, not ios),
         ("drag", "SIGNATURE TRACE", 1, drag),
+        # On an iPhone the wheel goes to another page and back, so after
+        # the checks that need the test page as it loaded.
+        ("scroll", "SCROLL VECTOR", 2, ios),
         ("speaker", "SOUNDCHECK \u00b7 SPEAKER", 1, ios),
         ("mic", "SOUNDCHECK \u00b7 MIC", 1, ios),
     ] if wanted and leg not in args.skip]
@@ -1406,8 +1787,17 @@ def main():
     time.sleep(6.5 if args.hud else 1.0)
 
     step("Checks")
+    via = None
+    if args.via == "bidi":
+        try:
+            via = BiDiInput(base)
+        except (OSError, RuntimeError) as e:
+            roadie.stop()
+            collector.stop()
+            fail(f"Couldn't start a WebDriver BiDi session at {base}/session: {e}")
+        check("bidi session", f"{base.replace('http', 'ws', 1)}/session")
     suite = Suite(base, collector, geom, args.tolerance, args.settle,
-                  local=local, page_relative=ios, hud=args.hud)
+                  local=local, page_relative=ios, hud=args.hud, via=via)
     try:
         if local:
             suite.focus_window()
@@ -1437,11 +1827,6 @@ def main():
             suite.begin("scroll")
             suite.leg_scroll()
             suite.beat()
-        elif ios:
-            suite.begin(None)
-            suite.record("mouse scroll", True,
-                         "skipped — a touch pointer has no wheel; iOS scrolls "
-                         "by dragging")
         # iOS takes no external touchscreen; roadie delivers touch there
         # through the pointer (--platform ios), which AssistiveTouch's
         # Perform Touch Gestures turns into a finger. Either way the page
@@ -1457,6 +1842,10 @@ def main():
         if drag:
             suite.begin("drag")
             suite.leg_trace()
+        if ios and "scroll" not in args.skip:
+            suite.beat()
+            suite.begin("scroll")
+            suite.leg_scroll_ios(url)
         # The soundcheck, both ways through the phone. iPhone only so far:
         # the taps on the soundcheck page are placed for Safari there.
         if ios and "speaker" not in args.skip:
@@ -1475,6 +1864,16 @@ def main():
         collector.set_status(phase=None, done=True)
         if args.hud:
             time.sleep(3.0)  # long enough for the page to see the finish
+        if args.target in ("android", "iphone") and not args.keep_open:
+            suite.begin(None)
+            try:
+                back = go_home(base, args.target, home) is not None
+            except Exception as e:
+                back = False
+                warn(f"Couldn't send the phone home: {e}")
+            suite.record("home screen", back,
+                         "back where the run started" if back else
+                         "the phone isn't on the home screen it started on")
         # Hold the window open briefly so the run is watchable.
         linger = float(os.environ.get("ROADIE_E2E_LINGER", "2"))
         if browser and not args.keep_open and linger > 0:
@@ -1484,16 +1883,19 @@ def main():
                  f"pkill -f {browser.profile}")
         elif browser:
             browser.stop()
+        if via:
+            via.close()
         roadie.stop()
         collector.stop()
 
     passed = sum(1 for _, ok, _ in suite.results if ok)
     total = len(suite.results)
     print()
+    name = f"test-e2e-{args.target}" + (" (bidi)" if via else "")
     if passed == total:
-        result(f"test-e2e-{args.target:<9} {passed}/{total} checks")
+        result(f"{name:<18} {passed}/{total} checks")
     else:
-        print(f"  ❌ test-e2e-{args.target:<9} {passed}/{total} checks")
+        print(f"  ❌ {name:<18} {passed}/{total} checks")
     for name, ok, detail in suite.results:
         if not ok:
             print(f"     ❌ {name}: {detail}")

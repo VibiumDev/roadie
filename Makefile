@@ -86,7 +86,8 @@ setup:  ## Install dependencies, udev rules and group membership
 	@# window fills the screen, xset/xrandr/xinput for probing and muting,
 	@# a browser to drive, and x11vnc to watch it remotely. chromedriver
 	@# and node are for 'make test-view', which drives roadie's own viewer
-	@# page over WebDriver BiDi using the vibium CLI.
+	@# page over WebDriver BiDi using the vibium CLI. python3-pil is for
+	@# telling a phone's home screen from the rest in the phone e2e tests.
 	@# Skipped on non-apt systems; only the e2e tests need these.
 	@command -v apt-get >/dev/null && { \
 		echo "  📦 Installing browser-test dependencies"; \
@@ -94,7 +95,7 @@ setup:  ## Install dependencies, udev rules and group membership
 			xserver-xorg-core xserver-xorg-video-dummy \
 			matchbox-window-manager x11-xserver-utils xinput \
 			chromium chromium-driver x11vnc \
-			nodejs npm \
+			nodejs npm python3-pil \
 			|| echo "  ⚠️  Install failed; 'make test-e2e-pi' may not run"; \
 	} || true
 	@# Lets the browser test start its own X display over ssh, no root needed.
@@ -243,8 +244,13 @@ test-multitouch:  ## Two contacts and gestures, checked at /dev/input
 test-e2e-android:  ## The whole stack into Chrome on an Android phone (opens it by keyboard)
 	python3 board/test_e2e.py --target android
 
-test-e2e-iphone:  ## The whole stack into Safari on an iPhone
-	python3 board/test_e2e.py --target iphone
+test-e2e-iphone:  ## The whole stack into Safari on an iPhone, through the API and BiDi
+	@# Both ways in: /api/hid, then WebDriver BiDi's /session. The second
+	@# skips the soundcheck, which tests audio, not the way input arrives.
+	@rc=0; \
+	python3 board/test_e2e.py --target iphone || rc=1; \
+	python3 board/test_e2e.py --target iphone --via bidi --skip speaker --skip mic || rc=1; \
+	exit $$rc
 
 test-e2e-pc:  ## The whole stack into a browser on another computer
 	python3 board/test_e2e.py --target pc
