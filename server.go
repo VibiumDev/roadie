@@ -9,6 +9,7 @@ import (
 	"image"
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -341,11 +342,10 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         </div>
         <label style="cursor:pointer; display:flex; align-items:center; gap:4px;" title="Frame rate, bitrate and delays over the picture"><input id="videoStatsCheck" type="checkbox"> Stats</label>
       </div>
-      <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-        <label style="min-width:55px;" title="JPEG quality: the MJPEG stream and screenshots">Quality</label>
+      <div id="qualityRow" style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+        <label style="min-width:55px;" title="JPEG quality of the MJPEG stream">Quality</label>
         <input id="qrange" type="range" min="30" max="95" style="width:120px; vertical-align:middle;">
         <span id="qval" style="min-width:2em; text-align:right;"></span>
-        <span id="qualityHint" class="hint" style="display:none;">screenshots only</span>
       </div>
       <div id="bitrateRow" style="display:none; align-items:center; gap:8px; margin-bottom:8px;" title="The most the H.264 stream may use; auto lets the connection decide, up to 4 Mbps">
         <label style="min-width:55px;">Bitrate</label>
@@ -422,6 +422,11 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
           <button id="themeLightBtn" style="padding:2px 10px; border-radius:0; font-family:monospace; cursor:pointer;">Light</button>
           <button id="themeSystemBtn" style="padding:2px 10px; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">System</button>
         </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:8px;" title="JPEG quality of the Screenshot button's pictures">
+        <label style="min-width:55px;">Screenshot</label>
+        <input id="shotQualityRange" type="range" min="30" max="95" value="90" style="width:120px; vertical-align:middle;">
+        <span id="shotQualityVal" style="min-width:2em; text-align:right;">90</span>
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:8px; padding-top:8px;" class="divider">
         <label style="min-width:55px;">Resets</label>
@@ -1173,7 +1178,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       return parts[i];
     }
     document.getElementById('shotBtn').onclick = function() {
-      fetch('/snapshot', {cache: 'no-store'}).then(function(r) {
+      fetch('/snapshot?quality=' + shotQuality(), {cache: 'no-store'}).then(function(r) {
         if (!r.ok) throw new Error(r.status);
         return r.blob();
       }).then(function(blob) {
@@ -1403,17 +1408,34 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       if (saved.zoom !== undefined) { applyZoom(saved.zoom); }
     })();
 
+    // --- Screenshot quality: the Screenshot button's own JPEG quality,
+    // remembered by this browser; the Quality slider above is the MJPEG
+    // stream's.
+    var shotQualityRange = document.getElementById('shotQualityRange');
+    var shotQualityVal = document.getElementById('shotQualityVal');
+    function shotQuality() { return parseInt(shotQualityRange.value, 10) || 90; }
+    (function() {
+      var saved = {};
+      try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+      if (saved.shotQuality) shotQualityRange.value = saved.shotQuality;
+      shotQualityVal.textContent = shotQuality();
+    })();
+    shotQualityRange.oninput = function() {
+      shotQualityVal.textContent = shotQuality();
+      saveSettings({shotQuality: shotQuality()});
+    };
+
     // --- Video transport: MJPEG or WebRTC, when the host offers it. The
     // module (viewer/webrtc.js) does the switching; the choice is this
-    // browser's, like zoom. The quality slider is JPEG's: it stays for
-    // screenshots, and the hint says so while WebRTC shows the picture.
+    // browser's, like zoom. The Quality row is the MJPEG stream's and the
+    // Bitrate row WebRTC's, so one shows at a time.
     (function() {
       if (!window.__roadieWebRTC || !window.__roadieRTC) return;
       var row = document.getElementById('videoRow');
       var mjpegBtn = document.getElementById('videoMJPEGBtn');
       var webrtcBtn = document.getElementById('videoWebRTCBtn');
       var statsCheck = document.getElementById('videoStatsCheck');
-      var hint = document.getElementById('qualityHint');
+      var qualityRow = document.getElementById('qualityRow');
       var bitrateRow = document.getElementById('bitrateRow');
       var bitrateRange = document.getElementById('bitrateRange');
       var bitrateVal = document.getElementById('bitrateVal');
@@ -1422,7 +1444,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         var rtc = transport === 'webrtc';
         webrtcBtn.classList.toggle('on', rtc);
         mjpegBtn.classList.toggle('on', !rtc);
-        hint.style.display = rtc ? '' : 'none';
+        qualityRow.style.display = rtc ? 'none' : 'flex';
         bitrateRow.style.display = rtc ? 'flex' : 'none';
       }
       // The bitrate cap: the slider's top means no cap of ours.
@@ -2131,8 +2153,23 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// snapshotQuality is ?quality=30..95 on a snapshot, or 0 for the stream's.
+func snapshotQuality(r *http.Request) int {
+	q, err := strconv.Atoi(r.URL.Query().Get("quality"))
+	if err != nil || q < 30 || q > 95 {
+		return 0
+	}
+	return q
+}
+
 func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
-	frame := s.Source.Latest()
+	var frame []byte
+	if q := snapshotQuality(r); q != 0 && s.Buf != nil {
+		frame = s.Buf.LatestAt(q, false)
+	}
+	if frame == nil {
+		frame = s.Source.Latest()
+	}
 	if frame == nil {
 		http.Error(w, "no frame available", http.StatusServiceUnavailable)
 		return
@@ -2178,7 +2215,13 @@ func (s *Server) handleRawStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRawSnapshot(w http.ResponseWriter, r *http.Request) {
-	frame := s.Source.LatestRaw()
+	var frame []byte
+	if q := snapshotQuality(r); q != 0 && s.Buf != nil {
+		frame = s.Buf.LatestAt(q, true)
+	}
+	if frame == nil {
+		frame = s.Source.LatestRaw()
+	}
 	if frame == nil {
 		http.Error(w, "no frame available", http.StatusServiceUnavailable)
 		return

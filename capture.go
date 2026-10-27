@@ -368,6 +368,23 @@ func (fb *FrameBuffer) LatestRaw() []byte {
 	return fb.encodeLatest(true)
 }
 
+// LatestAt is the JPEG of the most recent picture at a quality of the
+// caller's own, cropped or whole, made now and not kept: for screenshots,
+// which want a different quality than the stream. Nil when there is no
+// picture to encode (an HTTP source, or nothing captured yet).
+func (fb *FrameBuffer) LatestAt(quality int, whole bool) []byte {
+	f := fb.pin()
+	if f == nil {
+		return nil
+	}
+	defer fb.unpin(f)
+	rect := f.img.Bounds()
+	if !whole && !f.crop.Empty() {
+		rect = f.crop
+	}
+	return encodeJPEG(f.img, rect, quality)
+}
+
 // encodeLatest makes the JPEG, whole or cropped, of the latest picture.
 func (fb *FrameBuffer) encodeLatest(whole bool) []byte {
 	fb.encMu.Lock()

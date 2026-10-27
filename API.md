@@ -21,7 +21,7 @@ tellable apart. Click/touch the stream to send mouse or touch events to the targ
 | `toolbar` | `show`, `auto` (auto-hide: tucked off the right edge until the pointer reaches it) or `off`. Sets the toolbar, and this browser remembers it, like the choice in the toolbar's own menu or on `/settings`; `?toolbar=show` brings back a toolbar turned off. |
 | `minimal` | `1` hides the toolbar for this page load only, leaving the remembered choice alone, for embedding in an iframe (see `/grid`). |
 | `input` | `mouse` or `touch` sets the pointer mode for this page load, overriding the server's `--input`. |
-| `transport` | `webrtc` or `mjpeg` for this page load. WebRTC shows the picture as H.264 over a peer connection instead of MJPEG, when the host has an encoder (`webrtc` in [`/health`](#get-health)); the menu's Video switch does the same at any time and this browser remembers the choice. The page goes back to MJPEG by itself if the connection cannot be made or drops for good. Input and audio still use the WebSockets. The Quality slider is JPEG quality: it shapes the MJPEG stream and screenshots, not the H.264; over WebRTC a Bitrate slider caps the H.264 stream instead (300 kbps to 4 Mbps, the top meaning automatic), remembered by this browser. |
+| `transport` | `webrtc` or `mjpeg` for this page load. WebRTC shows the picture as H.264 over a peer connection instead of MJPEG, when the host has an encoder (`webrtc` in [`/health`](#get-health)); the menu's Video switch does the same at any time and this browser remembers the choice. The page goes back to MJPEG by itself if the connection cannot be made or drops for good. Input and audio still use the WebSockets. The menu's Quality slider is the MJPEG stream's JPEG quality and shows in MJPEG mode; in WebRTC mode a Bitrate slider caps the H.264 stream instead (300 kbps to 4 Mbps, the top meaning automatic), remembered by this browser. Screenshots have their own Screenshot quality slider lower in the menu (default 90), also remembered. |
 | `stats` | `1` shows a box over the picture for this page load: which transport shows it (MJPEG with its JPEG quality, or WebRTC with H.264), the picture's size, frame rate and bitrate, and over WebRTC the delays (round trip between browser and host, the browser's jitter buffer, decoding) and the encoder's own frame rate, bitrate and target. The menu's Stats box does the same and is remembered. The WebRTC values are always on `window.__roadieRTCStats`. |
 
 Pointer mode resolves in this order: `?input=` for this page load, then the
@@ -101,6 +101,9 @@ Single JPEG frame (auto-cropped).
 
 **Response:** `image/jpeg`
 
+`?quality=30..95` makes this picture at that JPEG quality instead of the stream's (the viewer's Screenshot button uses its own Screenshot quality this way). Without it, or when frames come from an HTTP source, the stream's quality applies.
+
+
 ### `GET /raw-stream`
 MJPEG stream (uncropped, full capture resolution).
 
@@ -110,6 +113,8 @@ MJPEG stream (uncropped, full capture resolution).
 Single JPEG frame (uncropped).
 
 **Response:** `image/jpeg`
+
+`?quality=30..95` works here too.
 
 ---
 

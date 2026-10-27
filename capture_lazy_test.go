@@ -69,6 +69,28 @@ func TestFrameBufferJPEGOnDemand(t *testing.T) {
 	}
 }
 
+func TestFrameBufferLatestAt(t *testing.T) {
+	fb := &FrameBuffer{}
+	fb.SetQuality(80)
+	if fb.LatestAt(90, false) != nil {
+		t.Error("a JPEG from nothing")
+	}
+	fb.UpdateRaw(testPicture(), nil, image.Rect(16, 8, 48, 40))
+	low, high := fb.LatestAt(30, false), fb.LatestAt(95, false)
+	if got := decodeSize(t, low); got != image.Pt(32, 32) {
+		t.Errorf("cropped screenshot is %v", got)
+	}
+	if len(high) <= len(low) {
+		t.Errorf("quality 95 (%d bytes) is not larger than 30 (%d)", len(high), len(low))
+	}
+	if got := decodeSize(t, fb.LatestAt(80, true)); got != image.Pt(64, 48) {
+		t.Errorf("whole screenshot is %v", got)
+	}
+	if fb.Latest() == nil {
+		t.Error("no stream JPEG")
+	}
+}
+
 func TestFrameBufferLoopJPEGStaysFresh(t *testing.T) {
 	fb := &FrameBuffer{}
 	fb.SetQuality(80)
