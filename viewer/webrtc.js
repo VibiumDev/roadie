@@ -5,8 +5,10 @@
 //
 // The page maps pointer input against the #feed image's size and position,
 // so #feed stays: see-through, sized like the video, on top of it. The
-// video sits exactly underneath. Input itself still travels the page's
-// WebSocket in this version.
+// video sits exactly underneath and follows it every frame: zoom is a
+// transform on the image and alignment moves it, neither of which a
+// ResizeObserver sees. Input itself still travels the page's WebSocket in
+// this version.
 (function () {
   if (window.__roadieTransport !== 'webrtc' || !window.RTCPeerConnection) return;
   window.__roadieExternalFeed = true;
@@ -62,24 +64,27 @@
     placedSize = size;
     img.src = placeholder(video.videoWidth, video.videoHeight);
   }
+  var placed = '';
   function syncVideo() {
     if (!playing) return;
     var r = img.getBoundingClientRect(), v = viewer.getBoundingClientRect();
+    var key = [r.left - v.left, r.top - v.top, r.width, r.height].join(',');
+    if (key === placed) return;
+    placed = key;
     video.style.left = (r.left - v.left) + 'px';
     video.style.top = (r.top - v.top) + 'px';
     video.style.width = r.width + 'px';
     video.style.height = r.height + 'px';
   }
+  // Once a frame while playing: cheap, and it catches every way the page
+  // can move or scale the image.
+  function follow() {
+    if (playing && !fallen) syncVideo();
+    window.requestAnimationFrame(follow);
+  }
+  window.requestAnimationFrame(follow);
   video.addEventListener('resize', placeFeed);
   video.addEventListener('loadedmetadata', placeFeed);
-  if (window.ResizeObserver) {
-    var ro = new ResizeObserver(syncVideo);
-    ro.observe(img);
-    ro.observe(viewer);
-  }
-  window.addEventListener('resize', syncVideo);
-  // The page's own onload sets the image's display; the position follows.
-  img.addEventListener('load', function () { setTimeout(syncVideo, 0); });
 
   video.addEventListener('playing', function () {
     playing = true;
