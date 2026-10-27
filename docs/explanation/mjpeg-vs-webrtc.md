@@ -396,5 +396,7 @@ neither exists yet.
 - Data volumes are decimal (1 GB = 1000 MB) and count one viewer. Two viewers
   double the bandwidth on either transport.
 
-An interactive version of this page, with a calculator for other settings,
-was made alongside it; the numbers here are the same ones.
+The same page with a calculator for other settings is
+[`mjpeg-vs-webrtc.html`](mjpeg-vs-webrtc.html) next to this file: open it in a
+browser, or serve it from a static docs site. The numbers here are the same
+ones.
