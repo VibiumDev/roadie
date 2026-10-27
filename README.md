@@ -139,10 +139,12 @@ To drive more than one device from the same host, see
 | [Drive a Phone from a Pi 4](docs/how-to/linux-gadget.md) | The linux-gadget backend: power, install, audio, USB Ethernet, recovery, hardware checklist |
 | [Linux Gadget Plan](docs/linux-gadget-plan.md) | Design and decisions behind the linux-gadget backend |
 | [Testing](docs/how-to/testing.md) | Checking keyboard, mouse, touch, and voice input against real hardware |
+| [Measure the Encoder](docs/how-to/measure-encoder.md) | `encbench`: what the capture dongle and the hardware H.264 encoder cost, for the WebRTC path |
 | [Running Multiple Targets](docs/how-to/multiple-targets.md) | Driving several devices from one host, and viewing them together |
 | [Troubleshooting](docs/how-to/troubleshooting.md) | Common problems and fixes |
 | [Automate with Vibium](docs/tutorials/automate-with-vibium.md) | Drive Roadie from the CLI, JavaScript, Python or an AI agent |
 | [REPL Tutorial](docs/tutorials/repl.md) | Interactive debugging via CircuitPython REPL |
+| [Roadie Remote Spec](https://github.com/VibiumDev/station/blob/main/docs/remote-spec.md) | WebRTC, the Pi tunnel, leases and Vibium Station: the plan for using a Roadie from anywhere (in the Station repo) |
 
 ## Development
 

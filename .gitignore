@@ -1,5 +1,6 @@
 # Build artifacts
 roadie
+encbench/encbench
 
 # Go binaries and plugins
 *.exe
