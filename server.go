@@ -1400,12 +1400,17 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       saveSettings({alignment: 'center'});
     };
 
-    // Restore zoom and alignment from saved settings.
+    // Restore zoom and alignment from saved settings; ?align= and ?zoom=
+    // override them for this page load, like ?transport= and ?stats=.
     (function() {
       var saved = {};
       try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
-      applyAlignment(saved.alignment || alignment);
-      if (saved.zoom !== undefined) { applyZoom(saved.zoom); }
+      var qs = new URLSearchParams(location.search);
+      var align = qs.get('align');
+      applyAlignment(align === 'center' || align === 'top-left' ? align : (saved.alignment || alignment));
+      var zoom = parseInt(qs.get('zoom'), 10);
+      if (zoom >= 50 && zoom <= 400) { applyZoom(zoom); }
+      else if (saved.zoom !== undefined) { applyZoom(saved.zoom); }
     })();
 
     // --- Screenshot quality: the Screenshot button's own JPEG quality,
