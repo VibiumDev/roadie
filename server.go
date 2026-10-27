@@ -301,7 +301,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       <div id="overlay" style="display:flex;">
         Connecting&hellip;
       </div>
-      <video id="rtcVideo" autoplay playsinline muted style="position:absolute; display:none; pointer-events:none; background:#000;"></video>
+      <video id="rtcVideo" autoplay playsinline muted disablepictureinpicture style="position:absolute; display:none; pointer-events:none; background:#000;"></video>
       <div id="rtcStats" style="position:absolute; left:8px; bottom:8px; display:none; z-index:11; padding:4px 7px; border-radius:4px; background:rgba(0,0,0,0.6); color:#fff; font:12px monospace; pointer-events:none; white-space:pre;"></div>
       <img id="feed" draggable="false" oncontextmenu="return false" style="max-width:100%; max-height:100%; display:none; touch-action:none; cursor:crosshair; position:relative; z-index:1;">
       <div id="turnNote"><span>Rotating the screen&hellip;</span></div>
