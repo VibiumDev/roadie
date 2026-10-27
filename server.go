@@ -3688,6 +3688,64 @@ func releasesOnly(cmd string, contacts []TouchContact) bool {
 	return false
 }
 
+// hidCommand runs one input command from a viewer, the JSON /api/hid/ws
+// takes, whichever transport carried it: the WebSocket, or the "hid" data
+// channel of a WebRTC session.
+func (s *Server) hidCommand(data []byte) {
+	if s.HID == nil {
+		return
+	}
+	var msg struct {
+		Cmd      string         `json:"cmd"`
+		X        int            `json:"x"`
+		Y        int            `json:"y"`
+		Keycode  int            `json:"keycode"`
+		Buttons  int            `json:"buttons"`
+		Text     string         `json:"text"`
+		Amount   int            `json:"amount"`
+		Contacts []TouchContact `json:"contacts"`
+	}
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return
+	}
+	// While Roadie turns the screen it clicks through AssistiveTouch's
+	// menu, and a viewer's pointer moving under it would spoil that.
+	// Viewers hold back once /health says so, a second later at most;
+	// meanwhile only releases go through, so nothing stays held.
+	if s.turn.rotating.Load() && !releasesOnly(msg.Cmd, msg.Contacts) {
+		return
+	}
+	switch msg.Cmd {
+	case "mouse_move":
+		s.HID.MouseMove(msg.X, msg.Y)
+	case "mouse_click":
+		if msg.Buttons == 0 {
+			msg.Buttons = 1
+		}
+		s.HID.MouseClick(msg.Buttons)
+	case "mouse_press":
+		if msg.Buttons == 0 {
+			msg.Buttons = 1
+		}
+		s.HID.MousePress(msg.Buttons)
+	case "mouse_release":
+		if msg.Buttons == 0 {
+			msg.Buttons = 1
+		}
+		s.HID.MouseRelease(msg.Buttons)
+	case "type":
+		s.HID.Type(msg.Text)
+	case "key_press":
+		s.HID.KeyPress(msg.Keycode)
+	case "key_release":
+		s.HID.KeyRelease(msg.Keycode)
+	case "mouse_scroll":
+		s.HID.MouseScroll(msg.Amount)
+	case "touch":
+		s.HID.Touch(msg.Contacts)
+	}
+}
+
 func (s *Server) handleHIDWebSocket(w http.ResponseWriter, r *http.Request) {
 	if s.HID == nil {
 		http.Error(w, "HID not available", http.StatusServiceUnavailable)
@@ -3708,54 +3766,6 @@ func (s *Server) handleHIDWebSocket(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		var msg struct {
-			Cmd      string         `json:"cmd"`
-			X        int            `json:"x"`
-			Y        int            `json:"y"`
-			Keycode  int            `json:"keycode"`
-			Buttons  int            `json:"buttons"`
-			Text     string         `json:"text"`
-			Amount   int            `json:"amount"`
-			Contacts []TouchContact `json:"contacts"`
-		}
-		if err := json.Unmarshal(data, &msg); err != nil {
-			continue
-		}
-		// While Roadie turns the screen it clicks through AssistiveTouch's
-		// menu, and a viewer's pointer moving under it would spoil that.
-		// Viewers hold back once /health says so, a second later at most;
-		// meanwhile only releases go through, so nothing stays held.
-		if s.turn.rotating.Load() && !releasesOnly(msg.Cmd, msg.Contacts) {
-			continue
-		}
-		switch msg.Cmd {
-		case "mouse_move":
-			s.HID.MouseMove(msg.X, msg.Y)
-		case "mouse_click":
-			if msg.Buttons == 0 {
-				msg.Buttons = 1
-			}
-			s.HID.MouseClick(msg.Buttons)
-		case "mouse_press":
-			if msg.Buttons == 0 {
-				msg.Buttons = 1
-			}
-			s.HID.MousePress(msg.Buttons)
-		case "mouse_release":
-			if msg.Buttons == 0 {
-				msg.Buttons = 1
-			}
-			s.HID.MouseRelease(msg.Buttons)
-		case "type":
-			s.HID.Type(msg.Text)
-		case "key_press":
-			s.HID.KeyPress(msg.Keycode)
-		case "key_release":
-			s.HID.KeyRelease(msg.Keycode)
-		case "mouse_scroll":
-			s.HID.MouseScroll(msg.Amount)
-		case "touch":
-			s.HID.Touch(msg.Contacts)
-		}
+		s.hidCommand(data)
 	}
 }

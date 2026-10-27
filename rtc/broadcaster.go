@@ -2,9 +2,13 @@
 //
 // A Broadcaster owns one H.264 track and one encoder, which runs only while
 // a viewer is connected: the first session taps the capture loop's raw
-// frames, the last one leaving stops the encoder again. Every session is a
-// peer connection with the track, a "control" data channel for keyframe
-// and bitrate requests and stats, and signaling over a WebSocket.
+// frames, the last one leaving stops the encoder again. It also owns one
+// speaker track, the phone's sound as G.722, encoded the same way, only
+// while someone is connected. Every session is a peer connection with the
+// two tracks, a "control" data channel for keyframe and bitrate requests
+// and stats, a "hid" data channel carrying the viewer's input as the JSON
+// /api/hid/ws takes, the viewer's microphone back as an audio track, and
+// signaling over a WebSocket.
 package rtc
 
 import (
@@ -46,6 +50,8 @@ type Options struct {
 	OpenEncoder func(cfg encoder.Config) (encoder.Encoder, string, error)
 	// Loopback offers loopback candidates too, for tests on one machine.
 	Loopback bool
+	// Audio is the phone's sound for the speaker track; nil sends none.
+	Audio AudioSource
 }
 
 // FrameSource is where frames come from: the capture loop.
@@ -69,16 +75,24 @@ type Status struct {
 	Height   int    `json:"height,omitempty"`
 	FPS      int    `json:"fps,omitempty"`     // encoded in the last second
 	Dropped  int    `json:"dropped,omitempty"` // frames skipped by the encoder
+	// Audio is the speaker track's codec while sound is being sent, and
+	// AudioKbps its rate over the last second; Mic is the codec of the
+	// viewer's microphone being passed to the phone, if one is.
+	Audio     string `json:"audio,omitempty"`
+	AudioKbps int    `json:"audio_kbps,omitempty"`
+	Mic       string `json:"mic,omitempty"`
+	MicKbps   int    `json:"mic_kbps,omitempty"`
 }
 
 // Broadcaster encodes once and sends to every connected session.
 type Broadcaster struct {
-	opts  Options
-	src   FrameSource
-	api   *webrtc.API
-	track *webrtc.TrackLocalStaticSample
-	udp   net.PacketConn
-	probe string // the encoder Probe found, for Status before any session
+	opts    Options
+	src     FrameSource
+	api     *webrtc.API
+	track   *webrtc.TrackLocalStaticSample
+	speaker *webrtc.TrackLocalStaticSample
+	udp     net.PacketConn
+	probe   string // the encoder Probe found, for Status before any session
 
 	mu       sync.Mutex
 	sessions map[*Session]struct{}
@@ -86,6 +100,11 @@ type Broadcaster struct {
 	// connection being created; see newPeerConnection.
 	newEstimator cc.BandwidthEstimator
 	caps         map[*Session]int // bitrate caps asked for over control
+	hidHandler   func([]byte)
+	micSink      func([]byte) error
+	micOwner     *Session
+	micCodec     string
+	speakerDone  chan struct{} // the speaker loop runs while sessions exist
 
 	encMu     sync.Mutex
 	enc       encoder.Encoder
@@ -101,13 +120,17 @@ type Broadcaster struct {
 	frameSkip bool // under heavy congestion, every other frame
 	frameN    int
 
-	statMu    sync.Mutex
-	frames    int
-	bytes     int
-	fps       int
-	kbps      int
-	statAt    time.Time
-	stopStats chan struct{}
+	statMu       sync.Mutex
+	frames       int
+	bytes        int
+	fps          int
+	kbps         int
+	speakerBytes int
+	speakerKbps  int
+	micBytes     int
+	micKbps      int
+	statAt       time.Time
+	stopStats    chan struct{}
 }
 
 const (
@@ -170,6 +193,17 @@ func New(src FrameSource, opts Options) (*Broadcaster, error) {
 	}, webrtc.RTPCodecTypeVideo); err != nil {
 		return nil, err
 	}
+	// Speech codecs every browser has, in order of preference: G.722, then
+	// µ-law. Only these, so a browser does not pick Opus, which Roadie
+	// has no pure-Go encoder for.
+	for _, c := range []webrtc.RTPCodecParameters{
+		{RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeG722, ClockRate: 8000}, PayloadType: 9},
+		{RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypePCMU, ClockRate: 8000}, PayloadType: 0},
+	} {
+		if err := m.RegisterCodec(c, webrtc.RTPCodecTypeAudio); err != nil {
+			return nil, err
+		}
+	}
 	reg := &interceptor.Registry{}
 	ccI, err := cc.NewInterceptor(func() (cc.BandwidthEstimator, error) {
 		return gcc.NewSendSideBWE(
@@ -212,6 +246,10 @@ func New(src FrameSource, opts Options) (*Broadcaster, error) {
 	if err != nil {
 		return nil, err
 	}
+	b.speaker, err = webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeG722, ClockRate: 8000}, "audio", "roadie")
+	if err != nil {
+		return nil, err
+	}
 	go b.statsLoop()
 	return b, nil
 }
@@ -247,8 +285,18 @@ func (b *Broadcaster) Status() Status {
 		st.Dropped = b.enc.Dropped()
 	}
 	b.encMu.Unlock()
+	b.mu.Lock()
+	speaking := b.speakerDone != nil && b.opts.Audio != nil && b.opts.Audio.AudioActive()
+	st.Mic = b.micCodec
+	b.mu.Unlock()
 	b.statMu.Lock()
 	st.FPS = b.fps
+	if speaking {
+		st.Audio, st.AudioKbps = "G722", b.speakerKbps
+	}
+	if st.Mic != "" {
+		st.MicKbps = b.micKbps
+	}
 	b.statMu.Unlock()
 	return st
 }
@@ -283,6 +331,12 @@ func (b *Broadcaster) addSession(s *Session) {
 			b.src.AddSink(b)
 		}
 		b.encMu.Unlock()
+		b.mu.Lock()
+		if b.speakerDone == nil {
+			b.speakerDone = make(chan struct{})
+			go b.speakerLoop(b.speakerDone)
+		}
+		b.mu.Unlock()
 	}
 }
 
@@ -301,6 +355,12 @@ func (b *Broadcaster) removeSession(s *Session) {
 		}
 		b.closeEncoderLocked()
 		b.encMu.Unlock()
+		b.mu.Lock()
+		if b.speakerDone != nil {
+			close(b.speakerDone)
+			b.speakerDone = nil
+		}
+		b.mu.Unlock()
 	}
 }
 
@@ -476,7 +536,9 @@ func (b *Broadcaster) statsLoop() {
 		if since := time.Since(b.statAt); since >= time.Second {
 			b.fps = int(float64(b.frames)/since.Seconds() + 0.5)
 			b.kbps = int(float64(b.bytes) * 8 / since.Seconds() / 1000)
-			b.frames, b.bytes = 0, 0
+			b.speakerKbps = int(float64(b.speakerBytes) * 8 / since.Seconds() / 1000)
+			b.micKbps = int(float64(b.micBytes) * 8 / since.Seconds() / 1000)
+			b.frames, b.bytes, b.speakerBytes, b.micBytes = 0, 0, 0, 0
 			b.statAt = time.Now()
 		}
 		b.statMu.Unlock()

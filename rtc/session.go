@@ -124,6 +124,17 @@ func (b *Broadcaster) newSession(send func(Message) error) (*Session, error) {
 		return nil, err
 	}
 	go s.readRTCP(tr.Sender())
+	// The speaker, offered both ways so the viewer can send its microphone
+	// back on the same line without a new offer.
+	if _, err := pc.AddTransceiverFromTrack(b.speaker, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendrecv}); err != nil {
+		pc.Close()
+		return nil, err
+	}
+	pc.OnTrack(func(tr *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
+		if tr.Kind() == webrtc.RTPCodecTypeAudio {
+			(&micReader{b: b, s: s, track: tr}).run()
+		}
+	})
 
 	ordered := true
 	dc, err := pc.CreateDataChannel("control", &webrtc.DataChannelInit{Ordered: &ordered})
@@ -134,6 +145,13 @@ func (b *Broadcaster) newSession(send func(Message) error) (*Session, error) {
 	s.control = dc
 	dc.OnMessage(func(m webrtc.DataChannelMessage) { s.onControl(m.Data) })
 	dc.OnOpen(func() { go s.sendStats() })
+	// Input: the JSON /api/hid/ws takes, one message per command.
+	hid, err := pc.CreateDataChannel("hid", &webrtc.DataChannelInit{Ordered: &ordered})
+	if err != nil {
+		pc.Close()
+		return nil, err
+	}
+	hid.OnMessage(func(m webrtc.DataChannelMessage) { b.handleHID(m.Data) })
 
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {

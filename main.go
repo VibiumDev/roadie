@@ -307,7 +307,11 @@ func main() {
 		if udp == 0 {
 			udp = listenPort
 		}
-		b, err := rtc.New(buf, rtc.Options{UDPPort: udp, Encoder: *encoderSpec, FPS: *fps})
+		opts := rtc.Options{UDPPort: udp, Encoder: *encoderSpec, FPS: *fps}
+		if ab != nil {
+			opts.Audio = rtcAudio{ab}
+		}
+		b, err := rtc.New(buf, opts)
 		switch {
 		case err != nil:
 			fmt.Fprintf(os.Stderr, "⚠️  WebRTC off: %v\n", err)
@@ -417,6 +421,13 @@ func main() {
 	if mux != nil {
 		srv.AudioSource = mux.Source
 	}
+	if broadcaster != nil {
+		var mic func([]byte) error
+		if hid != nil {
+			mic = hid.SendAudio
+		}
+		broadcaster.SetInput(srv.hidCommand, mic)
+	}
 	settled.turned = srv.pointerTurned
 	httpServer := &http.Server{
 		Addr:    net.JoinHostPort(bind, strconv.Itoa(listenPort)),
@@ -516,3 +527,13 @@ func getLANIP() string {
 	}
 	return ""
 }
+
+// rtcAudio is the capture's audio as the WebRTC broadcaster wants it.
+type rtcAudio struct{ *AudioBroadcaster }
+
+func (a rtcAudio) AudioFormat() (int, int) {
+	p := a.Params()
+	return p.SampleRate, p.Channels
+}
+
+func (a rtcAudio) AudioActive() bool { return a.IsActive() }
