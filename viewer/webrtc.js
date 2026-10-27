@@ -225,7 +225,7 @@
         var ms = function (v) { return v !== undefined ? v + ' ms' : '?'; };
         var lines = [
           'picture  ' + (out.width || '?') + 'x' + (out.height || '?') + ', ' + (out.fps || 0) + ' fps, ' + (out.kbps || 0) + ' kbps',
-          'delay    rtt ' + ms(out.rttMs) + ', buffer ' + ms(out.jitterBufferMs) + ', decode ' + ms(out.decodeMs)
+          'delay    round trip ' + ms(out.rttMs) + ', buffer ' + ms(out.jitterBufferMs) + ', decode ' + ms(out.decodeMs)
         ];
         if (lastStatus && lastStatus.status) {
           lines.push('encoder  ' + lastStatus.status.encoder + ', ' + (lastStatus.status.fps || 0) + ' fps, ' + (lastStatus.kbps || 0) + ' kbps sent, target ' + Math.round((lastStatus.status.bitrate || 0) / 1000) + ' kbps');

@@ -22,7 +22,7 @@ tellable apart. Click/touch the stream to send mouse or touch events to the targ
 | `minimal` | `1` hides the toolbar for this page load only, leaving the remembered choice alone, for embedding in an iframe (see `/grid`). |
 | `input` | `mouse` or `touch` sets the pointer mode for this page load, overriding the server's `--input`. |
 | `transport` | `webrtc` or `mjpeg` for this page load. WebRTC shows the picture as H.264 over a peer connection instead of MJPEG, when the host has an encoder (`webrtc` in [`/health`](#get-health)); the menu's Video switch does the same at any time and this browser remembers the choice. The page goes back to MJPEG by itself if the connection cannot be made or drops for good. Input and audio still use the WebSockets. The Quality slider is JPEG quality: it shapes the MJPEG stream and screenshots, not the H.264. |
-| `stats` | `1` shows frame rate, bitrate, round trip, jitter-buffer and decode times over a WebRTC picture for this page load; the menu's Stats box does the same and is remembered. They are always on `window.__roadieRTCStats`. |
+| `stats` | `1` shows, over a WebRTC picture, the picture's size, frame rate and bitrate; the delays (round trip between browser and host, the browser's jitter buffer, decoding); and the encoder's own frame rate, bitrate and target, for this page load. The menu's Stats box does the same and is remembered. The values are always on `window.__roadieRTCStats`. |
 
 Pointer mode resolves in this order: `?input=` for this page load, then the
 server's `--input`, then the default implied by `--platform`, then a mode this
