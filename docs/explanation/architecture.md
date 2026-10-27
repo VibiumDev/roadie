@@ -97,7 +97,23 @@ Pion's congestion control between 300 kbps and 4 Mbps. Signaling is a
 WebSocket at `/api/webrtc/signal`; media uses one UDP port. The viewer
 module (`viewer/webrtc.js`) keeps the page's `#feed` image, now see-through,
 over the video, so pointer mapping is unchanged, and goes back to MJPEG by
-itself when the connection fails.
+itself when the connection fails. It is the viewer's default transport
+where the host has an encoder.
+
+The same peer connection carries the rest of a session. Sound: the
+broadcaster subscribes to the capture's audio while anyone is connected,
+mixes it to mono, takes it from 48 kHz down to 16 kHz (`audio/pcm`), and
+encodes it as G.722 (`audio/g722`, pure Go, 20 ms a packet) on one audio
+track; the viewer plays it through an `<audio>` element its speaker button
+mutes. The line is offered both ways, so the viewer's microphone button
+puts the browser's microphone track on it without a new offer, and the
+session decodes what arrives, G.722 or µ-law (`audio/g711`), into the same
+16 kHz path `/api/mic` feeds, one viewer at a time. Input: a `hid` data
+channel carries exactly the JSON `/api/hid/ws` takes, into the same
+`hidCommand` handler, so the viewer's input code changes only where it
+sends. Only G.722 and PCMU are offered for audio, so browsers do not pick
+Opus, which has no mature pure-Go encoder; Opus can come later behind a
+build tag or as a subprocess.
 
 ### Auto-Crop
 
@@ -204,6 +220,8 @@ The HID board's multi-touch digitizer enables native touch interaction, so the p
 | `platform.go` | `--platform` target profiles: pointer space and default input mode |
 | `capture_reset_linux.go` | USB unbind/rebind for `/api/capture/reset` (Linux; other platforms get a stub) |
 | `audio.go` | Audio capture and WebSocket broadcast |
+| `audio/g722`, `audio/g711`, `audio/pcm` | G.722 and µ-law codecs in pure Go; the 48 kHz to 16 kHz converter |
+| `rtc/audio.go` | The WebRTC speaker track, the viewer's microphone back, and the `hid` channel's handler |
 | `httpsource.go` | MJPEG ingest from another Roadie's `/raw-stream` |
 | `mdns.go` | Bonjour/mDNS service registration |
 | `board/` | CircuitPython code for both boards |

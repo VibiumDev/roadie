@@ -145,6 +145,7 @@ func (m *micReader) run() {
 		}
 		m.b.statMu.Lock()
 		m.b.micBytes += len(pkt.Payload)
+		m.b.micAt = time.Now()
 		m.b.statMu.Unlock()
 	}
 }

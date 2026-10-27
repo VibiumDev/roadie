@@ -21,7 +21,7 @@ type fakeAudio struct {
 }
 
 func (a *fakeAudio) AudioFormat() (int, int) { return 48000, 2 }
-func (a *fakeAudio) AudioActive() bool      { return true }
+func (a *fakeAudio) AudioActive() bool       { return true }
 func (a *fakeAudio) Subscribe() (<-chan []byte, func()) {
 	ch := make(chan []byte, 16)
 	a.mu.Lock()

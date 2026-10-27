@@ -302,6 +302,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         Connecting&hellip;
       </div>
       <video id="rtcVideo" autoplay playsinline muted disablepictureinpicture style="position:absolute; display:none; pointer-events:none; background:#000;"></video>
+<audio id="rtcAudio" autoplay style="display:none;"></audio>
       <div id="rtcStats" style="position:absolute; left:8px; bottom:8px; display:none; z-index:11; padding:4px 7px; border-radius:4px; background:rgba(0,0,0,0.6); color:#fff; font:12px monospace; pointer-events:none; white-space:pre;"></div>
       <img id="feed" draggable="false" oncontextmenu="return false" style="max-width:100%; max-height:100%; display:none; touch-action:none; cursor:crosshair; position:relative; z-index:1;">
       <div id="turnNote"><span>Rotating the screen&hellip;</span></div>
@@ -775,8 +776,11 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         }
       };
 
-      audioWs.onclose = function() {
-        if (!muted) setTimeout(startAudio, 2000);
+      var sock = audioWs;
+      sock.onclose = function() {
+        if (audioWs !== sock) return; // closed on purpose
+        audioWs = null;
+        if (!muted && !rtcLive()) setTimeout(startAudio, 2000);
       };
     }
 
@@ -790,16 +794,23 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 
     var muteIconSVG = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M6.717 3.55A.5.5 0 0 1 7 4v8a.5.5 0 0 1-.812.39L3.825 10.5H1.5A.5.5 0 0 1 1 10V6a.5.5 0 0 1 .5-.5h2.325l2.363-1.89a.5.5 0 0 1 .529-.06m7.137 2.096a.5.5 0 0 1 0 .708L12.207 8l1.647 1.646a.5.5 0 0 1-.708.708L11.5 8.707l-1.646 1.647a.5.5 0 0 1-.708-.708L10.793 8 9.146 6.354a.5.5 0 1 1 .708-.708L11.5 7.293l1.646-1.647a.5.5 0 0 1 .708 0"/></svg>';
     var volumeIconSVG = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M11.536 14.01A8.47 8.47 0 0 0 14.026 8a8.47 8.47 0 0 0-2.49-6.01l-.708.707A7.48 7.48 0 0 1 13.025 8c0 2.071-.84 3.946-2.197 5.303z"/><path d="M10.121 12.596A6.48 6.48 0 0 0 12.025 8a6.48 6.48 0 0 0-1.904-4.596l-.707.707A5.48 5.48 0 0 1 11.025 8a5.48 5.48 0 0 1-1.61 3.89z"/><path d="M8.707 11.182A4.5 4.5 0 0 0 10.025 8a4.5 4.5 0 0 0-1.318-3.182L8 5.525A3.5 3.5 0 0 1 9.025 8 3.5 3.5 0 0 1 8 10.475zM6.717 3.55A.5.5 0 0 1 7 4v8a.5.5 0 0 1-.812.39L3.825 10.5H1.5A.5.5 0 0 1 1 10V6a.5.5 0 0 1 .5-.5h2.325l2.363-1.89a.5.5 0 0 1 .529-.06"/></svg>';
+    function rtcLive() { return !!(window.__roadieRTC && window.__roadieRTC.isPlaying()); }
+    // The speaker: over WebRTC the sound comes with the picture and the
+    // button mutes it; over MJPEG the button opens or closes /audio.
+    function applySpeaker() {
+      if (window.__roadieRTC) window.__roadieRTC.setMuted(muted);
+      if (!muted && !rtcLive()) {
+        if (!audioWs) startAudio();
+      } else {
+        stopAudio();
+      }
+    }
     unmuteBtn.onclick = function() {
       muted = !muted;
-      if (muted) {
-        unmuteBtn.innerHTML = muteIconSVG;
-        stopAudio();
-      } else {
-        unmuteBtn.innerHTML = volumeIconSVG;
-        startAudio();
-      }
+      unmuteBtn.innerHTML = muted ? muteIconSVG : volumeIconSVG;
+      applySpeaker();
     };
+    window.__roadieTransportChanged = function() { applySpeaker(); };
 
     // --- Voice input: mic toggle, browser mic -> /api/mic -> target's USB mic ---
     var pttBtn = document.getElementById('ptt');
@@ -832,6 +843,9 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       } }).then(function(stream) {
         if (!talking) { stream.getTracks().forEach(function(t){ t.stop(); }); return; }
         pttStream = stream;
+        // Over WebRTC the microphone goes back on the connection's audio
+        // line, decoded on the host into the same path as /api/mic.
+        if (rtcLive() && window.__roadieRTC.setMic(stream.getAudioTracks()[0])) return;
         var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         pttWs = new WebSocket(proto + '//' + location.host + '/api/mic');
         pttWs.binaryType = 'arraybuffer';
@@ -865,6 +879,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     function stopTalk() {
       talking = false;
       pttBtn.classList.remove('live');
+      if (window.__roadieRTC) window.__roadieRTC.setMic(null);
       if (pttNode) { pttNode.disconnect(); pttNode = null; }
       if (pttCtx) { pttCtx.close(); pttCtx = null; }
       if (pttStream) { pttStream.getTracks().forEach(function(t){ t.stop(); }); pttStream = null; }
@@ -1595,6 +1610,9 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     }
     function hidSend(msg) {
       if (turning) return;
+      // Over WebRTC the input goes on the connection's "hid" channel, the
+      // same JSON; the WebSocket carries it otherwise.
+      if (window.__roadieRTC && window.__roadieRTC.sendHID(msg)) return;
       if (hidWs && hidReady) hidWs.send(JSON.stringify(msg));
     }
 

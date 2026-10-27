@@ -23,7 +23,7 @@ tellable apart. Click/touch the stream to send mouse or touch events to the targ
 | `input` | `mouse` or `touch` sets the pointer mode for this page load, overriding the server's `--input`. |
 | `align` | `top-left` or `center`: where the picture sits, for this page load; the menu's choice is what this browser remembers. |
 | `zoom` | `50` to `400`, the picture's size as a percentage of fitting the window, for this page load; the menu's Zoom slider is what this browser remembers. With `toolbar=off`, `align=top-left` and `zoom=100`, a window the shape of the picture shows the picture and nothing else, for recordings. |
-| `transport` | `webrtc` or `mjpeg` for this page load. WebRTC shows the picture as H.264 over a peer connection instead of MJPEG, when the host has an encoder (`webrtc` in [`/health`](#get-health)); the menu's Video switch does the same at any time and this browser remembers the choice. The page goes back to MJPEG by itself if the connection cannot be made or drops for good. Input and audio still use the WebSockets. The menu's Quality slider is the MJPEG stream's JPEG quality and shows in MJPEG mode; in WebRTC mode a Bitrate slider caps the H.264 stream instead (300 kbps to 4 Mbps, the top meaning automatic), remembered by this browser. Screenshots have their own Screenshot quality slider lower in the menu (default 90), also remembered. |
+| `transport` | `webrtc` or `mjpeg` for this page load. WebRTC, the default when the host has an encoder (`webrtc` in [`/health`](#get-health)), shows the picture as H.264 over a peer connection, carries the phone's sound to the speaker button as G.722, takes the microphone button's audio back the same way, and sends input over the connection's `hid` data channel; the menu's Video switch does the same at any time and this browser remembers the choice. The page goes back to MJPEG, `/audio`, `/api/mic` and `/api/hid/ws` by itself if the connection cannot be made or drops for good. The menu's Quality slider is the MJPEG stream's JPEG quality and shows in MJPEG mode; in WebRTC mode a Bitrate slider caps the H.264 stream instead (300 kbps to 4 Mbps, the top meaning automatic), remembered by this browser. Screenshots have their own Screenshot quality slider lower in the menu (default 90), also remembered. |
 | `stats` | `1` shows a box over the picture for this page load: which transport shows it (MJPEG with its JPEG quality, or WebRTC with H.264), the picture's size, frame rate and bitrate, and over WebRTC the delays (round trip between browser and host, the browser's jitter buffer, decoding) and the encoder's own frame rate, bitrate and target. The menu's Stats box does the same and is remembered. The WebRTC values are always on `window.__roadieRTCStats`. |
 
 Pointer mode resolves in this order: `?input=` for this page load, then the
@@ -277,7 +277,7 @@ Service status and device info.
 | `rotating` | `true` while [`/api/rotate`](#post-apirotate) is turning the screen, and absent otherwise. `/view` holds back its input meanwhile |
 | `input_mode` | The mode viewers start in: `--input`, else the platform default |
 | `host` | The machine Roadie runs on: Roadie's own CPU use (`cpu_percent`, 100 is one core), the 1-minute load average, the CPU temperature in °C, total memory in MB, and the percentage of memory in use (not available to new programs). Whatever the machine doesn't tell is left out |
-| `webrtc` | Present when the host can encode H.264 (see `--encoder`): the encoder in use or available, how many viewers are connected over WebRTC, the target bitrate in bits per second, and while encoding the picture's size, the frames encoded in the last second and the frames skipped (`dropped`). Absent means `/view?transport=webrtc` falls back to MJPEG |
+| `webrtc` | Present when the host can encode H.264 (see `--encoder`): the encoder in use or available, how many viewers are connected over WebRTC, the target bitrate in bits per second, and while encoding the picture's size, the frames encoded in the last second and the frames skipped (`dropped`); `audio` (`G722`) and `audio_kbps` while the phone's sound is being sent, `mic` and `mic_kbps` while a viewer's microphone is coming in. Absent means `/view?transport=webrtc` falls back to MJPEG |
 
 ---
 
@@ -604,9 +604,24 @@ is level 4.0 and SPS and PPS ride every keyframe) and a data channel named
 `control` on which the client may send `{"type":"keyframe"}` or
 `{"type":"bitrate","bps":N}` (a cap, 0 to lift it), and Roadie sends
 `{"type":"stats","status":{...},"kbps":N}` once a second with the `webrtc`
-object from `/health` and the bits sent in the last second. Media uses one
-UDP port, `--rtc-udp`, the HTTP port's number by default. `503` when the
-host has no encoder. The same messages are what a station relays later.
+object from `/health` and the bits sent in the last second.
+
+The offer also carries, both ways, one audio line: Roadie sends the phone's
+sound on it as G.722 (16 kHz, 64 kbit/s; only G.722 and PCMU are offered,
+so a browser does not pick Opus), 20 ms a packet, while anyone is
+connected and the capture has audio; a client that puts its own G.722 or
+PCMU track on the same line, as the viewer's microphone button does with
+`replaceTrack`, has it decoded on the host into the path [`/api/mic`](#ws-apimic)
+feeds, 16 kHz mono. One client's microphone reaches the target at a time:
+the first to send keeps it until its track ends. And a second data channel,
+`hid`, takes the JSON commands [`/api/hid/ws`](#ws-apihidws) accepts, one
+per message, into the same handler. `status` then also reports `audio`
+(`G722` while sound is being sent), `audio_kbps`, and `mic` and `mic_kbps`
+while a microphone is coming in.
+
+Media uses one UDP port, `--rtc-udp`, the HTTP port's number by default.
+`503` when the host has no encoder. The same messages are what a station
+relays later.
 
 ### `GET /viewer/webrtc.js`
 The viewer's WebRTC module, which `/view?transport=webrtc` loads.
@@ -620,7 +635,7 @@ WebSocket endpoint for voice input: audio sent here plays out of the HID board's
 
 The stream on the target stops 200 ms after the last message arrives. Returns `503` if the HID relay is not connected.
 
-The viewer's microphone button uses this endpoint. It needs a secure context (https or localhost) for `getUserMedia`, and a browser that supports opening an `AudioContext` at 16 kHz (Chrome, Edge, Safari — not Firefox yet).
+The viewer's microphone button uses this endpoint when the picture comes over MJPEG; over WebRTC the microphone travels as an audio track on the peer connection instead (see [`/api/webrtc/signal`](#ws-apiwebrtcsignal)), which also works in Firefox. The WebSocket needs a secure context (https or localhost) for `getUserMedia`, and a browser that supports opening an `AudioContext` at 16 kHz (Chrome, Edge, Safari — not Firefox yet).
 
 ---
 

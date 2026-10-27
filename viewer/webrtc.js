@@ -27,6 +27,10 @@
   var firstFrameTimer = null;
   var lastStatus = null;
   var capBps = 0;          // the menu's bitrate cap; 0 is none
+  var hid = null;          // the "hid" data channel: input, as /api/hid/ws takes it
+  var audioTx = null;      // the audio line: the phone's sound in, the mic out
+  var audioEl = document.getElementById('rtcAudio');
+  var audioMuted = true;   // the page's mute, applied to the sound over WebRTC
 
   function log(msg) { if (window.console) console.log('webrtc: ' + msg); }
 
@@ -35,12 +39,22 @@
     if (ws) { var w = ws; ws = null; try { w.onclose = null; w.close(); } catch (e) {} }
     if (pc) { var p = pc; pc = null; try { p.close(); } catch (e) {} }
     control = null;
+    hid = null;
+    audioTx = null;
+    if (audioEl) audioEl.srcObject = null;
+  }
+
+  // The page's speaker and mic follow the transport: told whenever the
+  // picture starts or stops coming over WebRTC.
+  function changed() {
+    try { if (window.__roadieTransportChanged) window.__roadieTransportChanged(); } catch (e) {}
   }
 
   // Back to the page's MJPEG feed.
   function showMJPEG() {
     teardown();
     playing = false;
+    changed();
     placedSize = '';
     placed = '';
     video.style.display = 'none';
@@ -102,6 +116,7 @@
     video.style.display = 'block';
     img.style.opacity = '0';
     syncVideo();
+    changed();
   });
 
   function send(obj) {
@@ -136,6 +151,14 @@
       if (m.type === 'offer') {
         pc = new RTCPeerConnection({});
         pc.ontrack = function (e) {
+          if (e.track.kind === 'audio') {
+            // The phone's sound, on an audio element the page mutes or not.
+            if (!audioEl) return;
+            audioEl.srcObject = new MediaStream([e.track]);
+            audioEl.muted = audioMuted;
+            audioEl.play().catch(function () {});
+            return;
+          }
           // As little buffering as the browser allows: the picture is
           // interactive, so a late frame is worth less than a prompt one.
           try {
@@ -155,6 +178,8 @@
             control.onmessage = onControl;
             control.onopen = function () { if (capBps) sendCap(); };
             if (control.readyState === 'open' && capBps) sendCap();
+          } else if (e.channel.label === 'hid') {
+            hid = e.channel;
           }
         };
         pc.onconnectionstatechange = function () {
@@ -166,6 +191,14 @@
         pc.setRemoteDescription({type: 'offer', sdp: m.sdp}).then(function () {
           pending.forEach(function (c) { pc.addIceCandidate(c).catch(function () {}); });
           pending = [];
+          // The audio line both ways, so the mic can go back on it later
+          // without another offer.
+          pc.getTransceivers().forEach(function (t) {
+            if (t.receiver && t.receiver.track && t.receiver.track.kind === 'audio') {
+              audioTx = t;
+              try { t.direction = 'sendrecv'; } catch (err) {}
+            }
+          });
           return pc.createAnswer();
         }).then(function (answer) {
           return pc.setLocalDescription(answer).then(function () {
@@ -236,6 +269,8 @@
           if (st.jitterBufferEmittedCount) out.jitterBufferMs = Math.round(1000 * st.jitterBufferDelay / st.jitterBufferEmittedCount);
           if (st.framesDecoded) out.decodeMs = Math.round(1000 * st.totalDecodeTime / st.framesDecoded * 10) / 10;
           if (st.framesDecoded && st.totalProcessingDelay) out.processingMs = Math.round(1000 * st.totalProcessingDelay / st.framesDecoded);
+        } else if (st.type === 'inbound-rtp' && st.kind === 'audio') {
+          out.audioBytes = st.bytesReceived;
         } else if (st.type === 'candidate-pair' && st.nominated && st.currentRoundTripTime !== undefined) {
           out.rttMs = Math.round(st.currentRoundTripTime * 1000 * 10) / 10;
         }
@@ -243,6 +278,9 @@
       var prev = window.__roadieRTCStats;
       if (prev && out.bytes !== undefined && prev.bytes !== undefined) {
         out.kbps = Math.round((out.bytes - prev.bytes) * 8 / 1000);
+      }
+      if (prev && out.audioBytes !== undefined && prev.audioBytes !== undefined) {
+        out.audioKbps = Math.round((out.audioBytes - prev.audioBytes) * 8 / 1000);
       }
       if (lastStatus) out.encoder = lastStatus;
       window.__roadieRTCStats = out;
@@ -255,6 +293,10 @@
         ];
         if (lastStatus && lastStatus.status) {
           lines.push('encoder  ' + lastStatus.status.encoder + ', ' + (lastStatus.status.fps || 0) + ' fps, ' + (lastStatus.kbps || 0) + ' kbps sent, target ' + Math.round((lastStatus.status.bitrate || 0) / 1000) + ' kbps');
+          if (lastStatus.status.audio) {
+            lines.push('audio    ' + lastStatus.status.audio + ', ' + (out.audioKbps || 0) + ' kbps' +
+              (lastStatus.status.mic ? ', mic ' + lastStatus.status.mic + ' ' + (lastStatus.status.mic_kbps || 0) + ' kbps' : ''));
+          }
         }
         if (out.packetsLost) lines.push('lost     ' + out.packetsLost + ' packets');
         statsEl.textContent = lines.join('\n');
@@ -293,15 +335,38 @@
     },
     statsShown: function () { return showStats; },
     requestKeyframe: function () { if (control && control.readyState === 'open') control.send(JSON.stringify({type: 'keyframe'})); },
-    capBitrate: function (bps) { capBps = bps || 0; sendCap(); }
+    capBitrate: function (bps) { capBps = bps || 0; sendCap(); },
+    // Input over the "hid" channel; false when it is not open, so the
+    // page sends over its WebSocket instead.
+    sendHID: function (msg) {
+      if (!hid || hid.readyState !== 'open') return false;
+      hid.send(JSON.stringify(msg));
+      return true;
+    },
+    setMuted: function (m) {
+      audioMuted = !!m;
+      if (!audioEl) return;
+      audioEl.muted = audioMuted;
+      // Unmuting is a click, which lets a browser that blocks sound
+      // without one start playing now.
+      if (!audioMuted && audioEl.srcObject) audioEl.play().catch(function () {});
+    },
+    // The viewer's microphone track onto the audio line, or null to stop;
+    // false when there is no line to put it on.
+    setMic: function (track) {
+      if (!audioTx || !audioTx.sender) return false;
+      audioTx.sender.replaceTrack(track).catch(function () {});
+      return true;
+    }
   };
 
   // Which transport to begin with: ?transport= for this page load, else
-  // what this browser chose in the menu, else MJPEG.
+  // what this browser chose in the menu, else WebRTC, since the host
+  // offers it (this script is only loaded when it does).
   var wanted = window.__roadieTransport;
   var saved = {};
   try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch (e) {}
-  if (!wanted) wanted = saved.transport;
+  if (!wanted) wanted = saved.transport || 'webrtc';
   showStats = /[?&]stats=1/.test(location.search) || !!saved.stats;
   if (wanted === 'webrtc') start();
 })();

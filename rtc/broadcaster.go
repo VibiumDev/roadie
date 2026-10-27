@@ -129,6 +129,7 @@ type Broadcaster struct {
 	speakerKbps  int
 	micBytes     int
 	micKbps      int
+	micAt        time.Time // when the viewer's mic last delivered a packet
 	statAt       time.Time
 	stopStats    chan struct{}
 }
@@ -294,8 +295,12 @@ func (b *Broadcaster) Status() Status {
 	if speaking {
 		st.Audio, st.AudioKbps = "G722", b.speakerKbps
 	}
-	if st.Mic != "" {
+	// A mic that has gone quiet, as when the viewer turns it off without
+	// ending the track, is not reported.
+	if st.Mic != "" && time.Since(b.micAt) < 2*time.Second {
 		st.MicKbps = b.micKbps
+	} else {
+		st.Mic = ""
 	}
 	b.statMu.Unlock()
 	return st
