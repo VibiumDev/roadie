@@ -101,6 +101,9 @@ make                # build
 ```
 
 Open `http://localhost:8080/view` to see and control the target's screen.
+Without `--auth`, Roadie listens on localhost only; to reach it from other
+machines, run it with `--auth token` and sign in at `/login` with the token
+`roadie token` prints (see [Run Roadie](docs/how-to/run-roadie.md#who-may-connect)).
 
 To drive more than one device from the same host, see
 [Running Multiple Targets](docs/how-to/multiple-targets.md).
@@ -109,6 +112,9 @@ To drive more than one device from the same host, see
 
 - **HID control**: absolute mouse, multi-touch digitizer, and keyboard input via USB, controllable over HTTP/WebSocket
 - **Interactive viewer**: `/view` page with live feed and full HID control (mouse, touch, keyboard) directly on the stream
+- **WebRTC video**: `/view?transport=webrtc` shows H.264 from the host's hardware encoder (the Pi 4's, or VideoToolbox, VAAPI, NVENC or libx264 through ffmpeg elsewhere) over a peer connection, at a fraction of MJPEG's bandwidth and CPU, falling back to MJPEG by itself
+- **Local login**: `--auth token` (a local admin token, a one-field `/login` page, `Authorization: Bearer` for agents) or `--auth tailscale` (whoever your tailnet says); without `--auth`, Roadie listens on localhost only
+- **HTTPS**: `--tls-cert` and `--tls-key` serve TLS directly, reloading the files when they change
 - **Auto-detection**: finds external capture devices, skips built-in cameras
 - **Hot-swap**: plug/unplug devices without restarting
 - **Auto-crop**: detects and removes black bars from HDMI capture (pillarbox/letterbox), remaps touch coordinates to match
@@ -154,6 +160,7 @@ make help             # list every target
 make status           # what's connected: boards, input, audio, displays
 make test             # unit tests, plus the hardware tests if the boards are here
 make test-unit        # only the Go unit tests
+make rtcprobe         # a headless WebRTC viewer: ./rtcprobe/rtcprobe -url http://roadie.local:8080 -token ...
 make test-hid         # do the boards inject correct input?
 make test-e2e-pi      # full stack into a browser on this machine
 make start-vnc-server # watch runs on a Pi with no monitor

@@ -8,7 +8,7 @@ BINARY = roadie
 #   make flash-hid CP_VERSION=latest
 CP_VERSION ?= 10.3.1
 
-.PHONY: help build encbench test test-unit clean setup uninstall flash-hid flash-relay flash-hid-quick flash-relay-quick sync sync-hid sync-relay test-hid test-hid-quick test-e2e-pi test-audio test-audio-serial test-audio-api test-audio-browser test-view multitouch-on multitouch-off multitouch-status test-multitouch test-e2e-android test-e2e-iphone test-e2e-pc demo-iphone set-vnc-password start-vnc-server stop-vnc-server vnc-status status unstick gadget-install gadget-uninstall gadget-status test-gadget test-gadget-install test-gadget-loopback test-phone-net
+.PHONY: help build encbench rtcprobe test test-unit clean setup uninstall flash-hid flash-relay flash-hid-quick flash-relay-quick sync sync-hid sync-relay test-hid test-hid-quick test-e2e-pi test-audio test-audio-serial test-audio-api test-audio-browser test-view multitouch-on multitouch-off multitouch-status test-multitouch test-e2e-android test-e2e-iphone test-e2e-pc demo-iphone set-vnc-password start-vnc-server stop-vnc-server vnc-status status unstick gadget-install gadget-uninstall gadget-status test-gadget test-gadget-install test-gadget-loopback test-phone-net
 
 # Every target carries a "## description"; help prints them by section.
 help:  ## Show this help
@@ -27,6 +27,9 @@ build:  ## Build the roadie binary
 
 encbench:  ## Build the encoder benchmark (docs/how-to/measure-encoder.md)
 	go build -o encbench/encbench ./encbench
+
+rtcprobe:  ## Build the headless WebRTC viewer that checks the video path
+	go build -o rtcprobe/rtcprobe ./rtcprobe
 
 test:  ## Unit tests, plus the hardware tests if the boards are connected
 	@# Not "go test -v": two hundred lines of PASS buries everything after

@@ -39,6 +39,18 @@ stream for a look with `ffprobe` or `ffplay`.
 `--vbr` picks variable bitrate; the default is CBR. `--profile high` and
 `--bitrate` are there for comparisons.
 
+## The whole path, from the outside
+
+`rtcprobe` is a headless viewer: it connects to a running Roadie the way
+`/view?transport=webrtc` does, receives the H.264 track and reports frame
+rate, bitrate, keyframes and whether SPS arrived. It exits non-zero when
+no video comes, so a script can check the remote video path.
+
+```bash
+make rtcprobe
+./rtcprobe/rtcprobe -url http://roadie.local:8080 -token "$(roadie token)" -t 20s
+```
+
 ## What the numbers mean
 
 - **captured / dropped / stalled**: frames the dongle delivered, frames the

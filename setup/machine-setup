@@ -212,7 +212,9 @@ BACKEND=rp2040
 [ "$MODE" = gadget ] && BACKEND=linux-gadget
 BACKEND_ARG=""
 [ "$MODE" = gadget ] && BACKEND_ARG="--hid-backend linux-gadget "
-ARGS="${BACKEND_ARG}--platform $PLATFORM --name $NAME --port $PORT"
+# --auth token: the LAN needs the local admin token (roadie token) to use the
+# pages and API; without it roadie would listen on localhost only.
+ARGS="${BACKEND_ARG}--platform $PLATFORM --name $NAME --port $PORT --auth token"
 write_defaults() {
 	printf '# Arguments for roadie.service. Edit, then: sudo systemctl restart roadie\nROADIE_ARGS="%s"\n' \
 		"$ARGS" | sudo tee "$DEFAULTS" >/dev/null
@@ -280,7 +282,7 @@ else
 	echo "      make -C $DIR flash-relay"
 	echo "  - Wiring: $DIR/docs/how-to/connect-a-phone.md"
 fi
-echo "  - Open http://$NAME.local:$PORT/view"
+echo "  - Open http://$NAME.local:$PORT/view and sign in with the token from: roadie token"
 
 NEED_REBOOT=$FIRST_INSTALL
 [ -e /run/reboot-required ] && NEED_REBOOT=1

@@ -74,12 +74,10 @@ both ways. All of that works and must keep working.
 
 ## Engineering rules
 
-- Prefer the standard library and small dependencies. No cgo; never
-  GStreamer. No cgo for Opus (G.722 and PCMU in pure Go) or H.264 (V4L2 M2M
-  from Go, or an ffmpeg subprocess). Note: pion/mediadevices already pulls
-  cgo into Linux builds through its camera and microphone drivers, so
-  `CGO_ENABLED=0` does not build today; the decision on that is tracked in
-  `../station/docs/progress.md`.
+- Prefer the standard library and small dependencies. Avoid cgo where there
+  is a pure-Go way (a preference, not a rule: pion/mediadevices already
+  pulls cgo into Linux builds); never GStreamer. No cgo for Opus (G.722 and
+  PCMU in pure Go) or H.264 (V4L2 M2M from Go, or an ffmpeg subprocess).
 - Keep existing behaviour and tests passing. `/stream`, `/snapshot`,
   `/raw-stream`, `/raw-snapshot`, `/view`, `/grid`, `/api/hid/ws`, `/audio`,
   `/api/mic`, the REST API and `/session` stay unchanged on the LAN and are

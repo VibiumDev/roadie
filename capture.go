@@ -15,11 +15,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/VibiumDev/roadie/rtc"
 	"github.com/pion/mediadevices"
 	"github.com/pion/mediadevices/pkg/driver"
 	"github.com/pion/mediadevices/pkg/driver/availability"
 	"github.com/pion/mediadevices/pkg/driver/camera"
 	"github.com/pion/mediadevices/pkg/driver/microphone"
+	"github.com/pion/mediadevices/pkg/io/video"
 	"github.com/pion/mediadevices/pkg/prop"
 )
 
@@ -42,12 +44,24 @@ type FrameSource interface {
 	ContentRect() image.Rectangle
 }
 
-// FrameBuffer is a thread-safe holder for the most recent JPEG frame.
+// FrameBuffer holds the most recent frame: the captured picture itself,
+// and the cropped and uncropped JPEGs made from it. The JPEGs are made in
+// the capture loop while someone is streaming, and otherwise only when
+// asked for (a snapshot, a screenshot), so an idle Roadie encodes nothing.
 type FrameBuffer struct {
 	mu       sync.RWMutex
-	current  []byte
-	raw      []byte
+	current  []byte // the cropped JPEG
+	rawJPEG  []byte // the uncropped JPEG
 	cropRect image.Rectangle
+	// The picture the JPEGs come from, and which picture each JPEG is of.
+	raw        *rawFrame
+	rawSeq     uint64
+	currentSeq uint64
+	rawJPEGSeq uint64
+	encMu      sync.Mutex // one JPEG encode at a time, when made on demand
+	// Sinks take every captured picture as it arrives: the WebRTC encoder.
+	sinkMu sync.RWMutex
+	sinks  []rtc.FrameSink
 	// Where the target's picture sits inside the captured frame. Tracked
 	// even when autocrop is off: the frame is then served whole, but input
 	// still has to land on the picture rather than on the letterbox bars.
@@ -177,45 +191,255 @@ func (fb *FrameBuffer) Quality() int {
 	return v
 }
 
-// Update replaces the current frame (sets both cropped and raw to the same data).
+// rawFrame is one captured picture, held until the next one arrives and
+// nothing is still encoding it; then its reader gets the memory back.
+type rawFrame struct {
+	img     image.Image
+	release func()
+	crop    image.Rectangle // what the cropped JPEG shows: the whole frame if no crop
+	seq     uint64
+	pins    int
+	stale   bool
+}
+
+// captureEpoch is the clock frame timestamps count from.
+var captureEpoch = time.Now()
+
+// UpdateRaw keeps the latest picture and its crop and lets go of the one
+// before. The JPEGs are now out of date until they are remade.
+func (fb *FrameBuffer) UpdateRaw(img image.Image, release func(), crop image.Rectangle) {
+	fb.mu.Lock()
+	prev := fb.raw
+	fb.rawSeq++
+	fb.raw = &rawFrame{img: img, release: release, crop: crop, seq: fb.rawSeq}
+	fb.cropRect = crop
+	var done bool
+	if prev != nil {
+		prev.stale = true
+		done = prev.pins == 0
+	}
+	fb.mu.Unlock()
+	if done && prev.release != nil {
+		prev.release()
+	}
+}
+
+// pin holds the latest picture for an encode; unpin lets it go.
+func (fb *FrameBuffer) pin() *rawFrame {
+	fb.mu.Lock()
+	f := fb.raw
+	if f != nil {
+		f.pins++
+	}
+	fb.mu.Unlock()
+	return f
+}
+
+func (fb *FrameBuffer) unpin(f *rawFrame) {
+	fb.mu.Lock()
+	f.pins--
+	done := f.stale && f.pins == 0
+	fb.mu.Unlock()
+	if done && f.release != nil {
+		f.release()
+	}
+}
+
+// Detach copies the latest picture onto the heap if it still lives in a
+// capture driver's buffer, and waits for anyone encoding it, so the driver
+// can take its memory back. Called when capture stops.
+func (fb *FrameBuffer) Detach() {
+	fb.mu.Lock()
+	f := fb.raw
+	fb.mu.Unlock()
+	if f == nil {
+		return
+	}
+	cp, ok := f.img.(interface{ Copy() image.Image })
+	if !ok {
+		return
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		fb.mu.Lock()
+		if fb.raw != f {
+			fb.mu.Unlock()
+			return
+		}
+		if f.pins == 0 {
+			img, release := cp.Copy(), f.release
+			fb.raw = &rawFrame{img: img, crop: f.crop, seq: f.seq}
+			f.stale = true
+			fb.mu.Unlock()
+			if release != nil {
+				release()
+			}
+			return
+		}
+		fb.mu.Unlock()
+		if time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// AddSink starts handing every captured picture to s, in the capture loop.
+func (fb *FrameBuffer) AddSink(s rtc.FrameSink) {
+	fb.sinkMu.Lock()
+	fb.sinks = append(fb.sinks, s)
+	fb.sinkMu.Unlock()
+}
+
+// RemoveSink stops that.
+func (fb *FrameBuffer) RemoveSink(s rtc.FrameSink) {
+	fb.sinkMu.Lock()
+	kept := fb.sinks[:0]
+	for _, k := range fb.sinks {
+		if k != s {
+			kept = append(kept, k)
+		}
+	}
+	fb.sinks = kept
+	fb.sinkMu.Unlock()
+}
+
+// deliver hands a picture to the sinks.
+func (fb *FrameBuffer) deliver(img image.Image, crop image.Rectangle, ts time.Duration) {
+	fb.sinkMu.RLock()
+	sinks := fb.sinks
+	fb.sinkMu.RUnlock()
+	for _, s := range sinks {
+		s.Frame(img, crop, ts)
+	}
+}
+
+// Update replaces the current frame with a JPEG from elsewhere (an HTTP
+// source), cropped and uncropped alike.
 func (fb *FrameBuffer) Update(frame []byte) {
 	fb.mu.Lock()
 	fb.current = frame
-	fb.raw = frame
+	fb.rawJPEG = frame
+	fb.currentSeq, fb.rawJPEGSeq = fb.rawSeq, fb.rawSeq
 	fb.mu.Unlock()
 }
 
-// UpdateBoth replaces both cropped and raw frames atomically.
+// UpdateBoth replaces both cropped and raw JPEGs, made from the latest
+// picture.
 func (fb *FrameBuffer) UpdateBoth(cropped, raw []byte, rect image.Rectangle) {
 	fb.mu.Lock()
 	fb.current = cropped
-	fb.raw = raw
+	fb.rawJPEG = raw
 	fb.cropRect = rect
+	fb.currentSeq, fb.rawJPEGSeq = fb.rawSeq, fb.rawSeq
 	fb.mu.Unlock()
 }
 
-// UpdateCropped replaces only the cropped frame, leaving raw untouched.
+// UpdateCropped replaces only the cropped JPEG, leaving raw untouched.
 func (fb *FrameBuffer) UpdateCropped(cropped []byte, rect image.Rectangle) {
 	fb.mu.Lock()
 	fb.current = cropped
 	fb.cropRect = rect
+	fb.currentSeq = fb.rawSeq
 	fb.mu.Unlock()
 }
 
-// Latest returns the most recent cropped JPEG frame, or nil if none yet.
+// Latest returns the cropped JPEG of the most recent frame, or nil if none
+// yet, making it now if the capture loop did not.
 func (fb *FrameBuffer) Latest() []byte {
 	fb.mu.RLock()
-	frame := fb.current
+	frame, seq, raw := fb.current, fb.currentSeq, fb.raw
 	fb.mu.RUnlock()
-	return frame
+	if raw == nil || (frame != nil && seq == raw.seq) {
+		return frame
+	}
+	return fb.encodeLatest(false)
 }
 
-// LatestRaw returns the most recent uncropped JPEG frame, or nil if none yet.
+// LatestRaw returns the uncropped JPEG of the most recent frame, or nil if
+// none yet, making it now if the capture loop did not.
 func (fb *FrameBuffer) LatestRaw() []byte {
 	fb.mu.RLock()
-	frame := fb.raw
+	frame, seq, raw := fb.rawJPEG, fb.rawJPEGSeq, fb.raw
 	fb.mu.RUnlock()
-	return frame
+	if raw == nil || (frame != nil && seq == raw.seq) {
+		return frame
+	}
+	return fb.encodeLatest(true)
+}
+
+// encodeLatest makes the JPEG, whole or cropped, of the latest picture.
+func (fb *FrameBuffer) encodeLatest(whole bool) []byte {
+	fb.encMu.Lock()
+	defer fb.encMu.Unlock()
+	f := fb.pin()
+	if f == nil {
+		return nil
+	}
+	defer fb.unpin(f)
+	// Another caller, or the loop, may have made it meanwhile.
+	fb.mu.RLock()
+	if whole && fb.rawJPEGSeq == f.seq && fb.rawJPEG != nil {
+		frame := fb.rawJPEG
+		fb.mu.RUnlock()
+		return frame
+	}
+	if !whole && fb.currentSeq == f.seq && fb.current != nil {
+		frame := fb.current
+		fb.mu.RUnlock()
+		return frame
+	}
+	fb.mu.RUnlock()
+	rect := f.img.Bounds()
+	if !whole && !f.crop.Empty() {
+		rect = f.crop
+	}
+	data := encodeJPEG(f.img, rect, fb.Quality())
+	fb.mu.Lock()
+	if whole {
+		fb.rawJPEG, fb.rawJPEGSeq = data, f.seq
+	} else {
+		fb.current, fb.currentSeq = data, f.seq
+	}
+	fb.mu.Unlock()
+	return data
+}
+
+// encodeJPEG makes the JPEG of a rectangle of a picture.
+func encodeJPEG(img image.Image, rect image.Rectangle, quality int) []byte {
+	if p, ok := img.(interface {
+		YCbCr(image.Rectangle) *image.YCbCr
+	}); ok {
+		// Packed pixels take image/jpeg's slow path; planar ones its fast one.
+		img = p.YCbCr(rect)
+	} else if rect != img.Bounds() {
+		img = subImage(img, rect)
+	}
+	b := bufPool.Get().(*bytes.Buffer)
+	b.Reset()
+	defer bufPool.Put(b)
+	if err := jpeg.Encode(b, img, &jpeg.Options{Quality: quality}); err != nil {
+		return nil
+	}
+	out := make([]byte, b.Len())
+	copy(out, b.Bytes())
+	return out
+}
+
+// subImage is the rectangle of a picture, shared when the picture allows it.
+func subImage(img image.Image, r image.Rectangle) image.Image {
+	if si, ok := img.(interface {
+		SubImage(image.Rectangle) image.Image
+	}); ok {
+		return si.SubImage(r)
+	}
+	dst := image.NewRGBA(r)
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		for x := r.Min.X; x < r.Max.X; x++ {
+			dst.Set(x, y, img.At(x, y))
+		}
+	}
+	return dst
 }
 
 // SetContentRect records where the picture sits in the captured frame, and
@@ -483,8 +707,15 @@ func (fb *FrameBuffer) Status() CaptureStatus {
 // Clear nils the frame and sets status to disconnected atomically.
 func (fb *FrameBuffer) Clear() {
 	fb.mu.Lock()
+	if f := fb.raw; f != nil {
+		f.stale = true
+		if f.pins == 0 && f.release != nil {
+			defer f.release()
+		}
+		fb.raw = nil
+	}
 	fb.current = nil
-	fb.raw = nil
+	fb.rawJPEG = nil
 	fb.cropRect = image.Rectangle{}
 	fb.status = StatusDisconnected
 	fb.mu.Unlock()
@@ -942,7 +1173,43 @@ func InitObserver() error {
 // StartCapture opens the device matching dev and runs a goroutine that
 // reads frames, JPEG-encodes them, and stores them in buf.
 // The returned channel closes when the goroutine exits (device disconnected or context cancelled).
+// frameReader is a source of frames: the dongle through V4L2, or through
+// mediadevices. Each frame comes with a release to call when done with it.
+type frameReader interface {
+	Read() (image.Image, func(), error)
+	Close() error
+}
+
+// errNoNativeCapture means the V4L2 path does not apply to this device or
+// host, and mediadevices is used instead.
+var errNoNativeCapture = errors.New("native capture not available")
+
+// mediadevicesReader is the mediadevices camera driver as a frameReader.
+type mediadevicesReader struct {
+	reader video.Reader
+	driver driver.Driver
+}
+
+func (m *mediadevicesReader) Read() (image.Image, func(), error) { return m.reader.Read() }
+func (m *mediadevicesReader) Close() error                       { return m.driver.Close() }
+
 func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, buf *FrameBuffer) (<-chan struct{}, error) {
+	var reader frameReader
+	if r, err := openNativeCapture(dev, width, height, fps); err == nil {
+		reader = r
+	} else {
+		if !errors.Is(err, errNoNativeCapture) {
+			log.Printf("device %q: V4L2 capture not used: %v", dev.Name, err)
+		}
+		if reader, err = openMediadevicesCapture(dev, width, height, fps); err != nil {
+			return nil, err
+		}
+	}
+	return runCapture(ctx, dev, reader, fps, buf), nil
+}
+
+// openMediadevicesCapture opens the device through pion/mediadevices.
+func openMediadevicesCapture(dev deviceInfo, width, height, fps int) (frameReader, error) {
 	drivers := captureNodes(driver.GetManager().Query(func(driver.Driver) bool { return true }), dev)
 	if len(drivers) == 0 {
 		return nil, fmt.Errorf("device %q not found", dev.Name)
@@ -986,11 +1253,17 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 		d.Close()
 		return nil, fmt.Errorf("failed to start recording on %q: %w", dev.Name, err)
 	}
+	return &mediadevicesReader{reader: reader, driver: d}, nil
+}
 
+// runCapture reads frames until the context ends or the device fails.
+func runCapture(ctx context.Context, dev deviceInfo, reader frameReader, fps int, buf *FrameBuffer) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		defer d.Close()
+		// Last out: the driver's memory, once the last frame is off it.
+		defer reader.Close()
+		defer buf.Detach()
 
 		var consecutiveErrors int
 		var consecutiveStatic int
@@ -1124,73 +1397,44 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 				activeCrop = image.Rectangle{}
 			}
 
-			if activeCrop == (image.Rectangle{}) || activeCrop == fullBounds {
-				// No crop needed — encode once and use for both.
-				imgBuf := bufPool.Get().(*bytes.Buffer)
-				imgBuf.Reset()
-				if err := jpeg.Encode(imgBuf, img, jpegOpts); err != nil {
-					bufPool.Put(imgBuf)
-					release()
-					continue
-				}
-				release()
-				encoded := make([]byte, imgBuf.Len())
-				copy(encoded, imgBuf.Bytes())
-				bufPool.Put(imgBuf)
-				buf.UpdateBoth(encoded, encoded, fullBounds)
-			} else {
-				// Crop active — always encode cropped; encode raw only every ~1 s.
-				type subImager interface {
-					SubImage(r image.Rectangle) image.Image
-				}
-				var cropped image.Image
-				if si, ok := img.(subImager); ok {
-					cropped = si.SubImage(activeCrop)
+			// The picture is kept for snapshots made on demand, and handed
+			// to the WebRTC encoder if a viewer is connected. JPEG is made
+			// here only while someone is streaming it.
+			rect := activeCrop
+			if rect == (image.Rectangle{}) {
+				rect = fullBounds
+			}
+			ts := time.Since(captureEpoch)
+			if s, ok := img.(interface{ Stamp() time.Duration }); ok && s.Stamp() != 0 {
+				ts = s.Stamp()
+			}
+			buf.UpdateRaw(img, release, rect)
+			buf.deliver(img, rect, ts)
+			if buf.Viewers() == 0 {
+				continue
+			}
+			cropped := encodeJPEG(img, rect, jpegOpts.Quality)
+			if cropped == nil {
+				continue
+			}
+			switch {
+			case rect == fullBounds:
+				// No crop needed: one JPEG serves as both.
+				buf.UpdateBoth(cropped, cropped, fullBounds)
+			case frameCount%fps == 0:
+				// The uncropped one, for the diagnostic endpoints, every ~1 s.
+				if raw := encodeJPEG(img, fullBounds, jpegOpts.Quality); raw != nil {
+					buf.UpdateBoth(cropped, raw, activeCrop)
 				} else {
-					dst := image.NewRGBA(activeCrop)
-					for y := activeCrop.Min.Y; y < activeCrop.Max.Y; y++ {
-						for x := activeCrop.Min.X; x < activeCrop.Max.X; x++ {
-							dst.Set(x, y, img.At(x, y))
-						}
-					}
-					cropped = dst
+					buf.UpdateCropped(cropped, activeCrop)
 				}
-
-				croppedBuf := bufPool.Get().(*bytes.Buffer)
-				croppedBuf.Reset()
-				if err := jpeg.Encode(croppedBuf, cropped, jpegOpts); err != nil {
-					bufPool.Put(croppedBuf)
-					release()
-					continue
-				}
-
-				croppedBytes := make([]byte, croppedBuf.Len())
-				copy(croppedBytes, croppedBuf.Bytes())
-				bufPool.Put(croppedBuf)
-
-				if frameCount%fps == 0 {
-					// Periodic raw encode for diagnostic endpoints.
-					rawBuf := bufPool.Get().(*bytes.Buffer)
-					rawBuf.Reset()
-					if err := jpeg.Encode(rawBuf, img, jpegOpts); err != nil {
-						bufPool.Put(rawBuf)
-						release()
-						continue
-					}
-					release()
-					rawBytes := make([]byte, rawBuf.Len())
-					copy(rawBytes, rawBuf.Bytes())
-					bufPool.Put(rawBuf)
-					buf.UpdateBoth(croppedBytes, rawBytes, activeCrop)
-				} else {
-					release()
-					buf.UpdateCropped(croppedBytes, activeCrop)
-				}
+			default:
+				buf.UpdateCropped(cropped, activeCrop)
 			}
 		}
 	}()
 
-	return done, nil
+	return done
 }
 
 // audioFilter is the filter to select the audio device with.

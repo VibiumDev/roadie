@@ -46,14 +46,63 @@ sudo systemctl restart systemd-journald
 Roadie's command-line flags live in `/etc/default/roadie`:
 
 ```bash
-ROADIE_ARGS="--hid-backend linux-gadget --platform ios --port 8080"
+ROADIE_ARGS="--hid-backend linux-gadget --platform ios --port 8080 --auth token"
 ```
 
-Edit it, then `sudo systemctl restart roadie`. `roadie --help` lists every
+Edit it, then `sudo systemctl restart roadie`. `--auth token` is what lets
+other machines in; see [Who may connect](#who-may-connect). `roadie --help` lists every
 flag; `--platform` (`android`, `ios`, `mac`, `windows`, `linux`) says what is
 on the other end, and [Connect a Phone](connect-a-phone.md) covers what each
 phone needs. [`machine-setup`](configure-os.md#updating) writes the file the
 first time only, so your edits survive updates.
+
+## Who may connect
+
+Roadie's command line says who may use its pages and API:
+
+| `--auth` | Who gets in |
+|---|---|
+| unset | Only this machine: Roadie listens on localhost. For a quick build on a laptop. |
+| `token` | Whoever has the local admin token. Browsers sign in once at `/login` and keep a cookie for 30 days; agents and scripts send `Authorization: Bearer <token>`. The service on a Pi runs this way. |
+| `tailscale` | Whoever the local `tailscaled` says a connection belongs to: anyone on your tailnet, or only the logins and tags in `--allow you@example.com,tag:ci`. Nothing to type; connections from the LAN that are not from the tailnet are refused. |
+| `none` | Everyone who can reach the port, with a warning at every start. |
+
+The token lives in `~/.config/roadie/token`, readable by your user only.
+To see it, on the Pi:
+
+```bash
+roadie token            # prints it; makes one on the first run
+roadie token --rotate   # a new one; every browser signs in again
+```
+
+A browser that opens `/view` is sent to `/login`, where the token goes in
+once. From a script:
+
+```bash
+curl -H "Authorization: Bearer $(roadie token)" http://roadie.local:8080/health
+```
+
+`--auth tailscale` asks `tailscaled` over its local socket, so Roadie's user
+must be allowed to: `sudo tailscale set --operator=$USER`. Behind
+`tailscale serve` (an HTTPS `*.ts.net` name), bind Roadie to localhost and it
+trusts the `Tailscale-User-Login` header instead.
+
+## HTTPS
+
+The browser's microphone needs a secure page, and so does anything not on
+localhost that you would rather not send in the clear. Roadie serves TLS
+itself:
+
+```bash
+ROADIE_ARGS="... --auth token --port 443 --tls-cert /etc/roadie/cert.pem --tls-key /etc/roadie/key.pem --http-redirect :80"
+```
+
+The certificate and key files are read again when they change, so a renewal
+needs no restart; the service unit has the capability to bind ports below
+1024 without root. `roadie tls status --tls-cert /etc/roadie/cert.pem` shows
+the names and expiry. A wildcard certificate from your DNS provider, copied
+to the Pi by whatever renews it, is the simplest arrangement; a station can
+manage certificates for its rigs later.
 
 ## What a restart keeps
 
@@ -75,7 +124,7 @@ the flags from `/etc/default/roadie` or others:
 
 ```bash
 sudo systemctl stop roadie
-make && ./roadie --hid-backend linux-gadget --platform ios
+make && ./roadie --hid-backend linux-gadget --platform ios --auth token
 # Ctrl-C when done, then:
 sudo systemctl start roadie
 ```

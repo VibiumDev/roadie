@@ -1,6 +1,7 @@
 # Build artifacts
 roadie
 encbench/encbench
+rtcprobe/rtcprobe
 
 # Go binaries and plugins
 *.exe

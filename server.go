@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"github.com/VibiumDev/roadie/rtc"
 	"html"
 	"image"
 	"log"
@@ -27,6 +28,11 @@ type Server struct {
 	SourceType  string // "hardware" or "http"
 	HID         HIDBackend
 	Capture     *CaptureManager
+	// RTC sends the picture over WebRTC; nil when this host has no way to
+	// encode H.264 or frames come from an HTTP source.
+	RTC *rtc.Broadcaster
+	// Auth decides who may use the pages and API; see --auth.
+	Auth *Auth
 
 	// InputMode is the pointer mode this target wants — "mouse", "touch", or
 	// empty to leave the choice to the viewer. It belongs to the server
@@ -104,6 +110,10 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/api/hid/status", s.handleHIDStatus)
 	mux.HandleFunc("/api/hid/ws", s.handleHIDWebSocket)
 	mux.HandleFunc("/session", s.handleBiDi)
+	mux.HandleFunc("/api/webrtc/signal", s.handleWebRTCSignal)
+	mux.HandleFunc("/login", s.handleLogin)
+	mux.HandleFunc("/logout", s.handleLogout)
+	mux.HandleFunc("/viewer/webrtc.js", s.handleViewerJS)
 	return mux
 }
 
@@ -266,6 +276,13 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 		b, _ := json.Marshal(d)
 		fmt.Fprintf(w, "\n<script>window.__roadieUSBDevices=%s;</script>", b)
 	}
+	// ?transport=webrtc: H.264 over a peer connection instead of MJPEG, when
+	// this host can encode it. The page falls back to MJPEG by itself if the
+	// connection fails. Fixed literal, nothing from the query reaches the page.
+	webrtcTransport := r.URL.Query().Get("transport") == "webrtc" && s.RTC != nil && s.RTC.Available()
+	if webrtcTransport {
+		fmt.Fprint(w, "\n<script>window.__roadieTransport='webrtc';</script>")
+	}
 
 	fmt.Fprint(w, `
 </head>
@@ -275,7 +292,9 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       <div id="overlay" style="display:flex;">
         Connecting&hellip;
       </div>
-      <img id="feed" draggable="false" oncontextmenu="return false" style="max-width:100%; max-height:100%; display:none; touch-action:none; cursor:crosshair;">
+      <video id="rtcVideo" autoplay playsinline muted style="position:absolute; display:none; pointer-events:none; background:#000;"></video>
+      <div id="rtcStats" style="position:absolute; left:8px; bottom:8px; display:none; z-index:11; padding:4px 7px; border-radius:4px; background:rgba(0,0,0,0.6); color:#fff; font:12px monospace; pointer-events:none; white-space:pre;"></div>
+      <img id="feed" draggable="false" oncontextmenu="return false" style="max-width:100%; max-height:100%; display:none; touch-action:none; cursor:crosshair; position:relative; z-index:1;">
       <div id="turnNote"><span>Rotating the screen&hellip;</span></div>
     </div>
     <div id="onscreen-kbd" style="display:none; user-select:none; -webkit-user-select:none; overflow-x:auto;">
@@ -418,7 +437,11 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       </div>
     </div>
   </div>
-  <script>
+`)
+	if webrtcTransport {
+		fmt.Fprint(w, "  <script src=\"/viewer/webrtc.js\"></script>\n")
+	}
+	fmt.Fprint(w, `  <script>
   (function(){
     var img = document.getElementById('feed');
     var overlay = document.getElementById('overlay');
@@ -508,6 +531,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       }
     }
     function startStream() {
+      if (window.__roadieExternalFeed) return;  // WebRTC is showing the picture
       if (stream) stream.abort();
       var ctl = new AbortController();
       stream = ctl;
@@ -2152,6 +2176,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		resp["audio"] = audio
+	}
+	if s.RTC != nil && s.RTC.Available() {
+		resp["webrtc"] = s.RTC.Status()
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
@@ -10,9 +11,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/pprof"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/VibiumDev/roadie/rtc"
 )
 
 // deviceHint shortens a capture device name to the part worth typing.
@@ -57,6 +62,9 @@ func suggestCommand(w io.Writer, cands []string, relays []RelayInfo) {
 }
 
 func main() {
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
+		os.Exit(runCommand(os.Args[1], os.Args[2:]))
+	}
 	device := flag.String("video", "", "video capture device name substring (auto-detect if empty)")
 	audioDevice := flag.String("audio", "", "audio capture device name substring (defaults to --video)")
 	relay := flag.String("relay", "", "relay board serial number substring (auto-detect if empty)")
@@ -72,7 +80,56 @@ func main() {
 	platformName := flag.String("platform", "", "target OS: android, ios, mac, windows, linux (tunes pointer mapping and input mode)")
 	glide := flag.Bool("glide", false, "glide the pointer to each new spot along an arc, as a hand would, instead of jumping (a switch in /settings too)")
 	hidBackendName := flag.String("hid-backend", BackendRP2040, "input hardware: rp2040 (relay and HID boards) or linux-gadget (this machine's USB device port, set up by gadget/roadie-gadget)")
+	encoderSpec := flag.String("encoder", "auto", "H.264 encoder for WebRTC: auto, v4l2m2m (Pi 4 hardware), ffmpeg, ffmpeg:<codec>, or none")
+	rtcUDP := flag.Int("rtc-udp", 0, "UDP port for WebRTC media (default: the HTTP port's number)")
+	bindAddr := flag.String("bind", "", "address to listen on (default: 127.0.0.1 without --auth, otherwise every address)")
+	authMode := flag.String("auth", "", "who may use the pages and API: token (the local admin token, see roadie token), tailscale (whoever tailscaled says), none (no checks); unset means localhost only")
+	allow := flag.String("allow", "", "with --auth tailscale: comma-separated logins and tags allowed (default: anyone on the tailnet)")
+	tlsCert := flag.String("tls-cert", "", "serve HTTPS with this certificate (PEM), reloaded when the file changes")
+	tlsKey := flag.String("tls-key", "", "the certificate's private key (PEM)")
+	httpRedirect := flag.String("http-redirect", "", "with TLS: also listen here (e.g. :80) and redirect to HTTPS")
+	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile here until exit (for go tool pprof)")
 	flag.Parse()
+
+	if *cpuProfile != "" {
+		f, err := os.Create(*cpuProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal(err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
+	// Local access control, and where to listen: without --auth only this
+	// machine may connect, so Roadie binds to localhost.
+	auth, err := NewAuth(*authMode, *allow)
+	if err != nil {
+		log.Fatal(err)
+	}
+	bind := *bindAddr
+	if auth.Mode == AuthUnset {
+		if bind == "" {
+			bind = "127.0.0.1"
+		} else if !isLoopbackAddr(bind) {
+			log.Fatalf("--bind %s needs --auth token, --auth tailscale or --auth none: without --auth Roadie listens on localhost only", bind)
+		}
+	}
+	auth.Loopback = isLoopbackAddr(bind)
+	if (*tlsCert == "") != (*tlsKey == "") {
+		log.Fatal("--tls-cert and --tls-key go together")
+	}
+	if *httpRedirect != "" && *tlsCert == "" {
+		log.Fatal("--http-redirect needs --tls-cert and --tls-key")
+	}
+	var certs *certReloader
+	if *tlsCert != "" {
+		if certs, err = newCertReloader(*tlsCert, *tlsKey); err != nil {
+			log.Fatalf("TLS: %v", err)
+		}
+		auth.Secure = true
+	}
 
 	hidBackend, err := ParseHIDBackend(*hidBackendName)
 	if err != nil {
@@ -239,14 +296,39 @@ func main() {
 	// Find available port.
 	listenPort := *port
 	if listenPort == 0 {
-		listenPort = findAvailablePort(8080)
+		listenPort = findAvailablePort(bind, 8080)
 	}
 
-	// Register mDNS (for service discovery via dns-sd -B _roadie._tcp).
-	resolution := fmt.Sprintf("%dx%d", *width, *height)
-	mdnsShutdown, err := RegisterMDNS(*name, listenPort, resolution)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  mDNS registration failed: %v\n", err)
+	// WebRTC: the picture as H.264 over a peer connection, for viewers that
+	// ask for it. The encoder runs only while one is connected.
+	var broadcaster *rtc.Broadcaster
+	if *source == "" && *encoderSpec != "none" {
+		udp := *rtcUDP
+		if udp == 0 {
+			udp = listenPort
+		}
+		b, err := rtc.New(buf, rtc.Options{UDPPort: udp, Encoder: *encoderSpec, FPS: *fps})
+		switch {
+		case err != nil:
+			fmt.Fprintf(os.Stderr, "⚠️  WebRTC off: %v\n", err)
+		case !b.Available():
+			fmt.Fprintln(os.Stderr, "⚠️  WebRTC off: no H.264 encoder on this host (--encoder); MJPEG only")
+			b.Close()
+		default:
+			broadcaster = b
+			fmt.Printf("📹 WebRTC: H.264 via %s, UDP port %d\n", b.Status().Encoder, udp)
+		}
+	}
+
+	// Register mDNS (for service discovery via dns-sd -B _roadie._tcp),
+	// unless nothing off this machine could reach the port anyway.
+	var mdnsShutdown func()
+	if !auth.Loopback {
+		resolution := fmt.Sprintf("%dx%d", *width, *height)
+		mdnsShutdown, err = RegisterMDNS(*name, listenPort, resolution)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️  mDNS registration failed: %v\n", err)
+		}
 	}
 
 	// Start the HID backend: the relay boards, or this machine's USB gadget.
@@ -285,11 +367,36 @@ func main() {
 
 	// Print startup banner.
 	fmt.Println()
-	fmt.Printf("🌐 http://localhost:%d\n", listenPort)
-	if ip := getLANIP(); ip != "" {
-		fmt.Printf("🌐 http://%s:%d\n", ip, listenPort)
+	scheme := "http"
+	if certs != nil {
+		scheme = "https"
 	}
-	fmt.Printf("🌐 http://%s.local:%d\n", MDNSHostname(*name), listenPort)
+	fmt.Printf("🌐 %s://localhost:%d\n", scheme, listenPort)
+	if !auth.Loopback {
+		if ip := getLANIP(); ip != "" {
+			fmt.Printf("🌐 %s://%s:%d\n", scheme, ip, listenPort)
+		}
+		fmt.Printf("🌐 %s://%s.local:%d\n", scheme, MDNSHostname(*name), listenPort)
+	}
+	switch auth.Mode {
+	case AuthUnset:
+		fmt.Println("🔒 Listening on localhost only. To serve the network: --auth token, --auth tailscale or --auth none")
+	case AuthToken:
+		fmt.Println("🔐 Local auth: token. Browsers sign in at /login; agents send Authorization: Bearer. See: roadie token")
+	case AuthTailscale:
+		who := "anyone on the tailnet"
+		if len(auth.Allow) > 0 {
+			who = strings.Join(auth.Allow, ", ")
+		}
+		fmt.Printf("🔐 Local auth: tailscale (%s)\n", who)
+	case AuthNone:
+		fmt.Fprintln(os.Stderr, "⚠️  --auth none: no login. Anyone who can reach this port controls the target.")
+	}
+	if certs != nil {
+		if leaf := certs.Leaf(); leaf != nil {
+			fmt.Printf("🔏 TLS: %v, until %s\n", leaf.DNSNames, leaf.NotAfter.Local().Format("2006-01-02"))
+		}
+	}
 
 	// Start HTTP server.
 	srv := &Server{
@@ -304,14 +411,23 @@ func main() {
 		Platform:       platform,
 		Name:           *name,
 		CropFile:       cropFile,
+		RTC:            broadcaster,
+		Auth:           auth,
 	}
 	if mux != nil {
 		srv.AudioSource = mux.Source
 	}
 	settled.turned = srv.pointerTurned
 	httpServer := &http.Server{
-		Addr:    fmt.Sprintf(":%d", listenPort),
-		Handler: NewMux(srv),
+		Addr:    net.JoinHostPort(bind, strconv.Itoa(listenPort)),
+		Handler: auth.Wrap(NewMux(srv)),
+	}
+	if certs != nil {
+		httpServer.TLSConfig = &tls.Config{GetCertificate: certs.GetCertificate, MinVersion: tls.VersionTLS12}
+	}
+	var redirectServer *http.Server
+	if *httpRedirect != "" {
+		redirectServer = &http.Server{Addr: *httpRedirect, Handler: httpsRedirect(listenPort)}
 	}
 
 	// Graceful shutdown on SIGINT/SIGTERM.
@@ -319,14 +435,30 @@ func main() {
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		var err error
+		if certs != nil {
+			err = httpServer.ListenAndServeTLS("", "")
+		} else {
+			err = httpServer.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			log.Fatalf("HTTP server error: %v", err)
 		}
 	}()
+	if redirectServer != nil {
+		go func() {
+			if err := redirectServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("HTTP redirect server error: %v", err)
+			}
+		}()
+	}
 
 	<-done
 	fmt.Println("\nShutting down...")
 
+	if broadcaster != nil {
+		broadcaster.Close()
+	}
 	shutdownFunc()
 	hid.Shutdown()
 	if gadgetAudio != nil {
@@ -340,12 +472,29 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	httpServer.Shutdown(ctx)
+	if redirectServer != nil {
+		redirectServer.Shutdown(ctx)
+	}
+}
+
+// httpsRedirect sends plain HTTP to the HTTPS port.
+func httpsRedirect(port int) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		if port != 443 {
+			host = net.JoinHostPort(host, strconv.Itoa(port))
+		}
+		http.Redirect(w, r, "https://"+host+r.URL.RequestURI(), http.StatusMovedPermanently)
+	})
 }
 
 // findAvailablePort tries ports starting from start and returns the first one available.
-func findAvailablePort(start int) int {
+func findAvailablePort(bind string, start int) int {
 	for p := start; p < start+100; p++ {
-		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", p))
+		ln, err := net.Listen("tcp", net.JoinHostPort(bind, strconv.Itoa(p)))
 		if err == nil {
 			ln.Close()
 			return p

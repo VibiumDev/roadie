@@ -65,12 +65,39 @@ A single board can't be simultaneously a USB serial device (receiving commands f
 ## Video Capture
 
 The Go server captures video from a UVC-compatible HDMI-to-USB dongle:
-- **macOS**: AVFoundation via `pion/mediadevices`
-- **Linux**: V4L2 via `pion/mediadevices`
+- **Linux, YUYV**: straight from V4L2's memory-mapped buffers in pure Go
+  (`v4l2/`), when the dongle offers the wanted size and rate uncompressed.
+  Nothing is copied or converted per frame; a picture stays in the driver's
+  buffer until the next one replaces it. This is what a Pi 4 on USB 3 does
+  at 1080p30.
+- **Linux, otherwise**: V4L2 via `pion/mediadevices` (MJPEG-only dongles,
+  or a rate the dongle gives only in MJPEG), decoded in software.
+- **macOS**: AVFoundation via `pion/mediadevices`.
 
-Frames are JPEG-encoded and stored in a shared buffer. The server maintains two versions of each frame:
-- **Cropped**: black bars (letterbox/pillarbox) detected and removed
-- **Raw**: full capture resolution (for diagnostics)
+Each captured picture is kept in a shared buffer with its crop. Two JPEGs
+are made from it, cropped (black bars detected and removed) and raw (full
+capture resolution, for diagnostics), but only when wanted: in the capture
+loop while someone is streaming `/stream` or `/raw-stream`, and otherwise on
+demand when a snapshot or screenshot asks. An idle Roadie encodes nothing,
+which is the difference between a whole core and a fraction of one at
+1080p30.
+
+### WebRTC
+
+`/view?transport=webrtc` gets the picture as H.264 over a peer connection
+instead of MJPEG. The capture loop hands each picture's crop to the
+`rtc.Broadcaster`, which runs only while a viewer is connected: it converts
+the crop to NV12 and feeds an `encoder.Encoder`, and writes the access units
+that come out to one Pion video track shared by every session. The encoder
+is the Pi 4's hardware one through V4L2 (`encoder/v4l2m2m`, pure Go
+ioctls), or an ffmpeg subprocess on other hosts. Settings follow the Roadie
+Remote spec: Constrained Baseline, level 4.0, SPS and PPS on every keyframe,
+a 2 s GOP, a keyframe on each PLI or FIR, and VBR with the target moved by
+Pion's congestion control between 300 kbps and 4 Mbps. Signaling is a
+WebSocket at `/api/webrtc/signal`; media uses one UDP port. The viewer
+module (`viewer/webrtc.js`) keeps the page's `#feed` image, now see-through,
+over the video, so pointer mapping is unchanged, and goes back to MJPEG by
+itself when the connection fails.
 
 ### Auto-Crop
 

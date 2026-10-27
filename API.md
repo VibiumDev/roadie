@@ -21,6 +21,8 @@ tellable apart. Click/touch the stream to send mouse or touch events to the targ
 | `toolbar` | `show`, `auto` (auto-hide: tucked off the right edge until the pointer reaches it) or `off`. Sets the toolbar, and this browser remembers it, like the choice in the toolbar's own menu or on `/settings`; `?toolbar=show` brings back a toolbar turned off. |
 | `minimal` | `1` hides the toolbar for this page load only, leaving the remembered choice alone, for embedding in an iframe (see `/grid`). |
 | `input` | `mouse` or `touch` sets the pointer mode for this page load, overriding the server's `--input`. |
+| `transport` | `webrtc` shows the picture as H.264 over a WebRTC peer connection instead of MJPEG, when the host has an encoder (`webrtc` in [`/health`](#get-health)). The page goes back to MJPEG by itself if the connection cannot be made or drops for good. Input and audio still use the WebSockets. |
+| `stats` | `1` with `transport=webrtc` shows frame rate, bitrate, round trip, jitter-buffer and decode times over the picture. They are always on `window.__roadieRTCStats`. |
 
 Pointer mode resolves in this order: `?input=` for this page load, then the
 server's `--input`, then the default implied by `--platform`, then a mode this
@@ -31,6 +33,18 @@ target device rather than of the browser viewing it.
 Neither `?input=` nor `--input` is written to the browser's stored preference,
 so the toolbar toggle still works and still holds for the rest of the session —
 a reload returns to the configured mode.
+
+### `GET /login`, `POST /login`, `GET /logout`
+With `--auth token`, the one-field login page. The form posts `token` and
+`next` (a path on this site); a right token sets an `HttpOnly`,
+`SameSite=Lax` cookie for 30 days (`Secure` over HTTPS) and goes on to
+`next`. Without a cookie, a browser asking for any page is sent here; an
+API call gets `401` with `WWW-Authenticate: Bearer` and sends
+`Authorization: Bearer <token>` instead. Twenty wrong tokens from one
+address in ten minutes are refused with `429`. `/logout` clears the cookie.
+`roadie token` prints the token; `roadie token --rotate` replaces it and
+signs every browser out. With the other `--auth` modes `/login` just goes to
+`/`.
 
 ### `GET /grid`
 Grid of several Roadie instances, one iframe per target. Carries no video itself —
@@ -238,7 +252,8 @@ Service status and device info.
   "platform": "ios",
   "pointer_space": "screen",
   "input_mode": "touch",
-  "host": {"cpu_percent": 68, "load1": 1.71, "temp_c": 80.3, "mem_total_mb": 7809, "mem_used_percent": 25}
+  "host": {"cpu_percent": 68, "load1": 1.71, "temp_c": 80.3, "mem_total_mb": 7809, "mem_used_percent": 25},
+  "webrtc": {"encoder": "v4l2m2m", "sessions": 1, "bitrate": 1500000, "width": 444, "height": 972, "fps": 30}
 }
 ```
 
@@ -255,6 +270,7 @@ Service status and device info.
 | `rotating` | `true` while [`/api/rotate`](#post-apirotate) is turning the screen, and absent otherwise. `/view` holds back its input meanwhile |
 | `input_mode` | The mode viewers start in: `--input`, else the platform default |
 | `host` | The machine Roadie runs on: Roadie's own CPU use (`cpu_percent`, 100 is one core), the 1-minute load average, the CPU temperature in °C, total memory in MB, and the percentage of memory in use (not available to new programs). Whatever the machine doesn't tell is left out |
+| `webrtc` | Present when the host can encode H.264 (see `--encoder`): the encoder in use or available, how many viewers are connected over WebRTC, the target bitrate in bits per second, and while encoding the picture's size, the frames encoded in the last second and the frames skipped (`dropped`). Absent means `/view?transport=webrtc` falls back to MJPEG |
 
 ---
 
@@ -568,6 +584,26 @@ unless they only let go of something (`key_release`, `mouse_release`, a
 
 ---
 
+### `WS /api/webrtc/signal`
+WebRTC signaling for `/view?transport=webrtc` (and for headless clients).
+The client sends `{"type":"hello"}` first; Roadie answers with
+`{"type":"offer","sdp":"..."}` and then `{"type":"candidate","candidate":{...}}`
+messages as it finds its addresses; the client sends
+`{"type":"answer","sdp":"..."}` and its own `candidate` messages, and
+`{"type":"bye"}` to end. `{"type":"error","error":"..."}` ends it from
+Roadie's side. The offer carries one H.264 video track (Constrained
+Baseline, `profile-level-id=42e01f`, packetization mode 1; the stream itself
+is level 4.0 and SPS and PPS ride every keyframe) and a data channel named
+`control` on which the client may send `{"type":"keyframe"}` or
+`{"type":"bitrate","bps":N}` (a cap, 0 to lift it), and Roadie sends
+`{"type":"stats","status":{...},"kbps":N}` once a second with the `webrtc`
+object from `/health` and the bits sent in the last second. Media uses one
+UDP port, `--rtc-udp`, the HTTP port's number by default. `503` when the
+host has no encoder. The same messages are what a station relays later.
+
+### `GET /viewer/webrtc.js`
+The viewer's WebRTC module, which `/view?transport=webrtc` loads.
+
 ### `WS /api/mic`
 WebSocket endpoint for voice input: audio sent here plays out of the HID board's USB microphone (or, with `--hid-backend linux-gadget`, the Pi's USB gadget microphone, upsampled to 48 kHz), so the target hears it as mic input.
 
@@ -735,4 +771,12 @@ Ctrl+Alt+Del: press 224, press 226, press 76, release 76, release 226, release 2
 | `--platform` | | Target OS: `android`, `ios`, `mac`, `windows`, `linux`. Tunes pointer mapping and the default input mode |
 | `--input` | (viewer decides) | Default pointer mode for viewers: `mouse` or `touch` |
 | `--hid-backend` | rp2040 | Input hardware: `rp2040` (relay and HID boards) or `linux-gadget` (this Pi's USB-C port; see [docs/how-to/linux-gadget.md](docs/how-to/linux-gadget.md)) |
+| `--bind` | 127.0.0.1 without `--auth`, else every address | Address to listen on |
+| `--auth` | | Who may use the pages and API: `token` (the local admin token; `roadie token` prints it), `tailscale` (whoever the local tailscaled says the connection belongs to), or `none` (no checks, with a warning at every start). Unset, Roadie listens on localhost only |
+| `--allow` | anyone on the tailnet | With `--auth tailscale`: comma-separated Tailscale logins and tags (`you@example.com,tag:ci`) allowed |
+| `--tls-cert`, `--tls-key` | | Serve HTTPS with this certificate and key (PEM); the files are reloaded when they change, so a renewal needs no restart. `roadie tls status --tls-cert FILE` shows the names and expiry |
+| `--http-redirect` | | With TLS: also listen on this address (`:80`) and redirect to HTTPS |
+| `--encoder` | auto | H.264 encoder for WebRTC: `auto` (the Pi 4's hardware encoder when present, else ffmpeg with the host's best codec), `v4l2m2m`, `ffmpeg`, `ffmpeg:<codec>` (`libx264`, `h264_videotoolbox`, `h264_vaapi`, `h264_nvenc`, `h264_qsv`, `h264_v4l2m2m`), or `none` |
+| `--rtc-udp` | the HTTP port's number | UDP port for WebRTC media (one port for every viewer) |
+| `--cpuprofile` | | Write a CPU profile to this file until exit, for `go tool pprof` |
 | `--list-devices` | | List video and audio devices, then exit |
