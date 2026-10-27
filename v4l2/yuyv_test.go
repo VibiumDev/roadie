@@ -23,14 +23,18 @@ func TestYUYVImage(t *testing.T) {
 	if sub.Bounds() != image.Rect(2, 1, 6, 3) || sub.YCbCrAt(2, 1).Y != 1*8+2 {
 		t.Errorf("sub image %v, pixel %+v", sub.Bounds(), sub.YCbCrAt(2, 1))
 	}
-	planar := p.YCbCr(image.Rect(2, 1, 6, 3))
-	if planar.Bounds() != image.Rect(2, 1, 6, 3) {
-		t.Errorf("planar bounds %v", planar.Bounds())
-	}
-	for y := 1; y < 3; y++ {
-		for x := 2; x < 6; x++ {
-			if got, want := planar.YCbCrAt(x, y), p.YCbCrAt(x, y); got != want {
-				t.Errorf("planar (%d,%d) = %+v, want %+v", x, y, got, want)
+	// Planar conversions of even and odd rectangles both match the packed
+	// pixels; the odd one is what an odd crop column asks for.
+	for _, r := range []image.Rectangle{image.Rect(2, 1, 6, 3), image.Rect(3, 1, 6, 4), image.Rect(1, 0, 8, 2), image.Rect(0, 0, 8, 4)} {
+		planar := p.YCbCr(r)
+		if planar.Bounds() != r {
+			t.Errorf("planar bounds %v, want %v", planar.Bounds(), r)
+		}
+		for y := r.Min.Y; y < r.Max.Y; y++ {
+			for x := r.Min.X; x < r.Max.X; x++ {
+				if got, want := planar.YCbCrAt(x, y), p.YCbCrAt(x, y); got != want {
+					t.Errorf("planar %v (%d,%d) = %+v, want %+v", r, x, y, got, want)
+				}
 			}
 		}
 	}

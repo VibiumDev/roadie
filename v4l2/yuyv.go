@@ -47,26 +47,33 @@ func (p *YUYV) SubImage(r image.Rectangle) image.Image {
 }
 
 // YCbCr converts the rectangle r to a planar 4:2:2 image, which image/jpeg
-// encodes quickly. r.Min.X must be even.
+// encodes quickly. Chroma belongs to pairs of columns counted from the
+// picture's left edge, so a rectangle starting on an odd column keeps the
+// pairing: its first pixel shares chroma with the one before it, as
+// image.YCbCr's own layout expects.
 func (p *YUYV) YCbCr(r image.Rectangle) *image.YCbCr {
 	r = r.Intersect(p.Rect)
 	m := image.NewYCbCr(r, image.YCbCrSubsampleRatio422)
-	w, h := r.Dx(), r.Dy()
-	for y := 0; y < h; y++ {
-		src := p.Pix[(r.Min.Y+y)*p.Stride+r.Min.X*2:]
-		src = src[:w*2]
+	if r.Empty() {
+		return m
+	}
+	firstPair, lastPair := r.Min.X>>1, (r.Max.X-1)>>1
+	for y := 0; y < r.Dy(); y++ {
+		src := p.Pix[(r.Min.Y+y)*p.Stride:]
 		yrow := m.Y[y*m.YStride:]
 		cb := m.Cb[y*m.CStride:]
 		cr := m.Cr[y*m.CStride:]
-		for x := 0; x+1 < w; x += 2 {
-			s := src[x*2 : x*2+4]
-			yrow[x] = s[0]
-			cb[x/2] = s[1]
-			yrow[x+1] = s[2]
-			cr[x/2] = s[3]
-		}
-		if w&1 == 1 {
-			yrow[w-1] = src[(w-1)*2]
+		for k := firstPair; k <= lastPair; k++ {
+			s := src[k*4 : k*4+4]
+			ci := k - firstPair
+			cb[ci] = s[1]
+			cr[ci] = s[3]
+			if x := 2 * k; x >= r.Min.X {
+				yrow[x-r.Min.X] = s[0]
+			}
+			if x := 2*k + 1; x < r.Max.X {
+				yrow[x-r.Min.X] = s[2]
+			}
 		}
 	}
 	return m
