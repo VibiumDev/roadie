@@ -239,7 +239,8 @@ func (s *Session) sendStats() {
 		case <-s.done:
 			return
 		case <-t.C:
-			if err := s.control.Send(s.b.statsMessage()); err != nil {
+			// Text, so a browser gets a string rather than a Blob.
+			if err := s.control.SendText(string(s.b.statsMessage())); err != nil {
 				return
 			}
 		}

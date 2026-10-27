@@ -345,7 +345,12 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         <label style="min-width:55px;" title="JPEG quality: the MJPEG stream and screenshots">Quality</label>
         <input id="qrange" type="range" min="30" max="95" style="width:120px; vertical-align:middle;">
         <span id="qval" style="min-width:2em; text-align:right;"></span>
-        <span id="qualityHint" class="hint" style="display:none;">JPEG only</span>
+        <span id="qualityHint" class="hint" style="display:none;">screenshots only</span>
+      </div>
+      <div id="bitrateRow" style="display:none; align-items:center; gap:8px; margin-bottom:8px;" title="The most the H.264 stream may use; auto lets the connection decide, up to 4 Mbps">
+        <label style="min-width:55px;">Bitrate</label>
+        <input id="bitrateRange" type="range" min="300" max="4000" step="100" value="4000" style="width:120px; vertical-align:middle;">
+        <span id="bitrateVal" style="min-width:3em; text-align:right;">auto</span>
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
         <label style="min-width:55px;">FPS</label>
@@ -504,8 +509,16 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     var lastFrame = 0;      // when its last frame arrived
     var shownURL = null, nextURL = null;
     var STALL_MS = 4000;
+    var mjpegFrames = 0, mjpegBytes = 0;
+    // For the stats box (viewer/webrtc.js): what the MJPEG feed delivers.
+    window.__roadieMJPEGStats = function() {
+      return {frames: mjpegFrames, bytes: mjpegBytes, size: shownSize,
+              quality: parseInt(document.getElementById('qrange').value, 10) || 0};
+    };
     function showFrame(bytes) {
       lastFrame = Date.now();
+      mjpegFrames++;
+      mjpegBytes += bytes.length;
       if (nextURL) return;  // the last one is still decoding: skip this one
       nextURL = URL.createObjectURL(new Blob([bytes], {type: 'image/jpeg'}));
       img.src = nextURL;
@@ -1401,13 +1414,34 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       var webrtcBtn = document.getElementById('videoWebRTCBtn');
       var statsCheck = document.getElementById('videoStatsCheck');
       var hint = document.getElementById('qualityHint');
+      var bitrateRow = document.getElementById('bitrateRow');
+      var bitrateRange = document.getElementById('bitrateRange');
+      var bitrateVal = document.getElementById('bitrateVal');
       row.style.display = 'flex';
       function show(transport) {
         var rtc = transport === 'webrtc';
         webrtcBtn.classList.toggle('on', rtc);
         mjpegBtn.classList.toggle('on', !rtc);
         hint.style.display = rtc ? '' : 'none';
+        bitrateRow.style.display = rtc ? 'flex' : 'none';
       }
+      // The bitrate cap: the slider's top means no cap of ours.
+      function applyBitrate(kbps) {
+        var auto = kbps >= parseInt(bitrateRange.max, 10);
+        bitrateRange.value = kbps;
+        bitrateVal.textContent = auto ? 'auto' : (kbps >= 1000 ? (kbps / 1000).toFixed(1).replace(/\.0$/, '') + ' Mbps' : kbps + ' kbps');
+        window.__roadieRTC.capBitrate(auto ? 0 : kbps * 1000);
+      }
+      bitrateRange.oninput = function() {
+        var kbps = parseInt(bitrateRange.value, 10);
+        applyBitrate(kbps);
+        saveSettings({bitrate: kbps});
+      };
+      (function() {
+        var saved = {};
+        try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+        applyBitrate(saved.bitrate !== undefined ? saved.bitrate : parseInt(bitrateRange.max, 10));
+      })();
       mjpegBtn.onclick = function() { window.__roadieRTC.stop(); show('mjpeg'); saveSettings({transport: 'mjpeg'}); };
       webrtcBtn.onclick = function() { window.__roadieRTC.start(); show('webrtc'); saveSettings({transport: 'webrtc'}); };
       statsCheck.checked = window.__roadieRTC.statsShown();

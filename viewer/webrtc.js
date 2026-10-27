@@ -24,14 +24,14 @@
   var showStats = false;
   var pc = null, ws = null, control = null;
   var attempts = 0;
-  var firstFrameTimer = null, statsTimer = null;
+  var firstFrameTimer = null;
   var lastStatus = null;
+  var capBps = 0;          // the menu's bitrate cap; 0 is none
 
   function log(msg) { if (window.console) console.log('webrtc: ' + msg); }
 
   function teardown() {
     clearTimeout(firstFrameTimer);
-    clearInterval(statsTimer);
     if (ws) { var w = ws; ws = null; try { w.onclose = null; w.close(); } catch (e) {} }
     if (pc) { var p = pc; pc = null; try { p.close(); } catch (e) {} }
     control = null;
@@ -46,7 +46,6 @@
     video.style.display = 'none';
     video.srcObject = null;
     img.style.opacity = '';
-    if (statsEl) statsEl.style.display = 'none';
     window.__roadieExternalFeed = false;
     if (window.__roadieFeed) window.__roadieFeed.start();
   }
@@ -103,7 +102,6 @@
     video.style.display = 'block';
     img.style.opacity = '0';
     syncVideo();
-    if (showStats && statsEl) statsEl.style.display = 'block';
   });
 
   function send(obj) {
@@ -153,7 +151,10 @@
         pc.ondatachannel = function (e) {
           if (e.channel.label === 'control') {
             control = e.channel;
+            control.binaryType = 'arraybuffer';
             control.onmessage = onControl;
+            control.onopen = function () { if (capBps) sendCap(); };
+            if (control.readyState === 'open' && capBps) sendCap();
           }
         };
         pc.onconnectionstatechange = function () {
@@ -182,20 +183,44 @@
     firstFrameTimer = setTimeout(function () {
       if (!playing && !fallen && active) fallBack('no video within 8 s');
     }, 8000);
-    clearInterval(statsTimer);
-    statsTimer = setInterval(readStats, 1000);
+  }
+
+  function sendCap() {
+    if (control && control.readyState === 'open') control.send(JSON.stringify({type: 'bitrate', bps: capBps}));
   }
 
   // The control channel: the encoder's own view of things, once a second.
   function onControl(ev) {
-    var m;
-    try { m = JSON.parse(ev.data); } catch (e) { return; }
+    var data = ev.data, m;
+    if (data instanceof ArrayBuffer) data = new TextDecoder().decode(data);
+    if (typeof data !== 'string') return;
+    try { m = JSON.parse(data); } catch (e) { return; }
     if (m.type === 'stats') lastStatus = m;
   }
 
-  // What the browser sees: frames, delay in its jitter buffer, decode time
-  // and the round trip. Kept on window.__roadieRTCStats for scripts, and
-  // shown over the picture when stats are on.
+  // The stats box, once a second while it is on: which transport shows the
+  // picture, and its numbers. Over WebRTC they come from getStats (also on
+  // window.__roadieRTCStats for scripts); over MJPEG from the page's own
+  // count of frames and bytes.
+  var lastMJPEG = null;
+  function renderStats() {
+    if (!statsEl) return;
+    if (!showStats) { statsEl.style.display = 'none'; return; }
+    if (playing) { readStats(); return; }
+    var m = window.__roadieMJPEGStats ? window.__roadieMJPEGStats() : null;
+    if (!m) return;
+    var fps = 0, kbps = 0;
+    if (lastMJPEG) {
+      fps = m.frames - lastMJPEG.frames;
+      kbps = Math.round((m.bytes - lastMJPEG.bytes) * 8 / 1000);
+    }
+    lastMJPEG = m;
+    statsEl.textContent = 'video    MJPEG, JPEG quality ' + m.quality + '\n' +
+      'picture  ' + (m.size || '?') + ', ' + fps + ' fps, ' + kbps + ' kbps';
+    statsEl.style.display = 'block';
+  }
+  setInterval(renderStats, 1000);
+
   function readStats() {
     if (!pc || !pc.getStats) return;
     pc.getStats().then(function (report) {
@@ -224,6 +249,7 @@
       if (showStats && statsEl && playing) {
         var ms = function (v) { return v !== undefined ? v + ' ms' : '?'; };
         var lines = [
+          'video    WebRTC, H.264',
           'picture  ' + (out.width || '?') + 'x' + (out.height || '?') + ', ' + (out.fps || 0) + ' fps, ' + (out.kbps || 0) + ' kbps',
           'delay    round trip ' + ms(out.rttMs) + ', buffer ' + ms(out.jitterBufferMs) + ', decode ' + ms(out.decodeMs)
         ];
@@ -232,6 +258,7 @@
         }
         if (out.packetsLost) lines.push('lost     ' + out.packetsLost + ' packets');
         statsEl.textContent = lines.join('\n');
+        statsEl.style.display = 'block';
       }
     }).catch(function () {});
   }
@@ -261,11 +288,12 @@
     fellBack: function () { return fallen; },
     showStats: function (on) {
       showStats = !!on;
-      if (statsEl) statsEl.style.display = showStats && playing ? 'block' : 'none';
+      lastMJPEG = null;
+      renderStats();
     },
     statsShown: function () { return showStats; },
     requestKeyframe: function () { if (control && control.readyState === 'open') control.send(JSON.stringify({type: 'keyframe'})); },
-    capBitrate: function (bps) { if (control && control.readyState === 'open') control.send(JSON.stringify({type: 'bitrate', bps: bps})); }
+    capBitrate: function (bps) { capBps = bps || 0; sendCap(); }
   };
 
   // Which transport to begin with: ?transport= for this page load, else

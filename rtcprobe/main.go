@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v4"
@@ -37,13 +38,23 @@ func main() {
 	base := flag.String("url", "http://127.0.0.1:8080", "the Roadie to watch")
 	token := flag.String("token", "", "its local admin token (--auth token)")
 	dur := flag.Duration("t", 10*time.Second, "how long to watch")
+	out := flag.String("out", "", "write the H.264 stream here (Annex-B), for a look with ffmpeg")
+	capBps := flag.Int("cap", 0, "ask for this bitrate cap over the control channel, bits per second")
 	flag.Parse()
-	if err := run(*base, *token, *dur); err != nil {
+	if err := run(*base, *token, *dur, *out, *capBps); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(base, token string, dur time.Duration) error {
+func run(base, token string, dur time.Duration, outPath string, capBps int) error {
+	var outFile *os.File
+	if outPath != "" {
+		var err error
+		if outFile, err = os.Create(outPath); err != nil {
+			return err
+		}
+		defer outFile.Close()
+	}
 	wsURL := strings.Replace(strings.Replace(base, "https://", "wss://", 1), "http://", "ws://", 1) + "/api/webrtc/signal"
 	ctx, cancel := context.WithTimeout(context.Background(), dur+20*time.Second)
 	defer cancel()
@@ -68,9 +79,15 @@ func run(base, token string, dur time.Duration) error {
 	if err := m.RegisterDefaultCodecs(); err != nil {
 		return err
 	}
+	// The usual interceptors, so the host gets the receiver reports and
+	// transport feedback its congestion control needs, like a browser's.
+	reg := &interceptor.Registry{}
+	if err := webrtc.RegisterDefaultInterceptors(m, reg); err != nil {
+		return err
+	}
 	se := webrtc.SettingEngine{}
 	se.SetIncludeLoopbackCandidate(true)
-	pc, err := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithSettingEngine(se)).NewPeerConnection(webrtc.Configuration{})
+	pc, err := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(reg), webrtc.WithSettingEngine(se)).NewPeerConnection(webrtc.Configuration{})
 	if err != nil {
 		return err
 	}
@@ -117,6 +134,9 @@ func run(base, token string, dur time.Duration) error {
 				st.lastTS = pkt.Timestamp
 			}
 			if nal, err := depacketizer.Unmarshal(pkt.Payload); err == nil {
+				if outFile != nil {
+					outFile.Write(nal)
+				}
 				sps, _, idr := nalTypes(nal)
 				if sps {
 					st.spsSeen = true
@@ -127,6 +147,22 @@ func run(base, token string, dur time.Duration) error {
 			}
 			st.Unlock()
 		}
+	})
+	var controlMsgs int
+	var lastControl string
+	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+		fmt.Printf("data channel: %s\n", dc.Label())
+		dc.OnOpen(func() {
+			if capBps > 0 {
+				dc.SendText(fmt.Sprintf(`{"type":"bitrate","bps":%d}`, capBps))
+			}
+		})
+		dc.OnMessage(func(m webrtc.DataChannelMessage) {
+			st.Lock()
+			controlMsgs++
+			lastControl = string(m.Data)
+			st.Unlock()
+		})
 	})
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c != nil {
@@ -187,6 +223,7 @@ func run(base, token string, dur time.Duration) error {
 	}
 	fmt.Printf("video: %d frames (%.1f fps), %d packets, %.2f Mbps, %d keyframes, SPS seen: %v, over %.1fs\n",
 		st.frames, float64(st.frames)/span, st.packets, float64(st.bytes)*8/span/1e6, st.keyframes, st.spsSeen, span)
+	fmt.Printf("control: %d messages, last: %s\n", controlMsgs, lastControl)
 	if st.frames < 10 || !st.spsSeen {
 		os.Exit(1)
 	}
