@@ -1,7 +1,8 @@
 // Roadie's WebRTC transport for the viewer: H.264 from the host's encoder
 // over a peer connection, with the MJPEG feed as the fallback. The page
-// loads this when asked for ?transport=webrtc; it claims the picture before
-// the page's own script starts the MJPEG stream.
+// loads this whenever the host can encode; it claims the picture before
+// the page's own script starts the MJPEG stream when WebRTC is wanted, and
+// the page's menu can switch either way at any time (window.__roadieRTC).
 //
 // The page maps pointer input against the #feed image's size and position,
 // so #feed stays: see-through, sized like the video, on top of it. The
@@ -10,18 +11,18 @@
 // ResizeObserver sees. Input itself still travels the page's WebSocket in
 // this version.
 (function () {
-  if (window.__roadieTransport !== 'webrtc' || !window.RTCPeerConnection) return;
-  window.__roadieExternalFeed = true;
+  if (!window.RTCPeerConnection) return;
 
   var img = document.getElementById('feed');
   var video = document.getElementById('rtcVideo');
   var viewer = document.getElementById('viewer');
   var statsEl = document.getElementById('rtcStats');
-  var showStats = /[?&]stats=1/.test(location.search);
 
+  var active = false;      // WebRTC is wanted
+  var playing = false;     // a picture is being shown over WebRTC
+  var fallen = false;      // it failed and the page shows MJPEG
+  var showStats = false;
   var pc = null, ws = null, control = null;
-  var playing = false;     // a picture has been shown over WebRTC
-  var fallen = false;      // we gave up and the page shows MJPEG
   var attempts = 0;
   var firstFrameTimer = null, statsTimer = null;
   var lastStatus = null;
@@ -36,18 +37,26 @@
     control = null;
   }
 
-  // Back to MJPEG: the page's watchdog starts /stream within a second once
-  // the flag is down.
-  function fallBack(reason) {
-    if (fallen) return;
-    fallen = true;
-    log('falling back to MJPEG: ' + reason);
+  // Back to the page's MJPEG feed.
+  function showMJPEG() {
     teardown();
+    playing = false;
+    placedSize = '';
+    placed = '';
     video.style.display = 'none';
     video.srcObject = null;
     img.style.opacity = '';
     if (statsEl) statsEl.style.display = 'none';
     window.__roadieExternalFeed = false;
+    if (window.__roadieFeed) window.__roadieFeed.start();
+  }
+
+  function fallBack(reason) {
+    if (fallen || !active) return;
+    fallen = true;
+    log('falling back to MJPEG: ' + reason);
+    showMJPEG();
+    try { window.dispatchEvent(new CustomEvent('roadie-transport', {detail: {transport: 'mjpeg', reason: reason}})); } catch (e) {}
   }
 
   // A see-through image of the video's size, so the page lays #feed out as
@@ -58,7 +67,7 @@
   }
   var placedSize = '';
   function placeFeed() {
-    if (!video.videoWidth || !video.videoHeight) return;
+    if (!playing || !video.videoWidth || !video.videoHeight) return;
     var size = video.videoWidth + 'x' + video.videoHeight;
     if (size === placedSize) return;
     placedSize = size;
@@ -66,7 +75,6 @@
   }
   var placed = '';
   function syncVideo() {
-    if (!playing) return;
     var r = img.getBoundingClientRect(), v = viewer.getBoundingClientRect();
     var key = [r.left - v.left, r.top - v.top, r.width, r.height].join(',');
     if (key === placed) return;
@@ -79,7 +87,7 @@
   // Once a frame while playing: cheap, and it catches every way the page
   // can move or scale the image.
   function follow() {
-    if (playing && !fallen) syncVideo();
+    if (playing) syncVideo();
     window.requestAnimationFrame(follow);
   }
   window.requestAnimationFrame(follow);
@@ -87,6 +95,7 @@
   video.addEventListener('loadedmetadata', placeFeed);
 
   video.addEventListener('playing', function () {
+    if (!active) return;
     playing = true;
     attempts = 0;
     clearTimeout(firstFrameTimer);
@@ -94,7 +103,7 @@
     video.style.display = 'block';
     img.style.opacity = '0';
     syncVideo();
-    if (showStats && statsEl) { statsEl.style.display = 'block'; }
+    if (showStats && statsEl) statsEl.style.display = 'block';
   });
 
   function send(obj) {
@@ -112,13 +121,13 @@
     sock.onclose = function () {
       if (ws !== sock) return;
       ws = null;
-      if (fallen) return;
+      if (fallen || !active) return;
       // Roadie restarted, or the connection failed: try again a few times,
-      // then give up on WebRTC for this page load.
+      // then give up on WebRTC until asked again.
       if (attempts < 4) {
         log('signaling closed; retrying');
         if (pc) { try { pc.close(); } catch (e) {} pc = null; }
-        setTimeout(connect, 1500);
+        setTimeout(function () { if (active && !fallen) connect(); }, 1500);
       } else {
         fallBack('signaling closed ' + attempts + ' times');
       }
@@ -171,7 +180,7 @@
     };
     clearTimeout(firstFrameTimer);
     firstFrameTimer = setTimeout(function () {
-      if (!playing && !fallen) fallBack('no video within 8 s');
+      if (!playing && !fallen && active) fallBack('no video within 8 s');
     }, 8000);
     clearInterval(statsTimer);
     statsTimer = setInterval(readStats, 1000);
@@ -186,7 +195,7 @@
 
   // What the browser sees: frames, delay in its jitter buffer, decode time
   // and the round trip. Kept on window.__roadieRTCStats for scripts, and
-  // shown over the picture with ?stats=1.
+  // shown over the picture when stats are on.
   function readStats() {
     if (!pc || !pc.getStats) return;
     pc.getStats().then(function (report) {
@@ -213,21 +222,58 @@
       if (lastStatus) out.encoder = lastStatus;
       window.__roadieRTCStats = out;
       if (showStats && statsEl && playing) {
-        statsEl.textContent =
-          (out.width || '?') + 'x' + (out.height || '?') + ' ' + (out.fps || 0) + ' fps ' + (out.kbps || 0) + ' kbps\n' +
-          'rtt ' + (out.rttMs !== undefined ? out.rttMs : '?') + ' ms, jitter buffer ' + (out.jitterBufferMs !== undefined ? out.jitterBufferMs : '?') + ' ms, decode ' + (out.decodeMs !== undefined ? out.decodeMs : '?') + ' ms' +
-          (lastStatus && lastStatus.status ? '\nencoder ' + lastStatus.status.encoder + ' ' + Math.round((lastStatus.status.bitrate || 0) / 1000) + ' kbps target, ' + (lastStatus.kbps || 0) + ' kbps out, ' + (lastStatus.status.fps || 0) + ' fps' : '');
+        var ms = function (v) { return v !== undefined ? v + ' ms' : '?'; };
+        var lines = [
+          'picture  ' + (out.width || '?') + 'x' + (out.height || '?') + ', ' + (out.fps || 0) + ' fps, ' + (out.kbps || 0) + ' kbps',
+          'delay    rtt ' + ms(out.rttMs) + ', buffer ' + ms(out.jitterBufferMs) + ', decode ' + ms(out.decodeMs)
+        ];
+        if (lastStatus && lastStatus.status) {
+          lines.push('encoder  ' + lastStatus.status.encoder + ', ' + (lastStatus.status.fps || 0) + ' fps, ' + (lastStatus.kbps || 0) + ' kbps sent, target ' + Math.round((lastStatus.status.bitrate || 0) / 1000) + ' kbps');
+        }
+        if (out.packetsLost) lines.push('lost     ' + out.packetsLost + ' packets');
+        statsEl.textContent = lines.join('\n');
       }
     }).catch(function () {});
   }
 
-  // For scripts and tests.
+  function start() {
+    if (active) return;
+    active = true;
+    fallen = false;
+    attempts = 0;
+    window.__roadieExternalFeed = true;
+    if (window.__roadieFeed) window.__roadieFeed.stop();
+    connect();
+  }
+  function stop() {
+    if (!active) return;
+    active = false;
+    fallen = false;
+    showMJPEG();
+  }
+
+  // For the page's menu, scripts and tests.
   window.__roadieRTC = {
-    requestKeyframe: function () { if (control && control.readyState === 'open') control.send(JSON.stringify({type: 'keyframe'})); },
-    capBitrate: function (bps) { if (control && control.readyState === 'open') control.send(JSON.stringify({type: 'bitrate', bps: bps})); },
+    start: start,
+    stop: stop,
+    active: function () { return active && !fallen; },
     isPlaying: function () { return playing && !fallen; },
-    fellBack: function () { return fallen; }
+    fellBack: function () { return fallen; },
+    showStats: function (on) {
+      showStats = !!on;
+      if (statsEl) statsEl.style.display = showStats && playing ? 'block' : 'none';
+    },
+    statsShown: function () { return showStats; },
+    requestKeyframe: function () { if (control && control.readyState === 'open') control.send(JSON.stringify({type: 'keyframe'})); },
+    capBitrate: function (bps) { if (control && control.readyState === 'open') control.send(JSON.stringify({type: 'bitrate', bps: bps})); }
   };
 
-  connect();
+  // Which transport to begin with: ?transport= for this page load, else
+  // what this browser chose in the menu, else MJPEG.
+  var wanted = window.__roadieTransport;
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch (e) {}
+  if (!wanted) wanted = saved.transport;
+  showStats = /[?&]stats=1/.test(location.search) || !!saved.stats;
+  if (wanted === 'webrtc') start();
 })();

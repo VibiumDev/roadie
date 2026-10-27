@@ -276,12 +276,20 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 		b, _ := json.Marshal(d)
 		fmt.Fprintf(w, "\n<script>window.__roadieUSBDevices=%s;</script>", b)
 	}
-	// ?transport=webrtc: H.264 over a peer connection instead of MJPEG, when
-	// this host can encode it. The page falls back to MJPEG by itself if the
-	// connection fails. Fixed literal, nothing from the query reaches the page.
-	webrtcTransport := r.URL.Query().Get("transport") == "webrtc" && s.RTC != nil && s.RTC.Available()
-	if webrtcTransport {
-		fmt.Fprint(w, "\n<script>window.__roadieTransport='webrtc';</script>")
+	// WebRTC: H.264 over a peer connection instead of MJPEG, when this host
+	// can encode it. The menu switches between the two and this browser
+	// remembers the choice; ?transport=webrtc or mjpeg sets it for this page
+	// load. The page falls back to MJPEG by itself if the connection fails.
+	// Fixed literals only, nothing from the query reaches the page.
+	webrtcOffered := s.RTC != nil && s.RTC.Available()
+	if webrtcOffered {
+		fmt.Fprint(w, "\n<script>window.__roadieWebRTC=true;</script>")
+		switch r.URL.Query().Get("transport") {
+		case "webrtc":
+			fmt.Fprint(w, "\n<script>window.__roadieTransport='webrtc';</script>")
+		case "mjpeg":
+			fmt.Fprint(w, "\n<script>window.__roadieTransport='mjpeg';</script>")
+		}
 	}
 
 	fmt.Fprint(w, `
@@ -325,10 +333,19 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     <button id="lockBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:none; align-items:center; justify-content:center;" title="Lock"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"></svg></button>
     <button id="shotBtn" class="tbtn" style="width:36px; height:36px; border-radius:6px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" title="Save a screenshot"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M10.5 8.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"/><path d="M2 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1.17a2 2 0 0 1-1.42-.59l-.82-.82A2 2 0 0 0 9.17 2H6.83a2 2 0 0 0-1.42.59l-.82.82A2 2 0 0 1 3.17 4zm6 1.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6"/></svg></button>
     <div id="qslider" style="display:none; position:absolute; top:8px; z-index:21; border-radius:8px; padding:10px 14px; font-family:monospace; font-size:0.85em; white-space:nowrap;">
+      <div id="videoRow" style="display:none; align-items:center; gap:8px; margin-bottom:8px;">
+        <label style="min-width:55px;">Video</label>
+        <div class="seg" style="display:flex; gap:0;">
+          <button id="videoMJPEGBtn" style="padding:2px 10px; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">MJPEG</button>
+          <button id="videoWebRTCBtn" style="padding:2px 10px; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">WebRTC</button>
+        </div>
+        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;" title="Frame rate, bitrate and delays over the picture"><input id="videoStatsCheck" type="checkbox"> Stats</label>
+      </div>
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-        <label style="min-width:55px;">Quality</label>
+        <label style="min-width:55px;" title="JPEG quality: the MJPEG stream and screenshots">Quality</label>
         <input id="qrange" type="range" min="30" max="95" style="width:120px; vertical-align:middle;">
         <span id="qval" style="min-width:2em; text-align:right;"></span>
+        <span id="qualityHint" class="hint" style="display:none;">JPEG only</span>
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
         <label style="min-width:55px;">FPS</label>
@@ -438,7 +455,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     </div>
   </div>
 `)
-	if webrtcTransport {
+	if webrtcOffered {
 		fmt.Fprint(w, "  <script src=\"/viewer/webrtc.js\"></script>\n")
 	}
 	fmt.Fprint(w, `  <script>
@@ -557,6 +574,12 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
         if (stream === ctl) stream = null;  // the watchdog starts another
       });
     }
+    // The WebRTC module takes the picture over and gives it back through
+    // these.
+    window.__roadieFeed = {
+      stop: function() { if (stream) { stream.abort(); stream = null; } },
+      start: function() { if (!stream && serving) startStream(); }
+    };
     // The watchdog: a stream that ended, or has sent nothing for STALL_MS
     // (a network that dropped it silently, a laptop back from sleep), is
     // started again once roadie is serving.
@@ -1365,6 +1388,32 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
       applyAlignment(saved.alignment || alignment);
       if (saved.zoom !== undefined) { applyZoom(saved.zoom); }
+    })();
+
+    // --- Video transport: MJPEG or WebRTC, when the host offers it. The
+    // module (viewer/webrtc.js) does the switching; the choice is this
+    // browser's, like zoom. The quality slider is JPEG's: it stays for
+    // screenshots, and the hint says so while WebRTC shows the picture.
+    (function() {
+      if (!window.__roadieWebRTC || !window.__roadieRTC) return;
+      var row = document.getElementById('videoRow');
+      var mjpegBtn = document.getElementById('videoMJPEGBtn');
+      var webrtcBtn = document.getElementById('videoWebRTCBtn');
+      var statsCheck = document.getElementById('videoStatsCheck');
+      var hint = document.getElementById('qualityHint');
+      row.style.display = 'flex';
+      function show(transport) {
+        var rtc = transport === 'webrtc';
+        webrtcBtn.classList.toggle('on', rtc);
+        mjpegBtn.classList.toggle('on', !rtc);
+        hint.style.display = rtc ? '' : 'none';
+      }
+      mjpegBtn.onclick = function() { window.__roadieRTC.stop(); show('mjpeg'); saveSettings({transport: 'mjpeg'}); };
+      webrtcBtn.onclick = function() { window.__roadieRTC.start(); show('webrtc'); saveSettings({transport: 'webrtc'}); };
+      statsCheck.checked = window.__roadieRTC.statsShown();
+      statsCheck.onchange = function() { window.__roadieRTC.showStats(statsCheck.checked); saveSettings({stats: statsCheck.checked}); };
+      window.addEventListener('roadie-transport', function(e) { show(e.detail.transport); });
+      show(window.__roadieRTC.active() ? 'webrtc' : 'mjpeg');
     })();
 
     // --- Theme ---
