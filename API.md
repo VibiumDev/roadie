@@ -793,7 +793,7 @@ Ctrl+Alt+Del: press 224, press 226, press 76, release 76, release 226, release 2
 | `--platform` | | Target OS: `android`, `ios`, `mac`, `windows`, `linux`. Tunes pointer mapping and the default input mode |
 | `--input` | (viewer decides) | Default pointer mode for viewers: `mouse` or `touch` |
 | `--hid-backend` | rp2040 | Input hardware: `rp2040` (relay and HID boards) or `linux-gadget` (this Pi's USB-C port; see [docs/how-to/linux-gadget.md](docs/how-to/linux-gadget.md)) |
-| `--bind` | 127.0.0.1 without `--auth`, else every address | Address to listen on |
+| `--bind` | 127.0.0.1 without `--auth`, else every address | Address to listen on. `127.0.0.1` behind `tailscale serve`, which is when `--auth tailscale` trusts the `Tailscale-User-Login` header serve adds |
 | `--auth` | | Who may use the pages and API: `token` (the local admin token; `roadie token` prints it), `tailscale` (whoever the local tailscaled says the connection belongs to), or `none` (no checks, with a warning at every start). Unset, Roadie listens on localhost only |
 | `--allow` | anyone on the tailnet | With `--auth tailscale`: comma-separated Tailscale logins and tags (`you@example.com,tag:ci`) allowed |
 | `--tls-cert`, `--tls-key` | | Serve HTTPS with this certificate and key (PEM); the files are reloaded when they change, so a renewal needs no restart. `roadie tls status --tls-cert FILE` shows the names and expiry |

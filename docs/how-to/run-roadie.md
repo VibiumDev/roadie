@@ -84,14 +84,57 @@ curl -H "Authorization: Bearer $(roadie token)" http://roadie.local:8080/health
 
 `--auth tailscale` asks `tailscaled` over its local socket, so Roadie's user
 must be allowed to: `sudo tailscale set --operator=$USER`. Behind
-`tailscale serve` (an HTTPS `*.ts.net` name), bind Roadie to localhost and it
-trusts the `Tailscale-User-Login` header instead.
+`tailscale serve` it reads a header instead; see [HTTPS](#https).
 
 ## HTTPS
 
-The browser's microphone needs a secure page, and so does anything not on
-localhost that you would rather not send in the clear. Roadie serves TLS
-itself:
+The browser's microphone needs a secure page (https, or localhost), and so
+does anything not on localhost that you would rather not send in the clear.
+Two ways to get one.
+
+### From your tailnet, with `tailscale serve`
+
+The quickest on a tailnet, with no certificate files to manage: `tailscaled`
+answers HTTPS on the machine's `*.ts.net` name with a certificate it fetches
+and renews itself, and passes each request to Roadie on localhost with the
+caller's login in a `Tailscale-User-Login` header. Bind Roadie to localhost
+and it trusts that header:
+
+```bash
+# /etc/default/roadie
+ROADIE_ARGS="--hid-backend linux-gadget --platform ios --port 8080 --auth tailscale --bind 127.0.0.1"
+```
+
+```bash
+sudo systemctl restart roadie
+sudo tailscale serve --bg 8080
+```
+
+The viewer is then at `https://<machine>.<tailnet>.ts.net/view` for everyone
+on the tailnet, or only the logins and tags in `--allow you@example.com`.
+Agents and scripts on the tailnet use the same address and need no token.
+`--bg` keeps the rule across reboots; `tailscale serve status` shows it and
+`tailscale serve off` removes it. HTTPS certificates must be enabled for the
+tailnet (the admin console, under DNS), and the first request after setup
+waits while the certificate is issued, which can take a minute.
+
+Everything goes through serve: the pages, the API, the MJPEG stream and the
+WebSockets (`/api/hid/ws`, `/audio`, `/api/mic`, `/session` and WebRTC
+signaling). WebRTC media itself still travels directly between the browser
+and Roadie over their tailnet addresses.
+
+Why localhost only: serve connects to Roadie from the machine itself, so
+Roadie cannot ask `tailscaled` who the caller is and reads the header
+instead. A process on the machine could forge that header, so Roadie only
+trusts it when nothing else can reach the port. `tailscaled` replaces any
+`Tailscale-User-Login` a client sends with the caller's real login, and
+leaves it out for a tagged machine (`tag:ci`), which Roadie then refuses: for
+tags, use Roadie's own TLS below. The plain `http://<machine>:8080` address
+stops answering once Roadie binds to localhost.
+
+### Roadie's own TLS
+
+Roadie serves TLS itself from a certificate and key:
 
 ```bash
 ROADIE_ARGS="... --auth token --port 443 --tls-cert /etc/roadie/cert.pem --tls-key /etc/roadie/key.pem --http-redirect :80"
@@ -101,8 +144,10 @@ The certificate and key files are read again when they change, so a renewal
 needs no restart; the service unit has the capability to bind ports below
 1024 without root. `roadie tls status --tls-cert /etc/roadie/cert.pem` shows
 the names and expiry. A wildcard certificate from your DNS provider, copied
-to the Pi by whatever renews it, is the simplest arrangement; a station can
-manage certificates for its rigs later.
+to the Pi by whatever renews it, is the simplest arrangement; on a tailnet,
+`sudo tailscale cert <machine>.<tailnet>.ts.net` writes a pair for that name
+(run it again before the 90 days are up). A station can manage certificates
+for its rigs later.
 
 ## What a restart keeps
 
