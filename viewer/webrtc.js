@@ -242,14 +242,21 @@
     if (playing) { readStats(); return; }
     var m = window.__roadieMJPEGStats ? window.__roadieMJPEGStats() : null;
     if (!m) return;
-    var fps = 0, kbps = 0;
+    var fps = 0, kbps = 0, audioKbps = 0, micKbps = 0;
     if (lastMJPEG) {
       fps = m.frames - lastMJPEG.frames;
       kbps = Math.round((m.bytes - lastMJPEG.bytes) * 8 / 1000);
+      if (m.audio && lastMJPEG.audio) audioKbps = Math.round((m.audio.bytes - lastMJPEG.audio.bytes) * 8 / 1000);
+      if (m.mic && lastMJPEG.mic) micKbps = Math.round((m.mic.bytes - lastMJPEG.mic.bytes) * 8 / 1000);
     }
     lastMJPEG = m;
-    statsEl.textContent = 'video    MJPEG, JPEG quality ' + m.quality + '\n' +
-      'picture  ' + (m.size || '?') + ', ' + fps + ' fps, ' + kbps + ' kbps';
+    var lines = [
+      'video    MJPEG, JPEG quality ' + m.quality,
+      'picture  ' + (m.size || '?') + ', ' + fps + ' fps, ' + kbps + ' kbps',
+      'audio    ' + (m.audio ? m.audio.format + ', ' + audioKbps + ' kbps' : 'off') +
+        (m.mic ? ', mic PCM 16 kHz ' + micKbps + ' kbps' : '')
+    ];
+    statsEl.textContent = lines.join('\n');
     statsEl.style.display = 'block';
   }
   setInterval(renderStats, 1000);

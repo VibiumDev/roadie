@@ -516,10 +516,14 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     var shownURL = null, nextURL = null;
     var STALL_MS = 4000;
     var mjpegFrames = 0, mjpegBytes = 0;
-    // For the stats box (viewer/webrtc.js): what the MJPEG feed delivers.
+    // For the stats box (viewer/webrtc.js): what the MJPEG feed delivers,
+    // and the sound on the /audio and /api/mic WebSockets while they are open.
     window.__roadieMJPEGStats = function() {
       return {frames: mjpegFrames, bytes: mjpegBytes, size: shownSize,
-              quality: parseInt(document.getElementById('qrange').value, 10) || 0};
+              quality: parseInt(document.getElementById('qrange').value, 10) || 0,
+              audio: audioWs && audioParams ? {format: 'PCM ' + audioParams.sampleRate / 1000 + ' kHz ' +
+                       (audioParams.channels === 2 ? 'stereo' : audioParams.channels + ' ch'), bytes: audioBytes} : null,
+              mic: pttWs ? {bytes: micBytes} : null};
     };
     function showFrame(bytes) {
       lastFrame = Date.now();
@@ -656,6 +660,8 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     // --- Audio via WebSocket ---
     var audioCtx = null;
     var audioWs = null;
+    var audioParams = null;     // the format /audio announced, for the stats box
+    var audioBytes = 0;         // PCM received on /audio
     var muted = true;
     var audioQueue = [];
     var workletReady = false;
@@ -758,6 +764,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
       audioWs.onmessage = function(e) {
         if (!params) {
           params = JSON.parse(e.data);
+          audioParams = params;
           audioCtx = new AudioContext({ sampleRate: params.sampleRate });
           if (useWorklet()) {
             setupWorklet(params);
@@ -766,6 +773,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
           }
           return;
         }
+        audioBytes += e.data.byteLength;
         var samples = new Float32Array(e.data);
         if (useWorklet()) {
           if (workletReady && workletNode) {
@@ -816,6 +824,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
     var pttBtn = document.getElementById('ptt');
     var pttWs = null, pttCtx = null, pttStream = null, pttNode = null;
     var talking = false;
+    var micBytes = 0;           // PCM sent on /api/mic, for the stats box
 
     if (!(window.isSecureContext && navigator.mediaDevices)) {
       // getUserMedia needs a secure context (https or localhost)
@@ -869,6 +878,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
                 i16[j] = s2 < 0 ? s2 * 32768 : s2 * 32767;
               }
               pttWs.send(i16.buffer);
+              micBytes += i16.buffer.byteLength;
             }
           };
           src.connect(pttNode);
