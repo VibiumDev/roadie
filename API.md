@@ -635,7 +635,7 @@ WebSocket endpoint for voice input: audio sent here plays out of the HID board's
 
 The stream on the target stops 200 ms after the last message arrives. Returns `503` if the HID relay is not connected.
 
-The viewer's microphone button uses this endpoint when the picture comes over MJPEG; over WebRTC the microphone travels as an audio track on the peer connection instead (see [`/api/webrtc/signal`](#ws-apiwebrtcsignal)), which also works in Firefox. The WebSocket needs a secure context (https or localhost) for `getUserMedia`, and a browser that supports opening an `AudioContext` at 16 kHz (Chrome, Edge, Safari — not Firefox yet).
+The viewer's microphone button uses this endpoint when the picture comes over MJPEG; over WebRTC the microphone travels as an audio track on the peer connection instead (see [`/api/webrtc/signal`](#ws-apiwebrtcsignal)), which also works in Firefox. The WebSocket needs a secure context (https or localhost) for `getUserMedia`, and a browser that supports opening an `AudioContext` at 16 kHz (Chrome, Edge, Safari — not Firefox yet). To try the mic over plain http before TLS is set up, Chrome can treat one origin as secure: `chrome://flags/#unsafely-treat-insecure-origin-as-secure` with the host's URL.
 
 ---
 
