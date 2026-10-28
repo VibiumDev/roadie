@@ -776,6 +776,31 @@ Ctrl+Alt+Del: press 224, press 226, press 76, release 76, release 226, release 2
 
 ---
 
+
+## Vibium Station
+
+Roadie can enroll as a rig with a [Vibium Station](https://github.com/VibiumDev/station), which brokers access to it from anywhere: the station holds the rig's outbound tunnel, signs session leases, and serves the shared viewer. Nothing is opened on the Pi; it dials out.
+
+```bash
+roadie enroll https://station.example --code ABCD-1234-7F3A [--name NAME] [--platform ios] [--admin]
+```
+
+The code comes from the station's Settings page or `station enroll`; it ends with the station key's fingerprint, which `roadie enroll` checks against the key the station presents before it sends anything. Without a URL the station is found on the LAN over mDNS (`_vibium-station._tcp`). On success the policy file is written and `roadie` connects at its next start.
+
+Files, next to the local token in the user config directory (`~/.config/roadie`):
+
+| File | Holds |
+|---|---|
+| `rig.key` | The rig's secp256k1 key, made on first use; its npub is in `/health` |
+| `rig.json` | The policy: the stations accepted, and per station the allowed scopes (`view`, `input`, `bidi`), whether `admin` grants are taken, `max_session` and optional `hours` (`"09:00-18:00"`). Written by `roadie enroll`, edited by hand; nothing remote can change it |
+| `rig-state.json` | The lease state: the current lease per device and the highest sequence seen, so a restart cannot be made to accept an older lease |
+
+Through the tunnel the station reaches only an allowlist of endpoints, each with the scope a grant must carry, and every request presents a lease grant: in `Authorization: Lease <base64url event>` for plain requests, or in the first message of a WebSocket. Today that is [`/api/webrtc/signal`](#ws-apiwebrtcsignal) (`view`; the hello carries `"grant"`) and `GET /health` (`view`); REST, BiDi, MJPEG and the fallback WebSockets follow in R5. The grant is checked on the Pi: signed by a station in the policy, for this rig and device, not expired, not replayed, not revoked, not older than the lease the device has, and inside the policy. A viewer refreshes its grant every few minutes by sending `{"type":"grant","grant":{...}}` on the control channel; a grant that no longer passes ends the session. A revocation from the station, or a newer lease, ends a lease's sessions within a second.
+
+`/health` gains a `station` block: the rig's npub and, per station, its name, URL, rig id, whether the tunnel is up, and the lease currently held.
+
+Input from a viewer that does not know the capture's crop, such as the station's, sends positions as fractions of the picture scaled to 0..32767 with `"space":"picture"` on `mouse_move` and `touch`; Roadie folds its crop in. Without `space`, coordinates are the absolute units described above.
+
 ## CLI Flags
 
 | Flag | Default | Description |

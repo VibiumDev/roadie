@@ -149,6 +149,32 @@ to the Pi by whatever renews it, is the simplest arrangement; on a tailnet,
 (run it again before the 90 days are up). A station can manage certificates
 for its rigs later.
 
+## Join a station
+
+A [Vibium Station](https://github.com/VibiumDev/station) lets you reach
+this Roadie from anywhere without opening a port: Roadie dials out to it
+and keeps a tunnel, and the station signs leases that Roadie checks itself.
+
+On the station's Settings page make an enrollment code, then on the Pi:
+
+```bash
+roadie enroll https://station.example --code ABCD-1234-7F3A --name "pi in the lab" --platform ios
+sudo systemctl restart roadie
+```
+
+On the same network the URL can be left out. The code's last group is the
+station key's fingerprint, which `roadie enroll` checks before it sends
+anything, so a spoofed station on the LAN gets nothing. `--admin` lets the
+station's admin grants through (settings, resets); by default they are
+refused.
+
+What the station may do is yours to edit in `~/.config/roadie/rig.json`:
+the scopes (`view`, `input`, `bidi`), `admin`, `max_session` and `hours`.
+`/health` shows the `station` block with the tunnel's state and the lease
+held, and the service log says when it connects. To leave a station, remove
+its entry from the file and restart; to be rid of a rig the station's owner
+removes it on their Settings page, after which its key is refused.
+
 ## What a restart keeps
 
 | Kept | From |
