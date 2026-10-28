@@ -429,10 +429,22 @@ func main() {
 		broadcaster.SetInput(srv.hidCommand, mic)
 	}
 	settled.turned = srv.pointerTurned
+	handler := NewMux(srv)
 	httpServer := &http.Server{
 		Addr:    net.JoinHostPort(bind, strconv.Itoa(listenPort)),
-		Handler: auth.Wrap(NewMux(srv)),
+		Handler: auth.Wrap(handler),
 	}
+	// Enrolled with a station: a tunnel to it, serving the same mux behind
+	// the rig's gate instead of the local login.
+	var onLeaseEnd func(deviceID, leaseID string)
+	if broadcaster != nil {
+		onLeaseEnd = func(_, leaseID string) { broadcaster.EndLease(leaseID) }
+	}
+	rigRun, err := startRig(handler, deviceOffer(platform, hid != nil, ab != nil), onLeaseEnd)
+	if err != nil {
+		log.Fatalf("station: %v", err)
+	}
+	srv.Station = rigRun
 	if certs != nil {
 		httpServer.TLSConfig = &tls.Config{GetCertificate: certs.GetCertificate, MinVersion: tls.VersionTLS12}
 	}
@@ -467,6 +479,9 @@ func main() {
 	<-done
 	fmt.Println("\nShutting down...")
 
+	if rigRun != nil {
+		rigRun.shutdown()
+	}
 	if broadcaster != nil {
 		broadcaster.Close()
 	}

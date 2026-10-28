@@ -8,6 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"fiatjaf.com/nostr"
+	"github.com/VibiumDev/station/rig"
+	"github.com/VibiumDev/station/token"
 	"github.com/coder/websocket"
 	"github.com/pion/interceptor/pkg/cc"
 	"github.com/pion/rtcp"
@@ -21,6 +24,11 @@ type Session struct {
 	control   *webrtc.DataChannel
 	estimator cc.BandwidthEstimator
 	send      func(Message) error
+
+	// Through a station: the lease the viewer was admitted on, and the
+	// check a refreshed grant goes through.
+	lease string
+	check func(ev nostr.Event) (token.Grant, error)
 
 	mu         sync.Mutex
 	haveRemote bool
@@ -64,11 +72,30 @@ func (b *Broadcaster) ServeSignal(w http.ResponseWriter, r *http.Request) {
 		send(Message{Type: "error", Error: "expected a hello"})
 		return
 	}
+	// A viewer that came through a station's tunnel must hold a lease: the
+	// rig library's check is in the request context, and the grant in the
+	// hello. On the LAN there is no check and no grant.
+	var lease string
+	check := rig.FirstMessageCheck(ctx)
+	if check != nil {
+		var ev nostr.Event
+		if hello.Grant == nil || json.Unmarshal(hello.Grant, &ev) != nil {
+			send(Message{Type: "error", Error: "a lease grant is required"})
+			return
+		}
+		grant, err := check(ev)
+		if err != nil {
+			send(Message{Type: "error", Error: "lease: " + err.Error()})
+			return
+		}
+		lease = grant.LeaseID
+	}
 	s, err := b.newSession(send)
 	if err != nil {
 		send(Message{Type: "error", Error: err.Error()})
 		return
 	}
+	s.lease, s.check = lease, check
 	defer s.Close()
 	// A peer connection that fails ends the WebSocket too, so the viewer
 	// notices and falls back or reconnects.
@@ -245,6 +272,21 @@ func (s *Session) onControl(data []byte) {
 		s.b.mu.Lock()
 		s.b.caps[s] = m.BPS
 		s.b.mu.Unlock()
+	case "grant":
+		// A refreshed grant from a viewer through a station: it must still
+		// pass, and on the same lease, or the session ends.
+		if s.check == nil || m.Grant == nil {
+			return
+		}
+		var ev nostr.Event
+		if err := json.Unmarshal(m.Grant, &ev); err != nil {
+			return
+		}
+		grant, err := s.check(ev)
+		if err != nil || grant.LeaseID != s.lease {
+			s.send(Message{Type: "error", Error: "lease: refresh refused"})
+			s.Close()
+		}
 	}
 }
 

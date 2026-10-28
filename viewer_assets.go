@@ -1,15 +1,14 @@
 package main
 
 import (
-	_ "embed"
 	"net/http"
+
+	"github.com/VibiumDev/station/viewer"
 )
 
-// The viewer's WebRTC module, loaded by /view?transport=webrtc. It lives in
-// its own file so the station can serve the same code later.
-//
-//go:embed viewer/webrtc.js
-var viewerWebRTCJS []byte
+// The viewer's WebRTC module, loaded by /view. It is the Station viewer
+// package's copy, so a station's page and this one run the same code.
+var viewerWebRTCJS = viewer.WebRTCJS
 
 func (s *Server) handleViewerJS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")

@@ -18,10 +18,13 @@ func runCommand(name string, args []string) int {
 		return tokenCommand(args)
 	case "tls":
 		return tlsCommand(args)
+	case "enroll":
+		return enrollCommand(args)
 	case "help":
 		fmt.Println("usage: roadie [flags]            run the server (roadie -h for the flags)\n" +
 			"       roadie token [--rotate]  show the local admin token (--auth token)\n" +
-			"       roadie tls status --tls-cert FILE [--tls-key FILE]")
+			"       roadie tls status --tls-cert FILE [--tls-key FILE]\n" +
+			"       roadie enroll [URL] --code CODE   join a Vibium Station (roadie enroll -h)")
 		return 0
 	}
 	fmt.Fprintf(os.Stderr, "roadie: unknown command %q (try roadie help)\n", name)

@@ -557,14 +557,35 @@ type Message struct {
 	SDP       string                   `json:"sdp,omitempty"`
 	Candidate *webrtc.ICECandidateInit `json:"candidate,omitempty"`
 	Error     string                   `json:"error,omitempty"`
+	// Grant is the lease grant a viewer coming through a station puts in
+	// its hello: the rig library checks it.
+	Grant json.RawMessage `json:"grant,omitempty"`
 }
 
 // controlMessage is what travels on the control data channel.
 type controlMessage struct {
-	Type   string  `json:"type"` // keyframe, bitrate (from the viewer); stats (to it)
-	BPS    int     `json:"bps,omitempty"`
-	Status *Status `json:"status,omitempty"`
-	Kbps   int     `json:"kbps,omitempty"`
+	Type   string          `json:"type"` // keyframe, bitrate, grant (from the viewer); stats (to it)
+	BPS    int             `json:"bps,omitempty"`
+	Status *Status         `json:"status,omitempty"`
+	Kbps   int             `json:"kbps,omitempty"`
+	Grant  json.RawMessage `json:"grant,omitempty"` // a refreshed lease grant
+}
+
+// EndLease closes every session admitted on a lease: it was revoked or a
+// newer lease took the device.
+func (b *Broadcaster) EndLease(leaseID string) {
+	b.mu.Lock()
+	var ended []*Session
+	for s := range b.sessions {
+		if s.lease == leaseID {
+			ended = append(ended, s)
+		}
+	}
+	b.mu.Unlock()
+	for _, s := range ended {
+		s.send(Message{Type: "error", Error: "lease ended"})
+		s.Close()
+	}
 }
 
 func (b *Broadcaster) statsMessage() []byte {

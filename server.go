@@ -8,6 +8,7 @@ import (
 	"html"
 	"image"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"sync"
@@ -32,6 +33,8 @@ type Server struct {
 	// RTC sends the picture over WebRTC; nil when this host has no way to
 	// encode H.264 or frames come from an HTTP source.
 	RTC *rtc.Broadcaster
+	// Station is the rig side, while enrolled with one: see station.go.
+	Station *rigRunner
 	// Auth decides who may use the pages and API; see --auth.
 	Auth *Auth
 
@@ -2339,6 +2342,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if s.RTC != nil && s.RTC.Available() {
 		resp["webrtc"] = s.RTC.Status()
 	}
+	if s.Station != nil {
+		resp["station"] = s.Station.status()
+	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	enc.Encode(resp)
@@ -3732,9 +3738,19 @@ func (s *Server) hidCommand(data []byte) {
 		Text     string         `json:"text"`
 		Amount   int            `json:"amount"`
 		Contacts []TouchContact `json:"contacts"`
+		// Space "picture" says x and y (and the contacts) are fractions of
+		// the picture a viewer sees, scaled to 0..32767, for a viewer that
+		// knows nothing of the crop: the station's.
+		Space string `json:"space,omitempty"`
 	}
 	if err := json.Unmarshal(data, &msg); err != nil {
 		return
+	}
+	if msg.Space == "picture" {
+		msg.X, msg.Y = s.pictureToHID(msg.X, msg.Y)
+		for i := range msg.Contacts {
+			msg.Contacts[i].X, msg.Contacts[i].Y = s.pictureToHID(msg.Contacts[i].X, msg.Contacts[i].Y)
+		}
 	}
 	// While Roadie turns the screen it clicks through AssistiveTouch's
 	// menu, and a viewer's pointer moving under it would spoil that.
@@ -3772,6 +3788,36 @@ func (s *Server) hidCommand(data []byte) {
 	case "touch":
 		s.HID.Touch(msg.Contacts)
 	}
+}
+
+// pictureToHID turns a position given as a fraction of the picture a
+// viewer sees (the crop, scaled to 0..32767) into the absolute units the
+// target takes: the same arithmetic as the viewer page's remapToAbsolute,
+// done here for viewers that do not know the crop.
+func (s *Server) pictureToHID(x, y int) (int, int) {
+	if s.Buf == nil || s.Source == nil {
+		return x, y
+	}
+	clamp := func(f float64) float64 { return math.Max(0, math.Min(1, f)) }
+	px, py := clamp(float64(x)/32767), clamp(float64(y)/32767)
+	fullW, fullH := s.Buf.Width(), s.Buf.Height()
+	crop := s.Source.CropRect()
+	if s.Platform.PointerSpace() == "screen" {
+		whole := crop == (image.Rectangle{}) || crop == image.Rect(0, 0, fullW, fullH)
+		content := s.Source.ContentRect()
+		if whole && content.Dx() > 0 && content.Dy() > 0 && fullW > 0 && fullH > 0 {
+			fx := clamp((px*float64(fullW) - float64(content.Min.X)) / float64(content.Dx()))
+			fy := clamp((py*float64(fullH) - float64(content.Min.Y)) / float64(content.Dy()))
+			return int(math.Round(fx * 32767)), int(math.Round(fy * 32767))
+		}
+		return int(math.Round(px * 32767)), int(math.Round(py * 32767))
+	}
+	if crop.Dx() > 0 && crop.Dy() > 0 && fullW > 0 && fullH > 0 {
+		ax := (float64(crop.Min.X) + px*float64(crop.Dx())) / float64(fullW)
+		ay := (float64(crop.Min.Y) + py*float64(crop.Dy())) / float64(fullH)
+		return int(math.Round(ax * 32767)), int(math.Round(ay * 32767))
+	}
+	return int(math.Round(px * 32767)), int(math.Round(py * 32767))
 }
 
 func (s *Server) handleHIDWebSocket(w http.ResponseWriter, r *http.Request) {
