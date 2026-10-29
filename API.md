@@ -626,8 +626,10 @@ Media uses one UDP port, `--rtc-udp`, the HTTP port's number by default.
 `503` when the host has no encoder. The same messages are what a station
 relays later.
 
-### `GET /viewer/webrtc.js`
-The viewer's WebRTC module, which `/view?transport=webrtc` loads.
+### `GET /viewer/…`
+The viewer's files: `shell.js`, `shell.css` and `webrtc.js` are the shared shell from the [Station viewer package](https://github.com/VibiumDev/station), the same page a station serves for a device; `extras.js` is Roadie's own addition to it, the phone's buttons (Home, Lock and Wake, Rotate, Android's Back, Recents and volume), the capture settings, the crop and the resets, served with what it needs to know about this host (`window.__roadieDevice`: platform, HID backend, USB devices) in front. A station relays `extras.js` to its own page, so the two viewers are one code path with one look.
+
+`/view` renders the shell with its endpoints at the root and these parameters: `?minimal=1` hides the toolbar (for a frame), `?input=mouse|touch` and `?transport=webrtc|mjpeg` set the pointer mode and the picture's transport for that page load, `?toolbar=show|auto|off`, `?align=`, `?zoom=` and `?stats=1` are the page's own.
 
 ### `WS /api/mic`
 WebSocket endpoint for voice input: audio sent here plays out of the HID board's USB microphone (or, with `--hid-backend linux-gadget`, the Pi's USB gadget microphone, upsampled to 48 kHz), so the target hears it as mic input.

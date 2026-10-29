@@ -18,6 +18,7 @@ import (
 
 	"github.com/VibiumDev/roadie/audio/pcm"
 	"github.com/VibiumDev/station/rig"
+	"github.com/VibiumDev/station/viewer"
 )
 
 // Server holds the state needed by HTTP handlers.
@@ -121,7 +122,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/api/webrtc/signal", s.handleWebRTCSignal)
 	mux.HandleFunc("/login", s.handleLogin)
 	mux.HandleFunc("/logout", s.handleLogout)
-	mux.HandleFunc("/viewer/webrtc.js", s.handleViewerJS)
+	mux.HandleFunc("/viewer/", s.handleViewerAsset)
 	return mux
 }
 
@@ -157,82 +158,23 @@ li { padding: 8px 0; font-size: 1.1em; }
 
 func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, "<!DOCTYPE html>\n<html>\n<head><title>"+html.EscapeString(s.pageTitle())+"</title>")
-	w.Write(viewHead)
-
-	// minimal=1 hides the toolbar so the page embeds cleanly in an iframe (see
-	// /grid). The controls stay in the DOM rather than being omitted, so the
-	// page's scripts — which look them up by id — keep working untouched.
-	if r.URL.Query().Get("minimal") == "1" {
-		fmt.Fprint(w, `
-<style>#toolbar { display:none !important; }</style>`)
-	}
-
-	// input=mouse|touch preselects the pointer mode for this page load. The
-	// toggle lives in the toolbar, so a minimal view has no other way to
-	// reach it — and the stored preference is per origin, so it does not
-	// carry from one instance to another. Emitted as fixed literals, never
-	// interpolated, so nothing from the query string reaches the script.
+	q := r.URL.Query()
 	// Pointer mode: ?input= for this page load, otherwise the target's own
-	// --input. Either beats the viewer's stored preference, which cannot be
-	// read as a deliberate choice — until recently the page rewrote that key
-	// on every load, so most browsers hold a value nobody picked.
-	mode := r.URL.Query().Get("input")
+	// --input (or its platform's). Either beats the viewer's stored choice.
+	mode := q.Get("input")
 	if mode != "touch" && mode != "mouse" {
 		mode = s.effectiveInputMode()
 	}
-	switch mode {
-	case "touch":
-		fmt.Fprint(w, "\n<script>window.__roadieInputMode='touch';</script>")
-	case "mouse":
-		fmt.Fprint(w, "\n<script>window.__roadieInputMode='mouse';</script>")
+	cfg := viewer.Config{Mode: "local", Name: s.pageTitle(), API: viewer.Local(), InputMode: mode,
+		WebRTC: s.RTC != nil && s.RTC.Available(), Extras: "/viewer/extras.js", Info: s.viewerInfo()}
+	// ?transport=webrtc or mjpeg sets the picture's transport for this
+	// page load; the page remembers the menu's choice otherwise.
+	if t := q.Get("transport"); cfg.WebRTC && (t == "webrtc" || t == "mjpeg") {
+		cfg.Transport = t
 	}
-
-	// A target that addresses its own display needs the crop left out of the
-	// pointer mapping; see Platform.PointerSpace. Only the non-default value
-	// is emitted, so pages for every other target are unchanged.
-	if s.Platform.PointerSpace() == "screen" {
-		fmt.Fprint(w, "\n<script>window.__roadiePointerSpace='screen';</script>")
-	}
-
-	// The target's platform: a phone gets its own buttons (Home and the
-	// like), and screenshots are named for it. Fixed literals only.
-	switch s.Platform {
-	case PlatformIOS, PlatformAndroid, PlatformMac, PlatformWindows, PlatformLinux:
-		fmt.Fprintf(w, "\n<script>window.__roadiePlatform='%s';</script>", s.Platform)
-	}
-
-	// With the Pi as the phone's USB devices there are no boards to reset:
-	// the menu offers one reset that replugs them all.
-	if s.HID != nil && s.HID.Backend() == BackendLinuxGadget {
-		fmt.Fprint(w, "\n<script>window.__roadieHIDBackend='linux-gadget';</script>")
-	}
-	// What a USB reset replugs, for the menu's explanation of it.
-	if d := s.usbDevices(); d != nil {
-		b, _ := json.Marshal(d)
-		fmt.Fprintf(w, "\n<script>window.__roadieUSBDevices=%s;</script>", b)
-	}
-	// WebRTC: H.264 over a peer connection instead of MJPEG, when this host
-	// can encode it. The menu switches between the two and this browser
-	// remembers the choice; ?transport=webrtc or mjpeg sets it for this page
-	// load. The page falls back to MJPEG by itself if the connection fails.
-	// Fixed literals only, nothing from the query reaches the page.
-	webrtcOffered := s.RTC != nil && s.RTC.Available()
-	if webrtcOffered {
-		fmt.Fprint(w, "\n<script>window.__roadieWebRTC=true;</script>")
-		switch r.URL.Query().Get("transport") {
-		case "webrtc":
-			fmt.Fprint(w, "\n<script>window.__roadieTransport='webrtc';</script>")
-		case "mjpeg":
-			fmt.Fprint(w, "\n<script>window.__roadieTransport='mjpeg';</script>")
-		}
-	}
-
-	w.Write(viewBody)
-	if webrtcOffered {
-		fmt.Fprint(w, "  <script src=\"/viewer/webrtc.js\"></script>\n")
-	}
-	w.Write(viewScript)
+	// minimal=1 hides the toolbar so the page embeds cleanly in a frame
+	// (see /grid); the controls stay in the DOM.
+	viewer.Render(w, viewer.Page{Title: s.pageTitle(), Minimal: q.Get("minimal") == "1", Config: cfg})
 }
 
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {

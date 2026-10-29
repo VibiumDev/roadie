@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"html"
 	"image"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -341,13 +343,12 @@ func TestViewInputMode(t *testing.T) {
 	// load, else --input. Both outrank the viewer's stored preference, which
 	// older builds wrote automatically on every page load and so cannot be
 	// treated as a deliberate choice.
-	const global = "window.__roadieInputMode="
 
 	tests := []struct {
 		name       string
 		serverMode string
 		query      string
-		want       string // "" means the global must be absent
+		want       string // "" means no mode in the page's config
 	}{
 		{name: "neither set"},
 		{name: "flag only", serverMode: "touch", want: "'touch'"},
@@ -373,22 +374,24 @@ func TestViewInputMode(t *testing.T) {
 			s.InputMode = tt.serverMode
 			_, _, body := get(t, mux, "/view"+tt.query)
 
+			got := viewConfig(t, body)["inputMode"]
 			if tt.want == "" {
-				if strings.Contains(body, global) {
-					t.Errorf("expected no %s in page", global)
+				if got != nil {
+					t.Errorf("expected no input mode in the page, got %v", got)
 				}
 				return
 			}
-			if !strings.Contains(body, global+tt.want) {
-				t.Errorf("page missing %s%s", global, tt.want)
+			if got != strings.Trim(tt.want, "'") {
+				t.Errorf("page's input mode %v, want %s", got, tt.want)
 			}
 		})
 	}
 }
 
 func TestViewPlatform(t *testing.T) {
-	// --platform contributes two things to the page: the pointer coordinate
-	// space, and a default input mode when --input is absent.
+	// --platform gives the page its default input mode when --input is
+	// absent, and names the platform for the extras. The pointer space is
+	// the host's business now: the viewer sends picture positions.
 	tests := []struct {
 		name          string
 		platform      Platform
@@ -418,20 +421,18 @@ func TestViewPlatform(t *testing.T) {
 			s.InputMode = tt.inputMode
 			_, _, body := get(t, mux, "/view")
 
-			gotSpace := strings.Contains(body, "window.__roadiePointerSpace='screen'")
-			if gotSpace != tt.wantSpace {
-				t.Errorf("pointer-space global present = %v, want %v", gotSpace, tt.wantSpace)
+			if strings.Contains(body, "__roadiePointerSpace") {
+				t.Error("the page still speaks of a pointer space")
 			}
-
-			const im = "window.__roadieInputMode="
+			cfg := viewConfig(t, body)
 			if tt.wantInputMode == "" {
-				if strings.Contains(body, im) {
-					t.Errorf("expected no %s", im)
+				if cfg["inputMode"] != nil {
+					t.Errorf("expected no input mode, got %v", cfg["inputMode"])
 				}
 				return
 			}
-			if !strings.Contains(body, im+tt.wantInputMode) {
-				t.Errorf("page missing %s%s", im, tt.wantInputMode)
+			if cfg["inputMode"] != strings.Trim(tt.wantInputMode, "'") {
+				t.Errorf("page's input mode %v, want %s", cfg["inputMode"], tt.wantInputMode)
 			}
 		})
 	}
@@ -473,19 +474,38 @@ func (g *gadgetHID) USBDevices() []string {
 // USB reset in place of the boards' HID and relay resets; with the boards it
 // isn't.
 func TestViewHIDBackend(t *testing.T) {
-	const flag = "window.__roadieHIDBackend='linux-gadget'"
 	s, mux := newTestServer()
 	s.HID = &gadgetHID{}
-	if _, _, body := get(t, mux, "/view"); !strings.Contains(body, flag) {
-		t.Errorf("gadget backend: page lacks %s", flag)
+	_, _, body := get(t, mux, "/view")
+	info, _ := viewConfig(t, body)["info"].(map[string]any)
+	if info["hidBackend"] != "linux-gadget" {
+		t.Errorf("gadget backend: page's info %v", info)
 	}
-	if _, _, body := get(t, mux, "/view"); !strings.Contains(body, `window.__roadieUSBDevices=["keyboard","mouse","touch","microphone","speaker","network"]`) {
-		t.Errorf("gadget backend: page lacks what a USB reset replugs")
+	// The extras are told the same, in front of their script.
+	if _, _, js := get(t, mux, "/viewer/extras.js"); !strings.Contains(js, `window.__roadieDevice={"hidBackend":"linux-gadget","platform":"","usbDevices":["keyboard","mouse","touch","microphone","speaker","network"]}`) &&
+		!strings.Contains(js, `"usbDevices":["keyboard","mouse","touch","microphone","speaker","network"]`) {
+		t.Errorf("gadget backend: the extras lack what a USB reset replugs: %.200s", js)
 	}
 	s.HID = &keyHID{}
-	if _, _, body := get(t, mux, "/view"); strings.Contains(body, flag) {
-		t.Errorf("boards backend: page has %s", flag)
+	_, _, body = get(t, mux, "/view")
+	info, _ = viewConfig(t, body)["info"].(map[string]any)
+	if info["hidBackend"] != nil {
+		t.Errorf("boards backend: page's info %v", info)
 	}
+}
+
+// viewConfig reads the page's data-config back.
+func viewConfig(t *testing.T, body string) map[string]any {
+	t.Helper()
+	m := regexp.MustCompile(`data-config="([^"]*)"`).FindStringSubmatch(body)
+	if m == nil {
+		t.Fatal("the page has no data-config")
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(html.UnescapeString(m[1])), &cfg); err != nil {
+		t.Fatalf("data-config: %v", err)
+	}
+	return cfg
 }
 
 // POST /api/usb/reset replugs and says what; the old paths are gone.
@@ -518,17 +538,18 @@ func TestViewPlatformFlag(t *testing.T) {
 		platform Platform
 		want     string
 	}{
-		{PlatformIOS, "window.__roadiePlatform='ios'"},
-		{PlatformAndroid, "window.__roadiePlatform='android'"},
-		{PlatformMac, "window.__roadiePlatform='mac'"},
+		{PlatformIOS, "ios"},
+		{PlatformAndroid, "android"},
+		{PlatformMac, "mac"},
 		{"", ""},
 	} {
 		s, mux := newTestServer()
 		s.Platform = tc.platform
 		_, _, body := get(t, mux, "/view")
-		has := strings.Contains(body, "window.__roadiePlatform=")
-		if tc.want == "" && has || tc.want != "" && !strings.Contains(body, tc.want) {
-			t.Errorf("platform %q: want %q, page has it: %v", tc.platform, tc.want, has)
+		info, _ := viewConfig(t, body)["info"].(map[string]any)
+		got, _ := info["platform"].(string)
+		if got != tc.want {
+			t.Errorf("platform %q: page's info says %q", tc.platform, got)
 		}
 	}
 }

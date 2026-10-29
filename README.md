@@ -113,7 +113,7 @@ To drive more than one device from the same host, see
 - **HID control**: absolute mouse, multi-touch digitizer, and keyboard input via USB, controllable over HTTP/WebSocket
 - **Interactive viewer**: `/view` page with live feed and full HID control (mouse, touch, keyboard) directly on the stream
 - **WebRTC**: the viewer's default where the host can encode H.264 (the Pi 4's hardware encoder, or VideoToolbox, VAAPI, NVENC or libx264 through ffmpeg elsewhere): the picture, the phone's sound as G.722, your microphone back, and input, all on one peer connection, at a fraction of MJPEG's bandwidth and CPU, falling back to MJPEG and the WebSockets by itself
-- **Vibium Station**: `roadie enroll` joins a [station](https://github.com/VibiumDev/station) that brokers access from anywhere over an outbound tunnel, with signed holds the Pi checks itself; the station's viewer runs the same WebRTC module
+- **Vibium Station**: `roadie enroll` joins a [station](https://github.com/VibiumDev/station) that brokers access from anywhere over an outbound tunnel, with signed holds the Pi checks itself; the station's viewer is this one, the shared shell with Roadie's extras loaded through the relay
 - **Local login**: `--auth token` (a local admin token, a one-field `/login` page, `Authorization: Bearer` for agents) or `--auth tailscale` (whoever your tailnet says); without `--auth`, Roadie listens on localhost only
 - **HTTPS**: `--tls-cert` and `--tls-key` serve TLS directly, reloading the files when they change; or put `tailscale serve` in front for a `*.ts.net` name with no certificate files ([how](docs/how-to/run-roadie.md#https))
 - **Auto-detection**: finds external capture devices, skips built-in cameras

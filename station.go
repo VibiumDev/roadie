@@ -40,7 +40,8 @@ func rigPath(name string) (string, error) {
 var rigAllowlist = rig.Allowlist{
 	{Path: "/api/webrtc/signal", Scope: station.ScopeView, FirstMessage: true},
 	{Method: http.MethodGet, Path: "/health", Scope: station.ScopeView},
-	{Method: http.MethodGet, Path: "/stream", Scope: station.ScopeView, Max: 1},
+	{Method: http.MethodGet, Path: "/viewer/extras.js", Scope: station.ScopeView},
+	{Method: http.MethodGet, Path: "/stream", Scope: station.ScopeView, Max: 2}, // two: a page reloading while its old stream closes
 	{Method: http.MethodGet, Path: "/snapshot", Scope: station.ScopeView},
 	{Path: "/api/hid/ws", Scope: station.ScopeInput, Max: 2},
 	{Path: "/audio", Scope: station.ScopeView, Max: 1},
@@ -61,7 +62,7 @@ var rigAllowlist = rig.Allowlist{
 // in (--input, else the platform's), and the toolbar buttons the shared
 // viewer should show, as the keyboard shortcuts the target takes.
 func deviceOffer(platform Platform, hasHID, hasAudio bool, input string) enroll.Offer {
-	o := enroll.Offer{Name: "phone", Kind: "phone", Caps: []string{station.CapVideo, station.CapBidi, station.CapMJPEG}, Input: input}
+	o := enroll.Offer{Name: "phone", Kind: "phone", Caps: []string{station.CapVideo, station.CapBidi, station.CapMJPEG}, Input: input, Extras: "/viewer/extras.js"}
 	if hasAudio {
 		o.Caps = append(o.Caps, station.CapAudio)
 	}
