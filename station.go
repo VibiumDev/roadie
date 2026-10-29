@@ -51,7 +51,7 @@ var rigAllowlist = rig.Allowlist{
 	{Path: "/api/hid/", Scope: station.ScopeInput},
 	{Path: "/api/settings", Scope: station.ScopeAdmin},
 	{Path: "/api/crop", Scope: station.ScopeAdmin},
-	{Path: "/api/rotate", Scope: station.ScopeAdmin},
+	{Path: "/api/rotate", Scope: station.ScopeInput}, // turning the screen is a controller's move
 	{Path: "/api/capture/reset", Scope: station.ScopeAdmin},
 	{Path: "/api/usb/reset", Scope: station.ScopeAdmin},
 	{Path: "/api/relay/reset", Scope: station.ScopeAdmin},
