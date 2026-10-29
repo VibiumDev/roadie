@@ -557,7 +557,7 @@ type Message struct {
 	SDP       string                   `json:"sdp,omitempty"`
 	Candidate *webrtc.ICECandidateInit `json:"candidate,omitempty"`
 	Error     string                   `json:"error,omitempty"`
-	// Grant is the lease grant a viewer coming through a station puts in
+	// Grant is the hold grant a viewer coming through a station puts in
 	// its hello: the rig library checks it.
 	Grant json.RawMessage `json:"grant,omitempty"`
 }
@@ -568,22 +568,22 @@ type controlMessage struct {
 	BPS    int             `json:"bps,omitempty"`
 	Status *Status         `json:"status,omitempty"`
 	Kbps   int             `json:"kbps,omitempty"`
-	Grant  json.RawMessage `json:"grant,omitempty"` // a refreshed lease grant
+	Grant  json.RawMessage `json:"grant,omitempty"` // a refreshed hold grant
 }
 
-// EndLease closes every session admitted on a lease: it was revoked or a
-// newer lease took the device.
-func (b *Broadcaster) EndLease(leaseID string) {
+// EndHold closes every session admitted on a hold: it was revoked or a
+// newer hold took the device.
+func (b *Broadcaster) EndHold(holdID string) {
 	b.mu.Lock()
 	var ended []*Session
 	for s := range b.sessions {
-		if s.lease == leaseID {
+		if s.hold == holdID {
 			ended = append(ended, s)
 		}
 	}
 	b.mu.Unlock()
 	for _, s := range ended {
-		s.send(Message{Type: "error", Error: "lease ended"})
+		s.send(Message{Type: "error", Error: "hold ended"})
 		s.Close()
 	}
 }

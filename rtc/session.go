@@ -25,9 +25,9 @@ type Session struct {
 	estimator cc.BandwidthEstimator
 	send      func(Message) error
 
-	// Through a station: the lease the viewer was admitted on, and the
+	// Through a station: the hold the viewer was admitted on, and the
 	// check a refreshed grant goes through.
-	lease string
+	hold  string
 	check func(ev nostr.Event) (token.Grant, error)
 
 	mu         sync.Mutex
@@ -72,26 +72,26 @@ func (b *Broadcaster) ServeSignal(w http.ResponseWriter, r *http.Request) {
 		send(Message{Type: "error", Error: "expected a hello"})
 		return
 	}
-	// A viewer that came through a station's tunnel must hold a lease: the
+	// A viewer that came through a station's tunnel must hold a hold: the
 	// rig library's check is in the request context, and the grant in the
 	// hello. On the LAN there is no check and no grant.
-	var lease string
+	var hold string
 	var ice []webrtc.ICEServer
 	check := rig.FirstMessageCheck(ctx)
 	if check != nil {
 		var ev nostr.Event
 		if hello.Grant == nil || json.Unmarshal(hello.Grant, &ev) != nil {
-			send(Message{Type: "error", Error: "a lease grant is required"})
+			send(Message{Type: "error", Error: "a hold grant is required"})
 			return
 		}
 		grant, err := check(ev)
 		if err != nil {
-			send(Message{Type: "error", Error: "lease: " + err.Error()})
+			send(Message{Type: "error", Error: "hold: " + err.Error()})
 			return
 		}
-		lease = grant.LeaseID
+		hold = grant.HoldID
 		// The grant names the station's STUN and TURN servers, with the
-		// lease's credentials, so this side can be reached across NATs.
+		// hold's credentials, so this side can be reached across NATs.
 		for _, srv := range grant.ICE {
 			ice = append(ice, webrtc.ICEServer{URLs: srv.URLs, Username: srv.Username, Credential: srv.Credential})
 		}
@@ -101,7 +101,7 @@ func (b *Broadcaster) ServeSignal(w http.ResponseWriter, r *http.Request) {
 		send(Message{Type: "error", Error: err.Error()})
 		return
 	}
-	s.lease, s.check = lease, check
+	s.hold, s.check = hold, check
 	defer s.Close()
 	// A peer connection that fails ends the WebSocket too, so the viewer
 	// notices and falls back or reconnects.
@@ -280,7 +280,7 @@ func (s *Session) onControl(data []byte) {
 		s.b.mu.Unlock()
 	case "grant":
 		// A refreshed grant from a viewer through a station: it must still
-		// pass, and on the same lease, or the session ends.
+		// pass, and on the same hold, or the session ends.
 		if s.check == nil || m.Grant == nil {
 			return
 		}
@@ -289,8 +289,8 @@ func (s *Session) onControl(data []byte) {
 			return
 		}
 		grant, err := s.check(ev)
-		if err != nil || grant.LeaseID != s.lease {
-			s.send(Message{Type: "error", Error: "lease: refresh refused"})
+		if err != nil || grant.HoldID != s.hold {
+			s.send(Message{Type: "error", Error: "hold: refresh refused"})
 			s.Close()
 		}
 	}

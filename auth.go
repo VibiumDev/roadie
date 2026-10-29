@@ -28,7 +28,7 @@ import (
 //	tailscale  whoever the local tailscaled says the connection belongs to
 //	none       no checks on any address, chosen deliberately
 //
-// Remote sessions through a station need a lease grant whatever this says.
+// Remote sessions through a station need a hold grant whatever this says.
 
 const (
 	AuthUnset     = ""

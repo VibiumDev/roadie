@@ -11,7 +11,7 @@ both ways. All of that works and must keep working.
 ## Where things are
 
 - Vibium Station (`VibiumDev/station`) is the sibling repo at `../station`.
-  The spec for the remote work (WebRTC, tunnel, leases, Station) is
+  The spec for the remote work (WebRTC, tunnel, holds, Station) is
   `../station/docs/remote-spec.md`. It is the source of truth; read it in
   full before writing code.
 - Progress, decisions, measured numbers and known issues live in
@@ -38,18 +38,18 @@ both ways. All of that works and must keep working.
   `/dev/video11` or USB gadget mode exist. CI builds linux/arm64,
   linux/amd64 and darwin/arm64.
 - Nostr-ready, as the spec describes: all keys are secp256k1 with BIP-340
-  Schnorr, shown as npub/nsec (NIP-19); lease grants are NIP-01 events with
+  Schnorr, shown as npub/nsec (NIP-19); hold grants are NIP-01 events with
   Station's documented kinds; use fiatjaf.com/nostr or btcec, pure Go only.
   The transport stays the tunnel; never publish private events; no NIP-90.
 - Rig policy: a local file on the rig lists accepted stations (by npub, more
   than one allowed) and, per station, allowed scopes, whether admin grants
-  are accepted, and maximum session length. One active lease across all
+  are accepted, and maximum session length. One active hold across all
   stations; the Pi arbitrates.
 
 ## Security rules
 
-- The Pi is the final gate. Verify every lease grant locally: signature by a
-  station in the rig policy, this rig and one of its devices, current lease
+- The Pi is the final gate. Verify every hold grant locally: signature by a
+  station in the rig policy, this rig and one of its devices, current hold
   or higher seq, scopes, NIP-40 expiration (30 s skew), event id as the
   replay nonce, and the rig policy. Refuse older seq. Apply revocations
   within 1 s. Fail closed; never fall back to unauthenticated mode while
@@ -61,14 +61,14 @@ both ways. All of that works and must keep working.
   (`/api/settings`, `/api/crop`, `/api/rotate`, `/api/capture/reset`,
   `/api/usb/reset`, `/api/relay/reset`) are admin-only remotely. Admin
   tokens are a separate type that user and agent tokens can never mint.
-- Per-lease rate limits on the Pi, not only in the station (for example
+- Per-hold rate limits on the Pi, not only in the station (for example
   200 HID events/s and 2,000 keystrokes/min).
 - Tokens travel only in headers, the first WebSocket message or the data
   channel, never in URLs. Never log secrets. Secrets come from env vars or
   files outside the repo; never commit keys.
 - Local auth is chosen with `--auth` (unset: localhost only; `token`;
   `tailscale`; `none` with a warning). Keep it simple: no pop-ups, no Basic
-  Auth, no QR codes. Remote sessions always need a station lease grant.
+  Auth, no QR codes. Remote sessions always need a station hold grant.
 - When changing the Pi's firewall, SSH or systemd (R6), apply changes with
   an automatic rollback timer so a mistake cannot cut off your own session.
 

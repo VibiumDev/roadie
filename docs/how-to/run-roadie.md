@@ -153,7 +153,7 @@ for its rigs later.
 
 A [Vibium Station](https://github.com/VibiumDev/station) lets you reach
 this Roadie from anywhere without opening a port: Roadie dials out to it
-and keeps a tunnel, and the station signs leases that Roadie checks itself.
+and keeps a tunnel, and the station signs holds that Roadie checks itself.
 
 On the station's Settings page make an enrollment code, then on the Pi:
 
@@ -170,7 +170,7 @@ refused.
 
 What the station may do is yours to edit in `~/.config/roadie/rig.json`:
 the scopes (`view`, `input`, `bidi`), `admin`, `max_session` and `hours`.
-`/health` shows the `station` block with the tunnel's state and the lease
+`/health` shows the `station` block with the tunnel's state and the hold
 held, and the service log says when it connects. To leave a station, remove
 its entry from the file and restart; to be rid of a rig the station's owner
 removes it on their Settings page, after which its key is refused.

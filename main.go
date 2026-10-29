@@ -438,11 +438,11 @@ func main() {
 	}
 	// Enrolled with a station: a tunnel to it, serving the same mux behind
 	// the rig's gate instead of the local login.
-	var onLeaseEnd func(deviceID, leaseID string)
+	var onHoldEnd func(deviceID, holdID string)
 	if broadcaster != nil {
-		onLeaseEnd = func(_, leaseID string) { broadcaster.EndLease(leaseID) }
+		onHoldEnd = func(_, holdID string) { broadcaster.EndHold(holdID) }
 	}
-	rigRun, err := startRig(handler, deviceOffer(platform, hid != nil, ab != nil, srv.effectiveInputMode()), onLeaseEnd)
+	rigRun, err := startRig(handler, deviceOffer(platform, hid != nil, ab != nil, srv.effectiveInputMode()), onHoldEnd)
 	if err != nil {
 		log.Fatalf("station: %v", err)
 	}

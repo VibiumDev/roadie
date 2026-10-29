@@ -113,7 +113,7 @@ To drive more than one device from the same host, see
 - **HID control**: absolute mouse, multi-touch digitizer, and keyboard input via USB, controllable over HTTP/WebSocket
 - **Interactive viewer**: `/view` page with live feed and full HID control (mouse, touch, keyboard) directly on the stream
 - **WebRTC**: the viewer's default where the host can encode H.264 (the Pi 4's hardware encoder, or VideoToolbox, VAAPI, NVENC or libx264 through ffmpeg elsewhere): the picture, the phone's sound as G.722, your microphone back, and input, all on one peer connection, at a fraction of MJPEG's bandwidth and CPU, falling back to MJPEG and the WebSockets by itself
-- **Vibium Station**: `roadie enroll` joins a [station](https://github.com/VibiumDev/station) that brokers access from anywhere over an outbound tunnel, with signed leases the Pi checks itself; the station's viewer runs the same WebRTC module
+- **Vibium Station**: `roadie enroll` joins a [station](https://github.com/VibiumDev/station) that brokers access from anywhere over an outbound tunnel, with signed holds the Pi checks itself; the station's viewer runs the same WebRTC module
 - **Local login**: `--auth token` (a local admin token, a one-field `/login` page, `Authorization: Bearer` for agents) or `--auth tailscale` (whoever your tailnet says); without `--auth`, Roadie listens on localhost only
 - **HTTPS**: `--tls-cert` and `--tls-key` serve TLS directly, reloading the files when they change; or put `tailscale serve` in front for a `*.ts.net` name with no certificate files ([how](docs/how-to/run-roadie.md#https))
 - **Auto-detection**: finds external capture devices, skips built-in cameras
@@ -152,7 +152,7 @@ To drive more than one device from the same host, see
 | [Troubleshooting](docs/how-to/troubleshooting.md) | Common problems and fixes |
 | [Automate with Vibium](docs/tutorials/automate-with-vibium.md) | Drive Roadie from the CLI, JavaScript, Python or an AI agent |
 | [REPL Tutorial](docs/tutorials/repl.md) | Interactive debugging via CircuitPython REPL |
-| [Roadie Remote Spec](https://github.com/VibiumDev/station/blob/main/docs/remote-spec.md) | WebRTC, the Pi tunnel, leases and Vibium Station: the plan for using a Roadie from anywhere (in the Station repo) |
+| [Roadie Remote Spec](https://github.com/VibiumDev/station/blob/main/docs/remote-spec.md) | WebRTC, the Pi tunnel, holds and Vibium Station: the plan for using a Roadie from anywhere (in the Station repo) |
 
 ## Development
 

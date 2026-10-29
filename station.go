@@ -21,7 +21,7 @@ import (
 // the station and serves the endpoints the station may reach behind the
 // rig library's gate. The files live next to the local token:
 // rig.key (the rig's key), rig.json (the policy: stations and what each
-// may do) and rig-state.json (the lease state).
+// may do) and rig-state.json (the hold state).
 
 func rigPath(name string) (string, error) {
 	dir, err := os.UserConfigDir()
@@ -78,7 +78,7 @@ type rigRunner struct {
 
 // startRig connects to the stations in the policy, if any. handler is the
 // server's mux without the local login, which the gate replaces.
-func startRig(handler http.Handler, offer enroll.Offer, onEnd func(deviceID, leaseID string)) (*rigRunner, error) {
+func startRig(handler http.Handler, offer enroll.Offer, onEnd func(deviceID, holdID string)) (*rigRunner, error) {
 	policyPath, err := rigPath("rig.json")
 	if err != nil {
 		return nil, err
@@ -129,8 +129,8 @@ func (rr *rigRunner) status() map[string]any {
 		}
 		st := map[string]any{"name": e.Name, "url": e.URL, "rig": e.RigID, "online": up}
 		for _, d := range rr.rig.Devices {
-			if lease, held := rr.rig.Gate.Current(station.DeviceID(e.RigID, d.Name)); held {
-				st["lease"] = lease
+			if hold, held := rr.rig.Gate.Current(station.DeviceID(e.RigID, d.Name)); held {
+				st["hold"] = hold
 			}
 		}
 		stations = append(stations, st)
