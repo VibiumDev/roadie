@@ -61,8 +61,13 @@ var rigAllowlist = rig.Allowlist{
 // what this Roadie can do with it, the pointer mode viewers should start
 // in (--input, else the platform's), and the toolbar buttons the shared
 // viewer should show, as the keyboard shortcuts the target takes.
-func deviceOffer(platform Platform, hasHID, hasAudio bool, input string) enroll.Offer {
-	o := enroll.Offer{Name: "phone", Kind: "phone", Caps: []string{station.CapVideo, station.CapBidi, station.CapMJPEG}, Input: input, Extras: "/viewer/extras.js"}
+func deviceOffer(platform Platform, hasHID, hasAudio bool, input string, label string) enroll.Offer {
+	o := enroll.Offer{Name: "phone", Kind: "phone", Caps: []string{station.CapVideo, station.CapBidi, station.CapMJPEG}, Input: input, Extras: "/viewer/extras.js",
+		Label: strings.TrimSpace(label)}
+	switch platform {
+	case PlatformIOS, PlatformAndroid, PlatformMac, PlatformWindows, PlatformLinux:
+		o.Platform = string(platform)
+	}
 	if hasAudio {
 		o.Caps = append(o.Caps, station.CapAudio)
 	}
@@ -218,7 +223,7 @@ func enrollCommand(args []string) int {
 	}
 	entry, err := rig.Enroll(context.Background(), rig.EnrollOptions{
 		URL: url, Code: *code, Name: *name, Key: key, Admin: *admin,
-		Devices: []enroll.Offer{deviceOffer(platform, true, true, platform.DefaultInputMode())},
+		Devices: []enroll.Offer{deviceOffer(platform, true, true, platform.DefaultInputMode(), "")},
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "roadie enroll:", err)

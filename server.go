@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/VibiumDev/roadie/rtc"
-	"html"
+	"html/template"
 	"image"
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -132,29 +133,50 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, "<!DOCTYPE html>\n<html>\n<head><title>"+html.EscapeString(s.pageTitle())+"</title>")
-	fmt.Fprint(w, `
-<style>
-body { font-family: monospace; max-width: 600px; margin: 40px auto; padding: 0 20px; }
-a { color: #0066cc; }
-li { padding: 8px 0; font-size: 1.1em; }
-</style>
-</head>
-<body>
-<h1>Roadie</h1>
-<ul>
-<li><a href="/view">/view</a> — watch the live feed in your browser</li>
-<li><a href="/stream">/stream</a> — MJPEG stream (auto-cropped)</li>
-<li><a href="/snapshot">/snapshot</a> — single frame (auto-cropped JPEG)</li>
-<li><a href="/raw-stream">/raw-stream</a> — MJPEG stream (uncropped)</li>
-<li><a href="/raw-snapshot">/raw-snapshot</a> — single frame (uncropped JPEG)</li>
-<li><a href="/health">/health</a> — service status (JSON)</li>
-<li><a href="/settings">/settings</a> — adjust quality and view device info</li>
-<li><a href="/test">/test</a> — test HID mouse and keyboard control</li>
-</ul>
-</body>
-</html>`)
+	host, _ := os.Hostname()
+	data := map[string]any{"Title": s.pageTitle(), "Name": s.Name, "Host": host, "Platform": "", "Input": s.effectiveInputMode(), "Stations": []map[string]any(nil)}
+	if s.Platform != "" {
+		data["Platform"] = string(s.Platform)
+	}
+	if s.Station != nil {
+		if st, ok := s.Station.status()["stations"].([]map[string]any); ok {
+			data["Stations"] = st
+		}
+	}
+	indexPage.Execute(w, data)
 }
+
+// The front page, in the look of Vibium's web style guide; the stylesheet
+// and the theme switch are the Station viewer package's, served under
+// /viewer/, so a station's pages and this one match.
+var indexPage = template.Must(template.New("index").Parse(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title><link rel="icon" href="data:,">
+<link rel="stylesheet" href="/viewer/pages.css"><script src="/viewer/pages.js"></script></head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/"><span class="wordmark">Vibium</span><span class="product">Roadie</span></a>
+<nav><a href="/view">View</a><a href="/settings">Settings</a><a href="/test">Test</a><button id="themeBtn" class="iconbtn" type="button" aria-label="Switch theme"></button></nav></div></header>
+<main class="wrap"><p class="kicker">{{if and .Name (ne .Name "roadie")}}{{.Name}}{{else}}{{.Host}}{{end}}</p><h1 class="h1">Roadie.</h1>
+<p class="lead">The target wired to this machine, live in the browser.</p>
+<div class="grid">
+<a class="card" href="/view" style="text-decoration:none; color:inherit"><h3>View</h3><p>Watch and drive the target: the picture, sound, touch and keyboard.</p><span class="path">/view</span></a>
+<a class="card" href="/stream" style="text-decoration:none; color:inherit"><h3>Stream</h3><p>The MJPEG stream, cropped to the target's screen.</p><span class="path">/stream</span></a>
+<a class="card" href="/snapshot" style="text-decoration:none; color:inherit"><h3>Snapshot</h3><p>One frame as a JPEG, cropped the same way.</p><span class="path">/snapshot</span></a>
+<a class="card" href="/raw-stream" style="text-decoration:none; color:inherit"><h3>Raw stream</h3><p>The capture device's whole frame, uncropped.</p><span class="path">/raw-stream</span></a>
+<a class="card" href="/raw-snapshot" style="text-decoration:none; color:inherit"><h3>Raw snapshot</h3><p>One uncropped frame.</p><span class="path">/raw-snapshot</span></a>
+<a class="card" href="/health" style="text-decoration:none; color:inherit"><h3>Health</h3><p>Service status as JSON: capture, the target's screen, input, stations.</p><span class="path">/health</span></a>
+<a class="card" href="/settings" style="text-decoration:none; color:inherit"><h3>Settings</h3><p>Capture quality, the crop, and the device's details.</p><span class="path">/settings</span></a>
+<a class="card" href="/test" style="text-decoration:none; color:inherit"><h3>Test</h3><p>Try the mouse and keyboard over USB.</p><span class="path">/test</span></a>
+</div>
+<h2 class="h2">This host</h2>
+<div class="tablewrap"><table class="kv">
+<tr><th>Platform</th><td>{{if .Platform}}{{.Platform}}{{else}}<span class="muted">not set (--platform)</span>{{end}}</td></tr>
+<tr><th>Pointer</th><td>{{if .Input}}{{.Input}}{{else}}<span class="muted">the viewer decides</span>{{end}}</td></tr>
+<tr><th>Stations</th><td>{{if .Stations}}{{range .Stations}}<div>{{.name}} <span class="muted mono">{{.rig}}</span> {{if .online}}<span class="ok">online</span>{{else}}<span class="muted">offline</span>{{end}}</div>{{end}}{{else}}<span class="muted">none: <code>roadie enroll https://&lt;station&gt; --code …</code></span>{{end}}</td></tr>
+</table></div>
+</main>
+<footer class="foot"><div class="wrap"><span class="wordmark">Vibium</span><span class="line">Roadie · open source</span><span><a href="https://vibium.dev">vibium.dev ↗</a></span></div></footer>
+</body></html>`))
 
 func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -174,7 +196,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	}
 	// minimal=1 hides the toolbar so the page embeds cleanly in a frame
 	// (see /grid); the controls stay in the DOM.
-	viewer.Render(w, viewer.Page{Title: s.pageTitle(), Minimal: q.Get("minimal") == "1", Config: cfg})
+	viewer.Render(w, viewer.Page{Title: s.pageTitle(), Minimal: q.Get("minimal") == "1", Home: "/", HomeTitle: "Roadie", Config: cfg})
 }
 
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
