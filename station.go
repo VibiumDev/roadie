@@ -41,6 +41,8 @@ var rigAllowlist = rig.Allowlist{
 	{Method: http.MethodGet, Path: "/stream", Scope: station.ScopeView},
 	{Method: http.MethodGet, Path: "/snapshot", Scope: station.ScopeView},
 	{Path: "/api/hid/ws", Scope: station.ScopeInput},
+	{Path: "/audio", Scope: station.ScopeView},
+	{Path: "/api/mic", Scope: station.ScopeInput},
 }
 
 // deviceOffer describes the target as a device for the station: its kind,

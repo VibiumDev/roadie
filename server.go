@@ -16,6 +16,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/VibiumDev/roadie/audio/pcm"
 	"github.com/VibiumDev/station/rig"
 )
 
@@ -2784,8 +2785,17 @@ func (s *Server) handleAudio(w http.ResponseWriter, r *http.Request) {
 
 	ctx := conn.CloseRead(r.Context())
 
-	// Send audio params as first (text) message.
+	// Through a station the sound goes down to 16 kHz mono 16-bit (256
+	// kbps), so a remote viewer cannot eat the uplink; ?format=s16-16k asks
+	// for the same on the LAN.
 	params := s.AudioBroadcast.Params()
+	var down *pcm.Downsampler
+	if _, relayed := rig.GrantFrom(r.Context()); relayed || r.URL.Query().Get("format") == "s16-16k" {
+		down = pcm.NewDownsampler(params.SampleRate, 16000, params.Channels)
+		params = AudioParams{SampleRate: 16000, Channels: 1, Format: "s16le"}
+	}
+
+	// Send audio params as first (text) message.
 	paramsJSON, _ := json.Marshal(params)
 	if err := conn.Write(ctx, websocket.MessageText, paramsJSON); err != nil {
 		return
@@ -2795,6 +2805,8 @@ func (s *Server) handleAudio(w http.ResponseWriter, r *http.Request) {
 	ch, unsub := s.AudioBroadcast.Subscribe()
 	defer unsub()
 
+	var samples []int16
+	var out []byte
 	for {
 		select {
 		case <-ctx.Done():
@@ -2802,6 +2814,14 @@ func (s *Server) handleAudio(w http.ResponseWriter, r *http.Request) {
 		case chunk, ok := <-ch:
 			if !ok {
 				return
+			}
+			if down != nil {
+				samples = down.Process(samples[:0], pcm.Float32LE(chunk))
+				if len(samples) == 0 {
+					continue
+				}
+				out = pcm.Int16LE(out[:0], samples)
+				chunk = out
 			}
 			if err := conn.Write(ctx, websocket.MessageBinary, chunk); err != nil {
 				return
