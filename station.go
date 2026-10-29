@@ -31,18 +31,29 @@ func rigPath(name string) (string, error) {
 	return filepath.Join(dir, "roadie", name), nil
 }
 
-// rigAllowlist is what a station may reach on this Roadie, by scope.
-// Everything else is refused through the tunnel; the admin endpoints stay
-// local. The MJPEG stream is capped for relayed viewers (--relay-fps).
-// R5 adds REST and BiDi.
+// rigAllowlist is what a station may reach on this Roadie, by scope, with
+// how many connections one hold may keep open on each. Everything else is
+// refused through the tunnel. The admin endpoints need the admin scope,
+// which the rig policy grants or not (`roadie enroll --admin`); the
+// resets, the shell-like pages and the local login never appear here.
+// The MJPEG stream is capped for relayed viewers (--relay-fps).
 var rigAllowlist = rig.Allowlist{
 	{Path: "/api/webrtc/signal", Scope: station.ScopeView, FirstMessage: true},
 	{Method: http.MethodGet, Path: "/health", Scope: station.ScopeView},
-	{Method: http.MethodGet, Path: "/stream", Scope: station.ScopeView},
+	{Method: http.MethodGet, Path: "/stream", Scope: station.ScopeView, Max: 1},
 	{Method: http.MethodGet, Path: "/snapshot", Scope: station.ScopeView},
-	{Path: "/api/hid/ws", Scope: station.ScopeInput},
-	{Path: "/audio", Scope: station.ScopeView},
-	{Path: "/api/mic", Scope: station.ScopeInput},
+	{Path: "/api/hid/ws", Scope: station.ScopeInput, Max: 2},
+	{Path: "/audio", Scope: station.ScopeView, Max: 1},
+	{Path: "/api/mic", Scope: station.ScopeInput, Max: 1},
+	{Path: "/session", Scope: station.ScopeBidi, Max: 1},
+	{Method: http.MethodGet, Path: "/api/hid/status", Scope: station.ScopeView},
+	{Path: "/api/hid/", Scope: station.ScopeInput},
+	{Path: "/api/settings", Scope: station.ScopeAdmin},
+	{Path: "/api/crop", Scope: station.ScopeAdmin},
+	{Path: "/api/rotate", Scope: station.ScopeAdmin},
+	{Path: "/api/capture/reset", Scope: station.ScopeAdmin},
+	{Path: "/api/usb/reset", Scope: station.ScopeAdmin},
+	{Path: "/api/relay/reset", Scope: station.ScopeAdmin},
 }
 
 // deviceOffer describes the target as a device for the station: its kind,

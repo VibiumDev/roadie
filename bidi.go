@@ -18,6 +18,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/coder/websocket"
+
+	"github.com/VibiumDev/station/rig"
 )
 
 // BiDi message types.
@@ -76,8 +78,12 @@ func (s *Server) handleBiDi(w http.ResponseWriter, r *http.Request) {
 	defer conn.CloseNow()
 
 	ctx := r.Context()
+	lim := rig.LimiterFrom(ctx) // through a station: the hold's pace
 	for {
 		_, data, err := conn.Read(ctx)
+		if err == nil && lim != nil {
+			err = lim.Wait(ctx)
+		}
 		if err != nil {
 			// Connection closed — clean up session if this connection owns it.
 			bidiSessionMu.Lock()

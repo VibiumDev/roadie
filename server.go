@@ -3875,10 +3875,16 @@ func (s *Server) handleHIDWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer conn.CloseNow()
 
 	ctx := r.Context()
+	lim := rig.LimiterFrom(ctx) // through a station: the hold's pace
 	for {
 		_, data, err := conn.Read(ctx)
 		if err != nil {
 			return
+		}
+		if lim != nil {
+			if err := lim.Wait(ctx); err != nil {
+				return
+			}
 		}
 		s.hidCommand(data)
 	}
