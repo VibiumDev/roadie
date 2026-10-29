@@ -3799,6 +3799,14 @@ func (s *Server) hidCommand(data []byte) {
 		s.HID.MouseScroll(msg.Amount)
 	case "touch":
 		s.HID.Touch(msg.Contacts)
+	case "tap":
+		// A whole tap in one command, for a viewer on a link where the gap
+		// between a touch and its lift would stretch: down at x, y, a
+		// short hold, up.
+		s.HID.Touch([]TouchContact{{ID: 0, Tip: true, X: msg.X, Y: msg.Y}})
+		time.Sleep(60 * time.Millisecond)
+		s.HID.Touch([]TouchContact{{ID: 0, Tip: false, X: msg.X, Y: msg.Y}})
+		s.HID.Touch(nil)
 	}
 }
 

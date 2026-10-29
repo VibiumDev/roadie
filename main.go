@@ -442,7 +442,7 @@ func main() {
 	if broadcaster != nil {
 		onLeaseEnd = func(_, leaseID string) { broadcaster.EndLease(leaseID) }
 	}
-	rigRun, err := startRig(handler, deviceOffer(platform, hid != nil, ab != nil), onLeaseEnd)
+	rigRun, err := startRig(handler, deviceOffer(platform, hid != nil, ab != nil, srv.effectiveInputMode()), onLeaseEnd)
 	if err != nil {
 		log.Fatalf("station: %v", err)
 	}

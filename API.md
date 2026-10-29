@@ -584,12 +584,13 @@ WebSocket for real-time HID control. Accepts the same JSON command format used b
 {"cmd": "key_release", "keycode": 4}
 {"cmd": "type", "text": "hello"}
 {"cmd": "touch", "contacts": [{"id": 0, "tip": true, "x": 16383, "y": 16383}]}
+{"cmd": "tap", "x": 16383, "y": 16383}
 ```
 
 No server-to-client messages. Connection auto-reconnects on the `/test` page.
 While [`/api/rotate`](#post-apirotate) turns the screen, messages are dropped
 unless they only let go of something (`key_release`, `mouse_release`, a
-`touch` with no finger down).
+`touch` with no finger down). `tap` is a whole tap in one command, a touch down at the point, a 60 ms hold and the lift, for viewers on links where the gap between separate down and up messages would stretch; `mouse_click` is the same for the mouse.
 
 ---
 
