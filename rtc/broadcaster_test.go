@@ -132,7 +132,7 @@ func TestSessionLoopback(t *testing.T) {
 	})
 
 	msgs := make(chan Message, 64)
-	s, err := b.newSession(func(m Message) error { msgs <- m; return nil })
+	s, err := b.newSession(func(m Message) error { msgs <- m; return nil }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

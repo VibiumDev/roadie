@@ -15,12 +15,15 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/VibiumDev/station/rig"
 )
 
 // Server holds the state needed by HTTP handlers.
 type Server struct {
 	Source         FrameSource
 	Buf            *FrameBuffer
+	RelayFPS       int // frame rate cap for the MJPEG stream through a station
 	Device         string
 	AudioBroadcast *AudioBroadcaster
 	// AudioSource says which of the phone's outputs /audio is following,
@@ -2153,7 +2156,16 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	s.Buf.AddViewer()
 	defer s.Buf.RemoveViewer()
 
-	interval := time.Duration(float64(time.Second) / float64(s.Buf.FPS()))
+	// Through a station the stream is capped (--relay-fps), so a remote
+	// viewer cannot eat the uplink; any viewer may ask for less with ?fps=.
+	fps := s.Buf.FPS()
+	if _, relayed := rig.GrantFrom(r.Context()); relayed && s.RelayFPS > 0 && s.RelayFPS < fps {
+		fps = s.RelayFPS
+	}
+	if q, err := strconv.Atoi(r.URL.Query().Get("fps")); err == nil && q > 0 && q < fps {
+		fps = q
+	}
+	interval := time.Duration(float64(time.Second) / float64(fps))
 
 	var hadFrame bool
 	for {

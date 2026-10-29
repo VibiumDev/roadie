@@ -33,10 +33,14 @@ func rigPath(name string) (string, error) {
 
 // rigAllowlist is what a station may reach on this Roadie, by scope.
 // Everything else is refused through the tunnel; the admin endpoints stay
-// local. R5 adds REST, BiDi, MJPEG and the fallback WebSockets.
+// local. The MJPEG stream is capped for relayed viewers (--relay-fps).
+// R5 adds REST and BiDi.
 var rigAllowlist = rig.Allowlist{
 	{Path: "/api/webrtc/signal", Scope: station.ScopeView, FirstMessage: true},
 	{Method: http.MethodGet, Path: "/health", Scope: station.ScopeView},
+	{Method: http.MethodGet, Path: "/stream", Scope: station.ScopeView},
+	{Method: http.MethodGet, Path: "/snapshot", Scope: station.ScopeView},
+	{Path: "/api/hid/ws", Scope: station.ScopeInput},
 }
 
 // deviceOffer describes the target as a device for the station: its kind,

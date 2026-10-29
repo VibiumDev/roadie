@@ -82,6 +82,7 @@ func main() {
 	hidBackendName := flag.String("hid-backend", BackendRP2040, "input hardware: rp2040 (relay and HID boards) or linux-gadget (this machine's USB device port, set up by gadget/roadie-gadget)")
 	encoderSpec := flag.String("encoder", "auto", "H.264 encoder for WebRTC: auto, v4l2m2m (Pi 4 hardware), ffmpeg, ffmpeg:<codec>, or none")
 	rtcUDP := flag.Int("rtc-udp", 0, "UDP port for WebRTC media (default: the HTTP port's number)")
+	relayFPS := flag.Int("relay-fps", 5, "frame rate cap for the MJPEG stream when it goes through a station")
 	bindAddr := flag.String("bind", "", "address to listen on (default: 127.0.0.1 without --auth, otherwise every address)")
 	authMode := flag.String("auth", "", "who may use the pages and API: token (the local admin token, see roadie token), tailscale (whoever tailscaled says), none (no checks); unset means localhost only")
 	allow := flag.String("allow", "", "with --auth tailscale: comma-separated logins and tags allowed (default: anyone on the tailnet)")
@@ -406,6 +407,7 @@ func main() {
 	srv := &Server{
 		Source:         buf,
 		Buf:            buf,
+		RelayFPS:       *relayFPS,
 		Device:         deviceName,
 		AudioBroadcast: ab,
 		SourceType:     sourceType,

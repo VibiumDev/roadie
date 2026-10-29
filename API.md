@@ -94,6 +94,8 @@ Interactive HID test page with mouse/touch trackpad, keyboard input, and key com
 ## Video
 
 ### `GET /stream`
+
+`?fps=N` asks for fewer frames a second than the capture's rate.
 MJPEG stream (auto-cropped to detected content area).
 
 **Response:** `multipart/x-mixed-replace` with `image/jpeg` frames.
@@ -795,7 +797,7 @@ Files, next to the local token in the user config directory (`~/.config/roadie`)
 | `rig.json` | The policy: the stations accepted, and per station the allowed scopes (`view`, `input`, `bidi`), whether `admin` grants are taken, `max_session` and optional `hours` (`"09:00-18:00"`). Written by `roadie enroll`, edited by hand; nothing remote can change it |
 | `rig-state.json` | The lease state: the current lease per device and the highest sequence seen, so a restart cannot be made to accept an older lease |
 
-Through the tunnel the station reaches only an allowlist of endpoints, each with the scope a grant must carry, and every request presents a lease grant: in `Authorization: Lease <base64url event>` for plain requests, or in the first message of a WebSocket. Today that is [`/api/webrtc/signal`](#ws-apiwebrtcsignal) (`view`; the hello carries `"grant"`) and `GET /health` (`view`); REST, BiDi, MJPEG and the fallback WebSockets follow in R5. The grant is checked on the Pi: signed by a station in the policy, for this rig and device, not expired, not replayed, not revoked, not older than the lease the device has, and inside the policy. A viewer refreshes its grant every few minutes by sending `{"type":"grant","grant":{...}}` on the control channel; a grant that no longer passes ends the session. A revocation from the station, or a newer lease, ends a lease's sessions within a second.
+Through the tunnel the station reaches only an allowlist of endpoints, each with the scope a grant must carry, and every request presents a lease grant: in `Authorization: Lease <base64url event>` for plain requests, or in the first message of a WebSocket. Today that is [`/api/webrtc/signal`](#ws-apiwebrtcsignal) (`view`; the hello carries `"grant"`), `GET /health` (`view`), [`GET /stream`](#get-stream) (`view`, capped at `--relay-fps`, 5 a second by default, for the station's MJPEG fallback), [`GET /snapshot`](#get-snapshot) (`view`) and [`/api/hid/ws`](#ws-apihidws) (`input`, the fallback's input path); REST and BiDi follow in R5. A grant through a station with a TURN server names it (`stun` and `turn` tags), and Roadie's peer connection uses those servers, so the WebRTC path works across NATs. The grant is checked on the Pi: signed by a station in the policy, for this rig and device, not expired, not replayed, not revoked, not older than the lease the device has, and inside the policy. A viewer refreshes its grant every few minutes by sending `{"type":"grant","grant":{...}}` on the control channel; a grant that no longer passes ends the session. A revocation from the station, or a newer lease, ends a lease's sessions within a second.
 
 `/health` gains a `station` block: the rig's npub and, per station, its name, URL, rig id, whether the tunnel is up, and the lease currently held.
 
@@ -825,5 +827,6 @@ Input from a viewer that does not know the capture's crop, such as the station's
 | `--http-redirect` | | With TLS: also listen on this address (`:80`) and redirect to HTTPS |
 | `--encoder` | auto | H.264 encoder for WebRTC: `auto` (the Pi 4's hardware encoder when present, else ffmpeg with the host's best codec), `v4l2m2m`, `ffmpeg`, `ffmpeg:<codec>` (`libx264`, `h264_videotoolbox`, `h264_vaapi`, `h264_nvenc`, `h264_qsv`, `h264_v4l2m2m`), or `none` |
 | `--rtc-udp` | the HTTP port's number | UDP port for WebRTC media (one port for every viewer) |
+| `--relay-fps` | 5 | Frame rate cap for the MJPEG stream when it goes through a station, so a remote viewer cannot eat the uplink |
 | `--cpuprofile` | | Write a CPU profile to this file until exit, for `go tool pprof` |
 | `--list-devices` | | List video and audio devices, then exit |

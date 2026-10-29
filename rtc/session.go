@@ -76,6 +76,7 @@ func (b *Broadcaster) ServeSignal(w http.ResponseWriter, r *http.Request) {
 	// rig library's check is in the request context, and the grant in the
 	// hello. On the LAN there is no check and no grant.
 	var lease string
+	var ice []webrtc.ICEServer
 	check := rig.FirstMessageCheck(ctx)
 	if check != nil {
 		var ev nostr.Event
@@ -89,8 +90,13 @@ func (b *Broadcaster) ServeSignal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		lease = grant.LeaseID
+		// The grant names the station's STUN and TURN servers, with the
+		// lease's credentials, so this side can be reached across NATs.
+		for _, srv := range grant.ICE {
+			ice = append(ice, webrtc.ICEServer{URLs: srv.URLs, Username: srv.Username, Credential: srv.Credential})
+		}
 	}
-	s, err := b.newSession(send)
+	s, err := b.newSession(send, ice)
 	if err != nil {
 		send(Message{Type: "error", Error: err.Error()})
 		return
@@ -132,12 +138,12 @@ func (b *Broadcaster) ServeSignal(w http.ResponseWriter, r *http.Request) {
 }
 
 // newSession makes the peer connection, offers, and registers the session.
-func (b *Broadcaster) newSession(send func(Message) error) (*Session, error) {
+func (b *Broadcaster) newSession(send func(Message) error, ice []webrtc.ICEServer) (*Session, error) {
 	// The congestion-control interceptor reports its estimator for each new
 	// peer connection through a callback; holding mu pairs it with ours.
 	b.mu.Lock()
 	b.newEstimator = nil
-	pc, err := b.api.NewPeerConnection(webrtc.Configuration{})
+	pc, err := b.api.NewPeerConnection(webrtc.Configuration{ICEServers: ice})
 	est := b.newEstimator
 	b.mu.Unlock()
 	if err != nil {
