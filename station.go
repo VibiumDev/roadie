@@ -45,7 +45,7 @@ var rigAllowlist = rig.Allowlist{
 	{Path: "/api/hid/ws", Scope: station.ScopeInput, Max: 2},
 	{Path: "/audio", Scope: station.ScopeView, Max: 1},
 	{Path: "/api/mic", Scope: station.ScopeInput, Max: 1},
-	{Path: "/session", Scope: station.ScopeBidi, Max: 1},
+	{Path: "/session", Scope: station.ScopeBidi, Max: 2}, // two: one closing while the next opens
 	{Method: http.MethodGet, Path: "/api/hid/status", Scope: station.ScopeView},
 	{Path: "/api/hid/", Scope: station.ScopeInput},
 	{Path: "/api/settings", Scope: station.ScopeAdmin},
