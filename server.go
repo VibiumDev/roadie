@@ -155,7 +155,7 @@ var indexPage = template.Must(template.New("index").Parse(`<!DOCTYPE html>
 <link rel="stylesheet" href="/viewer/pages.css"><script src="/viewer/pages.js"></script></head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/"><span class="wordmark">Vibium</span><span class="product">Roadie</span></a>
-<nav><a href="/view">View</a><a href="/settings">Settings</a><a href="/test">Test</a><button id="themeBtn" class="iconbtn" type="button" aria-label="Switch theme"></button></nav></div></header>
+<nav><a href="/view">View</a><a href="/settings">Settings</a><a href="/test">Test</a></nav><button id="themeBtn" class="iconbtn" type="button" aria-label="Switch theme"></button></div></header>
 <main class="wrap"><p class="kicker">{{if and .Name (ne .Name "roadie")}}{{.Name}}{{else}}{{.Host}}{{end}}</p><h1 class="h1">Roadie.</h1>
 <p class="lead">The target wired to this machine, live in the browser.</p>
 <div class="grid">
