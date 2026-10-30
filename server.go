@@ -143,20 +143,26 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 			data["Stations"] = st
 		}
 	}
-	indexPage.Execute(w, data)
+	pages.ExecuteTemplate(w, "index", data)
 }
 
-// The front page, in the look of Vibium's web style guide; the stylesheet
-// and the theme switch are the Station viewer package's, served under
-// /viewer/, so a station's pages and this one match.
-var indexPage = template.Must(template.New("index").Parse(`<!DOCTYPE html>
+// The pages, in the look of Vibium's web style guide; the stylesheet and
+// the theme switch (and the "?" help toggles) are the Station viewer
+// package's, served under /viewer/, so a station's pages and these match.
+var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title><link rel="icon" href="data:,">
 <link rel="stylesheet" href="/viewer/pages.css"><script src="/viewer/pages.js"></script></head>
 <body>
-<header class="top"><div class="wrap"><a class="brand" href="/"><span class="wordmark">Vibium</span><span class="product">Roadie</span></a>
+{{end}}
+{{define "header"}}<header class="top"><div class="wrap"><a class="brand" href="/"><span class="wordmark">Vibium</span><span class="product">Roadie</span></a>
 <nav class="pages"><a href="/view">View</a><a href="/settings">Settings</a><a href="/test">Test</a></nav><button id="themeBtn" class="iconbtn" type="button" aria-label="Switch theme"></button><span class="break"></span></div></header>
-<main class="wrap"><p class="kicker">{{if and .Name (ne .Name "roadie")}}{{.Name}}{{else}}{{.Host}}{{end}}</p><h1 class="h1">Roadie.</h1>
+{{end}}
+{{define "foot"}}<footer class="foot"><div class="wrap"><span class="wordmark">Vibium</span><span class="line">Roadie · open source</span><span><a href="https://vibium.dev">vibium.dev ↗</a></span></div></footer>
+</body></html>{{end}}
+{{define "help"}}<button class="qhelp" type="button" aria-expanded="false" aria-controls="help-{{.}}" aria-label="What this is">?</button>{{end}}
+
+{{define "index"}}{{template "head" .}}{{template "header" .}}<main class="wrap"><p class="kicker">{{if and .Name (ne .Name "roadie")}}{{.Name}}{{else}}{{.Host}}{{end}}</p><h1 class="h1">Roadie.</h1>
 <p class="lead">The target wired to this machine, live in the browser.</p>
 <div class="grid">
 <a class="card" href="/view" style="text-decoration:none; color:inherit"><h3>View</h3><p>Watch and drive the target: the picture, sound, touch and keyboard.</p><span class="path">/view</span></a>
@@ -175,8 +181,208 @@ var indexPage = template.Must(template.New("index").Parse(`<!DOCTYPE html>
 <tr><th>Stations</th><td>{{if .Stations}}{{range .Stations}}<div>{{.name}} <span class="muted mono">{{.rig}}</span> {{if .online}}<span class="ok">online</span>{{else}}<span class="muted">offline</span>{{end}}</div>{{end}}{{else}}<span class="muted">none: <code>roadie enroll https://&lt;station&gt; --code …</code></span>{{end}}</td></tr>
 </table></div>
 </main>
-<footer class="foot"><div class="wrap"><span class="wordmark">Vibium</span><span class="line">Roadie · open source</span><span><a href="https://vibium.dev">vibium.dev ↗</a></span></div></footer>
-</body></html>`))
+{{template "foot" .}}{{end}}
+
+{{define "settings"}}{{template "head" .}}{{template "header" .}}<main class="wrap"><h1 class="h1">Settings. {{template "help" "settings"}}</h1>
+<p class="lead">Each <span class="qhelp inline" aria-hidden="true">?</span> explains the setting beside it.</p>
+<p class="helptext" id="help-settings" hidden>The picture and the crop are the host's: saved here, used for everyone who views, and the same settings the viewer's menu changes. The viewer section is this browser's alone.</p>
+
+<h2 class="h2">Picture {{template "help" "picture"}}</h2>
+<p class="helptext" id="help-picture" hidden>What Roadie asks of the capture dongle and how it serves the MJPEG stream. WebRTC uses the same capture with its own H.264 encoder, capped by the viewer's Bitrate slider.</p>
+<div class="setting"><label for="quality">Quality <span class="val" id="qval"></span> {{template "help" "quality"}}</label>
+<p class="helptext" id="help-quality" hidden>The JPEG quality of each MJPEG frame, 30 to 95. Higher is sharper and heavier on the link; 80 suits a LAN, lower helps a slow link. The viewer's Quality slider is this same setting.</p>
+<input id="quality" type="range" min="30" max="95"></div>
+<div class="setting"><label for="fps">Frames per second {{template "help" "fps"}}</label>
+<p class="helptext" id="help-fps" hidden>How many frames a second are asked of the dongle, for MJPEG and WebRTC alike. 30 is smooth; 10 or 15 spare the host and the link.</p>
+<select id="fps"><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="30">30</option></select></div>
+<div class="setting"><label for="res">Capture size {{template "help" "res"}}</label>
+<p class="helptext" id="help-res" hidden>The frame size asked of the dongle. A phone's output is 1920x1080 whatever its screen, and the picture is cropped to the screen from that; a smaller size costs the host less and shows less.</p>
+<select id="res"><option value="1920x1080">1080p</option><option value="1280x720">720p</option><option value="640x480">480p</option></select></div>
+
+<h2 class="h2">Crop {{template "help" "crop"}}</h2>
+<p class="helptext" id="help-crop" hidden>How the frame is cut down to the target's screen. Auto trims whatever is black at the edges, which a dark app can fool into shrinking the picture: show something bright to the screen's edges, such as a white page, and save the crop. Saved is then chosen and survives restarts; portrait and landscape each keep their own, and where there is none, Saved uses auto-crop. Off shows the whole frame.</p>
+<div class="setting">
+<label class="check"><input type="radio" name="crop" value="auto"> Auto: trim whatever is black at the edges</label>
+<label class="check"><input type="radio" name="crop" value="off"> Off: show the whole frame</label>
+<label class="check"><input type="radio" name="crop" value="saved"> Saved: the crop saved for the way the device is turned</label>
+<div class="status" id="cropStatus">Loading&hellip;</div>
+<p><button class="small" id="cropSave" type="button">Save current crop</button> <button class="small" id="cropClear" type="button">Clear saved crops</button></p></div>
+
+<h2 class="h2">Viewer, in this browser {{template "help" "viewer"}}</h2>
+<p class="helptext" id="help-viewer" hidden>Choices this browser keeps for /view, the same ones as the viewer's own menu, kept here and not on the host.</p>
+<div class="setting"><span class="lbl">Zoom <span class="val" id="zval"></span> {{template "help" "zoom"}}</span>
+<p class="helptext" id="help-zoom" hidden>Fit scales the picture to the room it has, up or down, as the viewer's Fit does, and is the default on a phone or tablet. Otherwise the picture is shown at this share of its own size, 100% on a desktop.</p>
+<label class="check"><input type="checkbox" id="zoomFit"> Fit the room the picture has</label>
+<input id="zoom" type="range" min="50" max="400" value="100" aria-label="Zoom"></div>
+<div class="setting"><span class="lbl">Toolbar {{template "help" "toolbar"}}</span>
+<p class="helptext" id="help-toolbar" hidden>Show keeps the toolbar beside the picture. Auto-hide tucks it off its edge and leaves a grip; the grip, a tap at the edge or the mouse at the edge brings it back. Off hides it, and <code>?toolbar=show</code> in the address brings it back.</p>
+<label class="check"><input type="radio" name="toolbar" value="show"> Show</label>
+<label class="check"><input type="radio" name="toolbar" value="auto"> Auto-hide: tucked off its edge, with a grip to bring it back</label>
+<label class="check"><input type="radio" name="toolbar" value="off"> Off</label></div>
+
+<h2 class="h2">This host {{template "help" "host"}}</h2>
+<p class="helptext" id="help-host" hidden>What Roadie found on this machine: the capture device, how it captures (MJPEG or raw YUYV from the dongle), the size and rate it captures at, and whether a signal is coming in.</p>
+<div class="tablewrap"><table class="kv" id="devinfo"><tr><td class="muted">Loading&hellip;</td></tr></table></div>
+</main>
+<script>
+(function(){
+  var slider = document.getElementById('quality');
+  var valSpan = document.getElementById('qval');
+  var fpsSelect = document.getElementById('fps');
+  var resSelect = document.getElementById('res');
+  var zoomSlider = document.getElementById('zoom');
+  var zoomFit = document.getElementById('zoomFit');
+  var zvalSpan = document.getElementById('zval');
+  var info = document.getElementById('devinfo');
+  var timer = null;
+
+  function applyToUI(d) {
+    if (d.quality !== undefined) { slider.value = d.quality; valSpan.textContent = d.quality; }
+    if (d.fps !== undefined) { fpsSelect.value = d.fps; }
+    if (d.width !== undefined && d.height !== undefined) { resSelect.value = d.width + 'x' + d.height; }
+  }
+  function showZoom(z) {
+    var fit = z === 'fit';
+    zoomFit.checked = fit;
+    zoomSlider.disabled = fit;
+    if (!fit && typeof z === 'number') zoomSlider.value = z;
+    zvalSpan.textContent = fit ? 'fit' : zoomSlider.value + '%';
+  }
+
+  (function loadSettings() {
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+    // The crop is chosen on the server (see /api/crop); replaying an old
+    // autocrop from this browser would undo that.
+    if ('autocrop' in saved) {
+      delete saved.autocrop;
+      try { localStorage.setItem('roadie-settings', JSON.stringify(saved)); } catch(e) {}
+    }
+    showZoom(saved.zoom);
+    if (Object.keys(saved).length > 0) {
+      applyToUI(saved);
+      fetch('/api/settings', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(saved)
+      });
+    } else {
+      fetch('/api/settings').then(function(r){ return r.json(); }).then(function(d){
+        applyToUI(d);
+      });
+    }
+  })();
+
+  function saveSettings(obj) {
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+    for (var k in obj) { saved[k] = obj[k]; }
+    localStorage.setItem('roadie-settings', JSON.stringify(saved));
+  }
+
+  function sendSettings(obj) {
+    clearTimeout(timer);
+    saveSettings(obj);
+    timer = setTimeout(function(){
+      fetch('/api/settings', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(obj)
+      });
+    }, 300);
+  }
+
+  slider.oninput = function(){
+    valSpan.textContent = slider.value;
+    sendSettings({quality: parseInt(slider.value)});
+  };
+
+  fpsSelect.onchange = function(){
+    sendSettings({fps: parseInt(fpsSelect.value)});
+  };
+
+  resSelect.onchange = function(){
+    var parts = resSelect.value.split('x');
+    sendSettings({width: parseInt(parts[0]), height: parseInt(parts[1])});
+  };
+
+  // The viewer's toolbar, kept by this browser for /view (a way back from Off).
+  var tbRadios = document.querySelectorAll('input[name=toolbar]');
+  (function() {
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
+    var mode = saved.toolbar || (saved.toolbarAutoHide ? 'auto' : 'show');
+    tbRadios.forEach(function(r) { r.checked = r.value === mode; });
+  })();
+  tbRadios.forEach(function(r) {
+    r.onchange = function() { if (r.checked) saveSettings({toolbar: r.value}); };
+  });
+
+  // The viewer's zoom: fit, or a share of the picture's own size.
+  zoomFit.onchange = function(){
+    var z = zoomFit.checked ? 'fit' : parseInt(zoomSlider.value);
+    showZoom(z);
+    saveSettings({zoom: z});
+  };
+  zoomSlider.oninput = function(){
+    showZoom(parseInt(zoomSlider.value));
+    saveSettings({zoom: parseInt(zoomSlider.value)});
+  };
+
+  // The crop is chosen, and saved crops kept, by the server, not in this
+  // browser.
+  var cropRadios = document.querySelectorAll('input[name=crop]');
+  var cropStatus = document.getElementById('cropStatus');
+  var cropSave = document.getElementById('cropSave');
+  var cropClear = document.getElementById('cropClear');
+  function showCrop(d) {
+    var any = !!(d.saved && (d.saved.portrait || d.saved.landscape));
+    cropRadios.forEach(function(r) {
+      r.checked = r.value === d.use;
+      if (r.value === 'saved') r.disabled = !any;
+    });
+    var lines = [];
+    ['portrait', 'landscape'].forEach(function(o) {
+      var c = d.saved && d.saved[o];
+      lines.push(o + ': ' + (c
+        ? c.width + '\u00d7' + c.height + ' at (' + c.x + ', ' + c.y + ')' + (d.mode === 'saved' && d.orientation === o ? ' \u2014 in use' : '')
+        : 'none'));
+    });
+    var mode = {saved: 'the saved crop', auto: 'auto-crop', off: 'no crop'}[d.mode] || d.mode;
+    lines.push('Device is ' + (d.orientation || 'turned an unknown way') + '; using ' + mode + '.');
+    cropStatus.textContent = '';
+    lines.forEach(function(l) { var div = document.createElement('div'); div.textContent = l; cropStatus.appendChild(div); });
+    cropClear.disabled = !any;
+  }
+  function cropRequest(method, body) {
+    var opts = {method: method};
+    if (body) { opts.headers = {'Content-Type': 'application/json'}; opts.body = JSON.stringify(body); }
+    fetch('/api/crop', opts).then(function(r) {
+      if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
+      return r.json();
+    }).then(showCrop).catch(function(e) { cropStatus.textContent = e.message; });
+  }
+  cropRadios.forEach(function(r) {
+    r.onchange = function(){ if (r.checked) cropRequest('PUT', {use: r.value}); };
+  });
+  cropSave.onclick = function(){ cropRequest('POST'); };
+  cropClear.onclick = function(){ cropRequest('DELETE'); };
+  cropRequest('GET');
+
+  fetch('/health').then(function(r){ return r.json(); }).then(function(d){
+    var rows = [['Device', d.device], ['Source', d.source_type], ['Resolution', d.resolution], ['FPS', d.fps], ['Status', d.status]];
+    info.textContent = '';
+    rows.forEach(function(row) {
+      if (row[1] === undefined || row[1] === null || row[1] === '') return;
+      var tr = document.createElement('tr'), th = document.createElement('th'), td = document.createElement('td');
+      th.textContent = row[0]; td.textContent = String(row[1]);
+      tr.appendChild(th); tr.appendChild(td); info.appendChild(tr);
+    });
+    if (!info.children.length) info.innerHTML = '<tr><td class="muted">No device info available</td></tr>';
+  });
+})();
+</script>
+{{template "foot" .}}{{end}}`))
 
 func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -605,224 +811,8 @@ func (s *Server) handleRelayReset(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, `<!DOCTYPE html>
-<html>
-<head><title>Roadie — Settings</title>
-<style>
-body { font-family: monospace; max-width: 600px; margin: 40px auto; padding: 0 20px; }
-a { color: #0066cc; }
-label { display: block; margin: 16px 0 4px; font-weight: bold; }
-input[type=range] { width: 100%; }
-select { padding: 4px 8px; font-family: monospace; font-size: 1em; }
-.val { font-size: 1.2em; }
-.info { margin-top: 24px; padding: 12px; background: #f5f5f5; border-radius: 6px; }
-.info div { margin: 4px 0; }
-nav { margin-bottom: 16px; }
-nav a { margin-right: 12px; }
-button { font-family: monospace; font-size: 1em; padding: 4px 10px; margin-right: 8px; }
-.hint { color: #666; margin: 6px 0; }
-#cropStatus div { margin: 2px 0; }
-label.opt { display: block; margin: 4px 0; font-weight: normal; }
-.head { display: block; margin: 16px 0 4px; font-weight: bold; }
-button.help { font-size: 0.8em; width: 1.6em; height: 1.6em; padding: 0; margin: 0 0 0 6px; border: 1px solid #999; border-radius: 50%; background: #fff; color: #555; cursor: pointer; vertical-align: middle; }
-button.help[aria-expanded=true] { background: #555; color: #fff; }
-</style>
-</head>
-<body>
-<h1>Settings</h1>
-<nav><a href="/">/</a> <a href="/view">/view</a></nav>
-
-<label for="quality">JPEG Quality: <span id="qval" class="val"></span></label>
-<input id="quality" type="range" min="30" max="95">
-
-<label for="fps">FPS:</label>
-<select id="fps">
-  <option value="10">10</option>
-  <option value="15">15</option>
-  <option value="20">20</option>
-  <option value="30">30</option>
-</select>
-
-<label for="res">Resolution:</label>
-<select id="res">
-  <option value="1920x1080">1080p</option>
-  <option value="1280x720">720p</option>
-  <option value="640x480">480p</option>
-</select>
-
-<div class="head">Crop:<button class="help" aria-controls="cropHelp" aria-expanded="false" title="About the crop">?</button></div>
-<label class="opt"><input type="radio" name="crop" value="auto"> Auto: trim whatever is black at the edges</label>
-<label class="opt"><input type="radio" name="crop" value="off"> Off: show the whole frame</label>
-<label class="opt"><input type="radio" name="crop" value="saved"> Saved: the crop saved for the way the device is turned</label>
-<div id="cropStatus">Loading&hellip;</div>
-<p><button id="cropSave">Save current crop</button><button id="cropClear">Clear saved crops</button></p>
-<p class="hint" id="cropHelp" hidden>A dark app can fool auto-crop into shrinking the picture. Show something
-bright to the screen's edges, such as a white page, and save the crop: Saved is then
-chosen, and it survives restarts. Portrait and landscape each keep their own; where
-there is none, Saved uses auto-crop.</p>
-
-<label for="zoom">Zoom: <span id="zval" class="val">100%</span></label>
-<input id="zoom" type="range" min="50" max="400" value="100">
-
-<label>Viewer toolbar:</label>
-<label class="opt"><input type="radio" name="toolbar" value="show"> Show</label>
-<label class="opt"><input type="radio" name="toolbar" value="auto"> Auto-hide: tucked off the right edge until the pointer reaches it</label>
-<label class="opt"><input type="radio" name="toolbar" value="off"> Off</label>
-
-<div class="info" id="devinfo">Loading device info&hellip;</div>
-
-<script>
-(function(){
-  var slider = document.getElementById('quality');
-  var valSpan = document.getElementById('qval');
-  var fpsSelect = document.getElementById('fps');
-  var resSelect = document.getElementById('res');
-  var zoomSlider = document.getElementById('zoom');
-  var zvalSpan = document.getElementById('zval');
-  var info = document.getElementById('devinfo');
-  var timer = null;
-
-  function applyToUI(d) {
-    if (d.quality !== undefined) { slider.value = d.quality; valSpan.textContent = d.quality; }
-    if (d.fps !== undefined) { fpsSelect.value = d.fps; }
-    if (d.width !== undefined && d.height !== undefined) { resSelect.value = d.width + 'x' + d.height; }
-    if (d.zoom !== undefined) { zoomSlider.value = d.zoom; zvalSpan.textContent = d.zoom + '%'; }
-  }
-
-  (function loadSettings() {
-    var saved = {};
-    try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
-    // The crop is chosen on the server (see /api/crop); replaying an old
-    // autocrop from this browser would undo that.
-    if ('autocrop' in saved) {
-      delete saved.autocrop;
-      try { localStorage.setItem('roadie-settings', JSON.stringify(saved)); } catch(e) {}
-    }
-    if (Object.keys(saved).length > 0) {
-      applyToUI(saved);
-      fetch('/api/settings', {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(saved)
-      });
-    } else {
-      fetch('/api/settings').then(function(r){ return r.json(); }).then(function(d){
-        applyToUI(d);
-      });
-    }
-  })();
-
-  function saveSettings(obj) {
-    var saved = {};
-    try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
-    for (var k in obj) { saved[k] = obj[k]; }
-    localStorage.setItem('roadie-settings', JSON.stringify(saved));
-  }
-
-  function sendSettings(obj) {
-    clearTimeout(timer);
-    saveSettings(obj);
-    timer = setTimeout(function(){
-      fetch('/api/settings', {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(obj)
-      });
-    }, 300);
-  }
-
-  slider.oninput = function(){
-    valSpan.textContent = slider.value;
-    sendSettings({quality: parseInt(slider.value)});
-  };
-
-  fpsSelect.onchange = function(){
-    sendSettings({fps: parseInt(fpsSelect.value)});
-  };
-
-  resSelect.onchange = function(){
-    var parts = resSelect.value.split('x');
-    sendSettings({width: parseInt(parts[0]), height: parseInt(parts[1])});
-  };
-
-  // The viewer's toolbar, kept by this browser for /view (a way back from Off).
-  var tbRadios = document.querySelectorAll('input[name=toolbar]');
-  (function() {
-    var saved = {};
-    try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
-    var mode = saved.toolbar || (saved.toolbarAutoHide ? 'auto' : 'show');
-    tbRadios.forEach(function(r) { r.checked = r.value === mode; });
-  })();
-  tbRadios.forEach(function(r) {
-    r.onchange = function() { if (r.checked) saveSettings({toolbar: r.value}); };
-  });
-
-  zoomSlider.oninput = function(){
-    zvalSpan.textContent = zoomSlider.value + '%';
-    saveSettings({zoom: parseInt(zoomSlider.value)});
-  };
-
-  // Each "?" shows or hides the explanation it controls.
-  document.querySelectorAll('button.help').forEach(function(b) {
-    b.onclick = function() {
-      var hint = document.getElementById(b.getAttribute('aria-controls'));
-      hint.hidden = !hint.hidden;
-      b.setAttribute('aria-expanded', String(!hint.hidden));
-    };
-  });
-
-  // The crop is chosen, and saved crops kept, by the server, not in this
-  // browser.
-  var cropRadios = document.querySelectorAll('input[name=crop]');
-  var cropStatus = document.getElementById('cropStatus');
-  var cropSave = document.getElementById('cropSave');
-  var cropClear = document.getElementById('cropClear');
-  function showCrop(d) {
-    var any = !!(d.saved && (d.saved.portrait || d.saved.landscape));
-    cropRadios.forEach(function(r) {
-      r.checked = r.value === d.use;
-      if (r.value === 'saved') r.disabled = !any;
-    });
-    var html = '';
-    ['portrait', 'landscape'].forEach(function(o) {
-      var c = d.saved && d.saved[o];
-      html += '<div>' + o + ': ' + (c
-        ? c.width + '\u00d7' + c.height + ' at (' + c.x + ', ' + c.y + ')' + (d.mode === 'saved' && d.orientation === o ? ' &mdash; in use' : '')
-        : 'none') + '</div>';
-    });
-    var mode = {saved: 'the saved crop', auto: 'auto-crop', off: 'no crop'}[d.mode] || d.mode;
-    html += '<div>Device is ' + (d.orientation || 'turned an unknown way') + '; using ' + mode + '.</div>';
-    cropStatus.innerHTML = html;
-    cropClear.disabled = !any;
-  }
-  function cropRequest(method, body) {
-    var opts = {method: method};
-    if (body) { opts.headers = {'Content-Type': 'application/json'}; opts.body = JSON.stringify(body); }
-    fetch('/api/crop', opts).then(function(r) {
-      if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
-      return r.json();
-    }).then(showCrop).catch(function(e) { cropStatus.textContent = e.message; });
-  }
-  cropRadios.forEach(function(r) {
-    r.onchange = function(){ if (r.checked) cropRequest('PUT', {use: r.value}); };
-  });
-  cropSave.onclick = function(){ cropRequest('POST'); };
-  cropClear.onclick = function(){ cropRequest('DELETE'); };
-  cropRequest('GET');
-
-  fetch('/health').then(function(r){ return r.json(); }).then(function(d){
-    var html = '';
-    if (d.device) html += '<div><b>Device:</b> ' + d.device + '</div>';
-    if (d.source_type) html += '<div><b>Source:</b> ' + d.source_type + '</div>';
-    if (d.resolution) html += '<div><b>Resolution:</b> ' + d.resolution + '</div>';
-    if (d.fps) html += '<div><b>FPS:</b> ' + d.fps + '</div>';
-    html += '<div><b>Status:</b> ' + d.status + '</div>';
-    info.innerHTML = html || 'No device info available';
-  });
-})();
-</script>
-</body>
-</html>`)
+	host, _ := os.Hostname()
+	pages.ExecuteTemplate(w, "settings", map[string]any{"Title": "Settings · " + s.pageTitle(), "Name": s.Name, "Host": host})
 }
 
 func (s *Server) handleAudio(w http.ResponseWriter, r *http.Request) {

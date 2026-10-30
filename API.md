@@ -18,7 +18,7 @@ tellable apart. Click/touch the stream to send mouse or touch events to the targ
 
 | Param | Description |
 |-------|-------------|
-| `toolbar` | `show`, `auto` (auto-hide: tucked off the right edge until the pointer reaches it) or `off`. Sets the toolbar, and this browser remembers it, like the choice in the toolbar's own menu or on `/settings`; `?toolbar=show` brings back a toolbar turned off. |
+| `toolbar` | `show`, `auto` (auto-hide: tucked off its edge, with a grip, a tap at the edge or the pointer at the edge bringing it back) or `off`. Sets the toolbar, and this browser remembers it, like the choice in the toolbar's own menu or on `/settings`; `?toolbar=show` brings back a toolbar turned off. |
 | `minimal` | `1` hides the toolbar for this page load only, leaving the remembered choice alone, for embedding in an iframe (see `/grid`). |
 | `input` | `mouse` or `touch` sets the pointer mode for this page load, overriding the server's `--input`. |
 | `align` | `top-left` or `center`: where the picture sits, for this page load; the menu's choice is what this browser remembers. |
@@ -71,7 +71,7 @@ Only the scheme and host of each target are used; the iframe path is always
 `/view?minimal=1` plus any `input` mode. Returns `400` with usage help if `targets` is missing or invalid.
 
 ### `GET /settings`
-Device info, capture settings, and the [saved crop](#get-put-post-delete-apicrop).
+The capture settings (JPEG quality, frames per second, capture size), the [crop](#get-put-post-delete-apicrop), this browser's viewer choices (zoom, with Fit, and the toolbar) and the device's details, in the front page's look, each with a "?" that explains it.
 
 ### `GET /soundcheck`
 
