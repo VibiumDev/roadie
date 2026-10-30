@@ -71,7 +71,7 @@ Only the scheme and host of each target are used; the iframe path is always
 `/view?minimal=1` plus any `input` mode. Returns `400` with usage help if `targets` is missing or invalid.
 
 ### `GET /settings`
-The capture settings (JPEG quality, frames per second, capture size), the [crop](#get-put-post-delete-apicrop), this browser's viewer choices (zoom, with Fit, and the toolbar) and the device's details, in the front page's look, each with a "?" that explains it.
+The capture settings (JPEG quality, frames per second, capture size), the [crop](#get-put-post-delete-apicrop), this browser's viewer choices (zoom, with Fit, and the toolbar) and the device's details, in the front page's look, each section with a "?" that explains it and its settings.
 
 ### `GET /soundcheck`
 

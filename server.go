@@ -183,20 +183,21 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 </main>
 {{template "foot" .}}{{end}}
 
-{{define "settings"}}{{template "head" .}}{{template "header" .}}<main class="wrap"><h1 class="h1">Settings. {{template "help" "settings"}}</h1>
-<p class="lead">Each <span class="qhelp inline" aria-hidden="true">?</span> explains the setting beside it.</p>
-<p class="helptext" id="help-settings" hidden>The picture and the crop are the host's: saved here, used for everyone who views, and the same settings the viewer's menu changes. The viewer section is this browser's alone.</p>
+{{define "settings"}}{{template "head" .}}{{template "header" .}}<main class="wrap"><h1 class="h1">Settings.</h1>
+<p class="lead">The <span class="qhelp inline" aria-hidden="true">?</span> by a heading explains its section.</p>
 
 <h2 class="h2">Picture {{template "help" "picture"}}</h2>
-<p class="helptext" id="help-picture" hidden>What Roadie asks of the capture dongle and how it serves the MJPEG stream. WebRTC uses the same capture with its own H.264 encoder, capped by the viewer's Bitrate slider.</p>
-<div class="setting"><label for="quality">Quality <span class="val" id="qval"></span> {{template "help" "quality"}}</label>
-<p class="helptext" id="help-quality" hidden>The JPEG quality of each MJPEG frame, 30 to 95. Higher is sharper and heavier on the link; 80 suits a LAN, lower helps a slow link. The viewer's Quality slider is this same setting.</p>
+<div class="helptext" id="help-picture" hidden>
+<p>What Roadie asks of the capture dongle and how it serves the MJPEG stream. Picture and Crop are the host's: saved there, used for everyone who views, and the same settings the viewer's menu changes. WebRTC uses the same capture with its own H.264 encoder, capped by the viewer's Bitrate slider.</p>
+<p><b>Quality.</b> The JPEG quality of each MJPEG frame, 30 to 95. Higher is sharper and heavier on the link; 80 suits a LAN, lower helps a slow link. The viewer's Quality slider is this same setting.</p>
+<p><b>Frames per second.</b> How many frames a second are asked of the dongle, for MJPEG and WebRTC alike. 30 is smooth; 10 or 15 spare the host and the link.</p>
+<p><b>Capture size.</b> The frame size asked of the dongle. A phone's output is 1920x1080 whatever its screen, and the picture is cropped to the screen from that; a smaller size costs the host less and shows less.</p>
+</div>
+<div class="setting"><label for="quality">Quality <span class="val" id="qval"></span></label>
 <input id="quality" type="range" min="30" max="95"></div>
-<div class="setting"><label for="fps">Frames per second {{template "help" "fps"}}</label>
-<p class="helptext" id="help-fps" hidden>How many frames a second are asked of the dongle, for MJPEG and WebRTC alike. 30 is smooth; 10 or 15 spare the host and the link.</p>
+<div class="setting"><label for="fps">Frames per second</label>
 <select id="fps"><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="30">30</option></select></div>
-<div class="setting"><label for="res">Capture size {{template "help" "res"}}</label>
-<p class="helptext" id="help-res" hidden>The frame size asked of the dongle. A phone's output is 1920x1080 whatever its screen, and the picture is cropped to the screen from that; a smaller size costs the host less and shows less.</p>
+<div class="setting"><label for="res">Capture size</label>
 <select id="res"><option value="1920x1080">1080p</option><option value="1280x720">720p</option><option value="640x480">480p</option></select></div>
 
 <h2 class="h2">Crop {{template "help" "crop"}}</h2>
@@ -209,13 +210,15 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 <p><button class="small" id="cropSave" type="button">Save current crop</button> <button class="small" id="cropClear" type="button">Clear saved crops</button></p></div>
 
 <h2 class="h2">Viewer, in this browser {{template "help" "viewer"}}</h2>
-<p class="helptext" id="help-viewer" hidden>Choices this browser keeps for /view, the same ones as the viewer's own menu, kept here and not on the host.</p>
-<div class="setting"><span class="lbl">Zoom <span class="val" id="zval"></span> {{template "help" "zoom"}}</span>
-<p class="helptext" id="help-zoom" hidden>Fit scales the picture to the room it has, up or down, as the viewer's Fit does, and is the default on a phone or tablet. Otherwise the picture is shown at this share of its own size, 100% on a desktop.</p>
+<div class="helptext" id="help-viewer" hidden>
+<p>Choices this browser keeps for /view, the same ones as the viewer's own menu, kept here and not on the host.</p>
+<p><b>Zoom.</b> Fit scales the picture to the room it has, up or down, as the viewer's Fit does, and is the default on a phone or tablet. Otherwise the picture is shown at this share of its own size, 100% on a desktop.</p>
+<p><b>Toolbar.</b> Show keeps the toolbar beside the picture. Auto-hide tucks it off its edge and leaves a grip; the grip, a tap at the edge or the mouse at the edge brings it back. Off hides it, and <code>?toolbar=show</code> in the address brings it back.</p>
+</div>
+<div class="setting"><span class="lbl">Zoom <span class="val" id="zval"></span></span>
 <label class="check"><input type="checkbox" id="zoomFit"> Fit the room the picture has</label>
 <input id="zoom" type="range" min="50" max="400" value="100" aria-label="Zoom"></div>
-<div class="setting"><span class="lbl">Toolbar {{template "help" "toolbar"}}</span>
-<p class="helptext" id="help-toolbar" hidden>Show keeps the toolbar beside the picture. Auto-hide tucks it off its edge and leaves a grip; the grip, a tap at the edge or the mouse at the edge brings it back. Off hides it, and <code>?toolbar=show</code> in the address brings it back.</p>
+<div class="setting"><span class="lbl">Toolbar</span>
 <label class="check"><input type="radio" name="toolbar" value="show"> Show</label>
 <label class="check"><input type="radio" name="toolbar" value="auto"> Auto-hide: tucked off its edge, with a grip to bring it back</label>
 <label class="check"><input type="radio" name="toolbar" value="off"> Off</label></div>
