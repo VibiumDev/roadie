@@ -183,7 +183,7 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 </main>
 {{template "foot" .}}{{end}}
 
-{{define "settings"}}{{template "head" .}}{{template "header" .}}<main class="wrap"><h1 class="h1">Settings.</h1>
+{{define "settings"}}{{template "head" .}}{{template "header" .}}<main class="wrap">
 
 <h2 class="h2">Picture {{template "help" "picture"}}</h2>
 <div class="helptext" id="help-picture" hidden>
