@@ -139,6 +139,7 @@ To drive more than one device from the same host, see
 | [Architecture](docs/explanation/architecture.md) | System design, pipeline, and design decisions |
 | [Where Roadie Sits](docs/explanation/where-roadie-sits.md) | Driving a phone from inside it, from its cables, or from in front of it |
 | [MJPEG vs WebRTC](docs/explanation/mjpeg-vs-webrtc.md) | What each way of sending the picture costs in bandwidth, data and CPU, with pictures, and who should care; the `.html` next to it adds a calculator |
+| [Nostr Keys](https://github.com/VibiumDev/station/blob/main/docs/explanation/nostr-keys.md) | In the Station repo: why the rig's key and the station's are Nostr keys, what the signed grants and announcements do today, and what they leave open |
 | [Install Raspberry Pi OS](docs/how-to/install-os.md) | Step 1 of setting up a new Pi: Imager settings for a Roadie |
 | [Configure Raspberry Pi OS](docs/how-to/configure-os.md) | Step 2: the one-shot `setup/machine-setup` script, and updating with it |
 | [Run Roadie](docs/how-to/run-roadie.md) | The `roadie` service: start, stop, its log, its flags, and running a build by hand |
