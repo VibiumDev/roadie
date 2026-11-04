@@ -659,7 +659,7 @@ Roadie implements a minimal subset of BiDi — only the methods that map to hard
 | Method | Description |
 |--------|-------------|
 | `session.status` | Check if Roadie is ready (capture + HID connected) |
-| `session.new` | Create a session (one at a time) |
+| `session.new` | Create a session (one at a time). A connection that drops without `session.end` frees its own session; another connection closing does not |
 | `session.end` | End the session, release all held input |
 | `browsingContext.getTree` | Returns a single context (`"screen"`) representing the target display |
 | `browsingContext.captureScreenshot` | Returns a base64-encoded JPEG of the current frame. Right after input, it first waits for the screen to show it: at least 300 ms, then until the picture stops changing (at most 2 s after the input) |

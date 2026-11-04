@@ -51,6 +51,7 @@ type bidiPointerPos struct {
 // bidiSession tracks state for an active BiDi session.
 type bidiSession struct {
 	id          string
+	conn        *websocket.Conn // the connection that made it
 	heldKeys    []int
 	heldButtons int
 	// shiftFor marks keys whose character needed a Shift this session
@@ -85,13 +86,21 @@ func (s *Server) handleBiDi(w http.ResponseWriter, r *http.Request) {
 			err = lim.Wait(ctx)
 		}
 		if err != nil {
-			// Connection closed — clean up session if this connection owns it.
+			// Connection closed: end the session if this connection owns
+			// it. releaseAllInput takes the mutex itself, so it runs after
+			// the unlock; holding it across the call deadlocked every later
+			// session.new until a restart.
 			bidiSessionMu.Lock()
-			if bidiActive != nil {
-				s.releaseAllInput(bidiActive)
+			sess := bidiActive
+			if sess != nil && sess.conn == conn {
 				bidiActive = nil
+			} else {
+				sess = nil
 			}
 			bidiSessionMu.Unlock()
+			if sess != nil {
+				s.releaseAllInput(sess)
+			}
 			return
 		}
 
@@ -176,7 +185,7 @@ func (s *Server) bidiSessionNew(conn *websocket.Conn, ctx context.Context, cmd b
 	}
 
 	id := randomHex(16)
-	bidiActive = &bidiSession{id: id, pointerPos: map[string]*bidiPointerPos{}}
+	bidiActive = &bidiSession{id: id, conn: conn, pointerPos: map[string]*bidiPointerPos{}}
 
 	caps := map[string]any{
 		"acceptInsecureCerts": false,

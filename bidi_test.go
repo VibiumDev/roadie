@@ -696,3 +696,74 @@ func TestBiDiRefusesTwoFingersBeforeRunning(t *testing.T) {
 		t.Errorf("two fingers on Android: %v", err)
 	}
 }
+
+// A connection that dropped without session.end used to wedge BiDi for
+// good: the close path held bidiSessionMu while releaseAllInput took it
+// again, so every later session.new waited on it until a restart.
+func TestBiDiDroppedConnectionFreesTheSession(t *testing.T) {
+	resetBidiState()
+	s, mux := newTestServer()
+	s.HID = &keyHID{} // the close path releases input only with a HID
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	first := bidiDial(t, ts)
+	resp := parseBidiResp(t, bidiSend(t, first, map[string]any{
+		"id": 1, "method": "session.new", "params": map[string]any{"capabilities": map[string]any{}},
+	}))
+	if resp.Type != "success" {
+		t.Fatalf("first session.new: %s: %s", resp.Type, resp.Message)
+	}
+	first.CloseNow() // dropped, no session.end
+
+	// The server sees the drop a moment after the socket goes.
+	second := bidiDial(t, ts)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		resp = parseBidiResp(t, bidiSend(t, second, map[string]any{
+			"id": 2, "method": "session.new", "params": map[string]any{"capabilities": map[string]any{}},
+		}))
+		if resp.Type == "success" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("session.new after a dropped connection: %s: %s", resp.Type, resp.Message)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// A second connection that was refused and then closes must not end the
+// first connection's session.
+func TestBiDiRefusedConnectionCloseKeepsTheSession(t *testing.T) {
+	resetBidiState()
+	s, mux := newTestServer()
+	s.HID = &keyHID{}
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	first := bidiDial(t, ts)
+	resp := parseBidiResp(t, bidiSend(t, first, map[string]any{
+		"id": 1, "method": "session.new", "params": map[string]any{"capabilities": map[string]any{}},
+	}))
+	if resp.Type != "success" {
+		t.Fatalf("first session.new: %s: %s", resp.Type, resp.Message)
+	}
+	second := bidiDial(t, ts)
+	resp = parseBidiResp(t, bidiSend(t, second, map[string]any{
+		"id": 2, "method": "session.new", "params": map[string]any{"capabilities": map[string]any{}},
+	}))
+	if resp.Type != "error" {
+		t.Fatalf("second session.new should be refused, got %s", resp.Type)
+	}
+	second.CloseNow()
+	time.Sleep(200 * time.Millisecond) // let the server handle the close
+
+	// Only a live session may act; an empty action list is enough to ask.
+	resp = parseBidiResp(t, bidiSend(t, first, map[string]any{
+		"id": 3, "method": "input.performActions", "params": map[string]any{"context": "screen", "actions": []any{}},
+	}))
+	if resp.Type != "success" {
+		t.Fatalf("the first session was ended by the refused connection's close: %s: %s", resp.Type, resp.Message)
+	}
+}
