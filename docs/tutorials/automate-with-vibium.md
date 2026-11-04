@@ -45,7 +45,7 @@ The station hands `/session` your first online phone and keeps it yours
 while the session lasts, so nobody else drives it meanwhile. That
 arrangement, waiting in line for a phone someone else has, and the
 station's tokens are covered in the station's own tutorial,
-[Reach a device through the station](https://github.com/VibiumDev/station/blob/main/docs/tutorials/agent-through-the-station.md).
+[Reach a device remotely through the station](https://github.com/VibiumDev/station/blob/main/docs/tutorials/agent-through-the-station.md).
 Everything below is the same either way.
 
 Roadie serves one BiDi session at a time. The viewer in a browser keeps
@@ -249,7 +249,7 @@ pointer.
 
 - [Roadie API Reference](../../API.md): the BiDi methods Roadie answers,
   HID keycodes and the REST endpoints.
-- [Reach a device through the station](https://github.com/VibiumDev/station/blob/main/docs/tutorials/agent-through-the-station.md):
+- [Reach a device remotely through the station](https://github.com/VibiumDev/station/blob/main/docs/tutorials/agent-through-the-station.md):
   tokens, holds and the queue when the phone is behind a station.
 - [Vibium's documentation](https://github.com/VibiumDev/vibium/tree/main/docs):
   the CLI, the MCP server and the clients in full.
