@@ -14,7 +14,15 @@ Index page with links to all endpoints.
 ### `GET /view`
 Live video feed with full HID control. The browser tab is titled
 `Roadie — <name>` when `--name` is set, so several targets open at once stay
-tellable apart. Click/touch the stream to send mouse or touch events to the target. Keyboard events are captured automatically (except when interacting with the toolbar). Includes audio toggle, microphone toggle (voice input to the target; needs https or localhost), quality/FPS/resolution settings, and mouse/touch input mode toggle. On a touchscreen in mouse mode, two fingers moving together turn the wheel, and two fingers moving apart or towards each other become Apple Maps' one-finger zoom, a double tap at their centre with the second tap held and dragged, up to zoom in and down to zoom out (Google Maps zooms the same way; other apps get a double tap and a drag), since a device whose pointer stands in for touch never sees two fingers; in touch mode two fingers go to the target as two contacts. A Screenshot button saves the picture as it is, sending nothing to the target. With `--platform ios` or `android` the toolbar also has the phone's own buttons, sent as the shortcuts a phone takes from a hardware keyboard, so no consumer-control device is needed: Home is GUI+H (Cmd+H on iOS, Meta+H on Android); Lock, like the phone's side button, locks (Ctrl+Cmd+Q on iOS, the keyboard Power key on Android) and, while the screen is dark (`no_signal`), wakes it instead (Shift on iOS, Power on Android); and Android also gets Back (Escape), Recents (Alt+Tab) and volume up and down (the keyboard volume keys). iOS has no system-wide Back or Recents shortcut, and its volume is fixed while Roadie's audio is its output. On iOS, Rotate turns the screen through [`/api/rotate`](#post-apirotate). Input mode persists across page refreshes via `localStorage`.
+tellable apart. Click/touch the stream to send mouse or touch events to the target. Keyboard events are captured automatically (except when interacting with the toolbar). Includes audio toggle, microphone toggle (voice input to the target; needs https or localhost), quality/FPS/resolution settings, and mouse/touch input mode toggle. On a touchscreen in mouse mode, two fingers moving together turn the wheel, and two fingers moving apart or towards each other become Apple Maps' one-finger zoom, since a device whose pointer stands in for touch never sees two fingers. That zoom is a double tap at their centre with the second tap held and dragged, up to zoom in and down to zoom out (Google Maps zooms the same way; other apps get a double tap and a drag). In touch mode two fingers go to the target as two contacts. A Screenshot button saves the picture as it is, sending nothing to the target.
+
+With `--platform ios` or `android` the toolbar also has the phone's own buttons, sent as the shortcuts a phone takes from a hardware keyboard, so no consumer-control device is needed:
+
+- Home is GUI+H (Cmd+H on iOS, Meta+H on Android).
+- Lock, like the phone's side button, locks (Ctrl+Cmd+Q on iOS, the keyboard Power key on Android) and, while the screen is dark (`no_signal`), wakes it instead (Shift on iOS, Power on Android).
+- Android also gets Back (Escape), Recents (Alt+Tab) and volume up and down (the keyboard volume keys).
+
+iOS has no system-wide Back or Recents shortcut, and its volume is fixed while Roadie's audio is its output. On iOS, Rotate turns the screen through [`/api/rotate`](#post-apirotate). Input mode persists across page refreshes via `localStorage`.
 
 | Param | Description |
 |-------|-------------|
@@ -26,9 +34,14 @@ tellable apart. Click/touch the stream to send mouse or touch events to the targ
 | `transport` | `webrtc` or `mjpeg` for this page load. WebRTC, the default when the host has an encoder (`webrtc` in [`/health`](#get-health)), shows the picture as H.264 over a peer connection, carries the phone's sound to the speaker button as G.722, takes the microphone button's audio back the same way, and sends input over the connection's `hid` data channel; the menu's Video switch does the same at any time and this browser remembers the choice. The page goes back to MJPEG, `/audio`, `/api/mic` and `/api/hid/ws` by itself if the connection cannot be made or drops for good. The menu's Quality slider is the MJPEG stream's JPEG quality and shows in MJPEG mode; in WebRTC mode a Bitrate slider caps the H.264 stream instead (300 kbps to 4 Mbps, the top meaning automatic), remembered by this browser. Screenshots have their own Screenshot quality slider lower in the menu (default 90), also remembered. |
 | `stats` | `1` shows a box over the picture for this page load: which transport shows it (MJPEG with its JPEG quality, or WebRTC with H.264), the picture's size, frame rate and bitrate, the sound (over WebRTC the G.722 bitrate and, while the mic button is on, the mic's; over MJPEG `off`, or the PCM format and bitrate on `/audio` and, while talking, on `/api/mic`), and over WebRTC the delays (round trip between browser and host, the browser's jitter buffer, decoding) and the encoder's own frame rate, bitrate and target. The menu's Stats box does the same and is remembered. The WebRTC values are always on `window.__roadieRTCStats`. |
 
-Pointer mode resolves in this order: `?input=` for this page load, then the
-server's `--input`, then the default implied by `--platform`, then a mode this
-viewer chose from the toolbar, then mouse.
+Pointer mode resolves in this order:
+
+1. `?input=` for this page load
+2. the server's `--input`
+3. the default implied by `--platform`
+4. a mode this viewer chose from the toolbar
+5. mouse
+
 `--input` is the usual place to set it, since the mode is a property of the
 target device rather than of the browser viewing it.
 
@@ -71,7 +84,7 @@ Only the scheme and host of each target are used; the iframe path is always
 `/view?minimal=1` plus any `input` mode. Returns `400` with usage help if `targets` is missing or invalid.
 
 ### `GET /settings`
-The capture settings (JPEG quality, frames per second, capture size), the [crop](#get-put-post-delete-apicrop), this browser's viewer choices (zoom, with Fit, and the toolbar) and the device's details, in the front page's look, each section with a "?" that explains it and its settings.
+Shows the capture settings (JPEG quality, frames per second, capture size), the [crop](#get-put-post-delete-apicrop), this browser's viewer choices (zoom, with Fit, and the toolbar) and the device's details in the front page's look. Each section has a "?" that explains it and its settings.
 
 ### `GET /soundcheck`
 
@@ -143,8 +156,8 @@ Returns `503` if no audio device is active.
 
 The audio is the capture dongle's (the target's HDMI audio). With
 `--hid-backend linux-gadget` and the gadget's speaker enabled, it follows the
-phone: the USB speaker whenever the phone plays to it, HDMI otherwise. If a
-switch changes the format, the server closes the socket so clients reconnect
+phone: the USB speaker whenever the phone plays to it, and HDMI otherwise. If
+a switch changes the format, the server closes the socket so clients reconnect
 and read the new parameters.
 
 ## Settings
@@ -341,21 +354,21 @@ Turns an iPhone's screen (`--platform ios`) to portrait or landscape.
 
 No key says which way an iPhone's screen faces, but AssistiveTouch's menu
 does. Roadie opens it with mouse button 5, which opens it around the
-pointer, and clicks Device, Rotate Screen, and Portrait or Left (landscape),
-then closes it: 4 to 5 s in all, most of it the phone showing each click
-(about 6 s on a screen that can't turn, where Roadie waits 2 s for a turn
-that doesn't come). The phone needs button 5 set up once: see
-[Connect a Phone](docs/how-to/connect-a-phone.md#turning-the-screen).
+pointer, clicks Device, Rotate Screen, and Portrait or Left (landscape), and
+then closes it. That takes 4 to 5 s in all, most of which is the phone
+showing each click (about 6 s on a screen that can't turn, where Roadie
+waits 2 s for a turn that doesn't come). The phone needs button 5 set up
+once: see [Connect a Phone](docs/how-to/connect-a-phone.md#turning-the-screen).
 
 Roadie looks before every click. It finds the menu near the middle of the
 picture by comparing it with stored images of each page (no AI, about 40 ms),
-and clicks an item only once the page holding it shows, where it shows: in
-two frames in a row, without waiting for the menu to stop animating. So a
-menu that was already open, opened off the middle, or on another page is
-dealt with, and when there's no menu nothing lands on the app. If a click
-misses its item (the phone reads the pointer turned, as after a restart of
-Roadie while the phone took itself to be on its side), Roadie tries the
-other way once.
+and clicks an item where it shows, but only once the page holding it has
+shown in two frames in a row, without waiting for the menu to stop
+animating. So a menu that was already open, opened off the middle, or on
+another page is dealt with, and when there's no menu nothing lands on the
+app. If a click misses its item (the phone reads the pointer turned, as
+after a restart of Roadie while the phone took itself to be on its side),
+Roadie tries the other way once.
 
 While a turn is under way, [`/health`](#get-health) says `"rotating": true`:
 the pointer moving under Roadie's clicks would spoil them. `/view` greys the
@@ -474,13 +487,13 @@ Coordinates are absolute in the range 0-32767:
 
 The pointer jumps there. With glide on (`--glide`, or `{"glide": true}` to
 [`/api/settings`](#put-apisettings)), a jump from rest glides instead, as a
-hand would move a mouse: along a slight arc, slow at both ends, in 100 to 300
-ms by distance, and the call returns when the pointer arrives. It's off by
-default, because clients expect a move to be instant, and on a computer a
-glide can open hover menus on its way. Even with it on, taps, short moves
-(under about 3% of the screen), moves with a button held, and moves sent less
-than 100 ms apart go straight there, so a drag or a client's own animation
-keeps its path. It applies to WebDriver BiDi moves too.
+hand would move a mouse. The pointer travels along a slight arc, slow at both
+ends, in 100 to 300 ms by distance, and the call returns when it arrives.
+It's off by default, because clients expect a move to be instant, and on a
+computer a glide can open hover menus on its way. Even with it on, taps,
+short moves (under about 3% of the screen), moves with a button held, and
+moves sent less than 100 ms apart go straight there, so a drag or a client's
+own animation keeps its path. It applies to WebDriver BiDi moves too.
 
 **Response:**
 ```json
@@ -590,7 +603,7 @@ WebSocket for real-time HID control. Accepts the same JSON command format used b
 No server-to-client messages. Connection auto-reconnects on the `/test` page.
 While [`/api/rotate`](#post-apirotate) turns the screen, messages are dropped
 unless they only let go of something (`key_release`, `mouse_release`, a
-`touch` with no finger down). `tap` is a whole tap in one command, a touch down at the point, a 60 ms hold and the lift, for viewers on links where the gap between separate down and up messages would stretch; `mouse_click` is the same for the mouse.
+`touch` with no finger down). `tap` is a whole tap in one command — a touch down at the point, a 60 ms hold and the lift — for viewers on links where the gap between separate down and up messages would stretch; `mouse_click` is the same for the mouse.
 
 ---
 
@@ -609,27 +622,31 @@ is level 4.0 and SPS and PPS ride every keyframe) and a data channel named
 `{"type":"stats","status":{...},"kbps":N}` once a second with the `webrtc`
 object from `/health` and the bits sent in the last second.
 
-The offer also carries, both ways, one audio line: Roadie sends the phone's
+The offer also carries one audio line, both ways. Roadie sends the phone's
 sound on it as G.722 (16 kHz, 64 kbit/s; only G.722 and PCMU are offered,
-so a browser does not pick Opus), 20 ms a packet, while anyone is
-connected and the capture has audio; a client that puts its own G.722 or
+so a browser does not pick Opus) in 20 ms packets, while anyone is
+connected and the capture has audio. A client that puts its own G.722 or
 PCMU track on the same line, as the viewer's microphone button does with
-`replaceTrack`, has it decoded on the host into the path [`/api/mic`](#ws-apimic)
-feeds, 16 kHz mono. One client's microphone reaches the target at a time:
-the first to send keeps it until its track ends. And a second data channel,
-`hid`, takes the JSON commands [`/api/hid/ws`](#ws-apihidws) accepts, one
-per message, into the same handler. `status` then also reports `audio`
-(`G722` while sound is being sent), `audio_kbps`, and `mic` and `mic_kbps`
-while a microphone is coming in.
+`replaceTrack`, has it decoded on the host as 16 kHz mono into the path
+[`/api/mic`](#ws-apimic) feeds. One client's microphone reaches the target
+at a time: the first to send keeps it until its track ends. And a second
+data channel, `hid`, takes the JSON commands [`/api/hid/ws`](#ws-apihidws)
+accepts, one per message, into the same handler. `status` then also reports
+`audio` (`G722` while sound is being sent), `audio_kbps`, and `mic` and
+`mic_kbps` while a microphone is coming in.
 
-Media uses one UDP port, `--rtc-udp`, the HTTP port's number by default.
-`503` when the host has no encoder. The same messages are what a station
-relays later.
+Media uses one UDP port, `--rtc-udp`, which is the HTTP port's number by
+default. `503` when the host has no encoder. The same messages are what a
+station relays later.
 
 ### `GET /viewer/…`
-The viewer's files: `shell.js`, `shell.css` and `webrtc.js` are the shared shell from the [Station viewer package](https://github.com/VibiumDev/station), the same page a station serves for a device; `extras.js` is Roadie's own addition to it, the phone's buttons (Home, Lock and Wake, Rotate, Android's Back, Recents and volume), the capture settings, the crop and the resets, served with what it needs to know about this host (`window.__roadieDevice`: platform, HID backend, USB devices) in front. A station relays `extras.js` to its own page, so the two viewers are one code path with one look.
+The viewer's files: `shell.js`, `shell.css` and `webrtc.js` are the shared shell from the [Station viewer package](https://github.com/VibiumDev/station), the same page a station serves for a device, while `extras.js` is Roadie's own addition to it. It adds the phone's buttons (Home, Lock and Wake, Rotate, Android's Back, Recents and volume), the capture settings, the crop and the resets, and is served with what it needs to know about this host (`window.__roadieDevice`: platform, HID backend, USB devices) in front. A station relays `extras.js` to its own page, so the two viewers are one code path with one look.
 
-`/view` renders the shell with its endpoints at the root and these parameters: `?minimal=1` hides the toolbar (for a frame), `?input=mouse|touch` and `?transport=webrtc|mjpeg` set the pointer mode and the picture's transport for that page load, `?toolbar=show|auto|off`, `?align=`, `?zoom=` and `?stats=1` are the page's own.
+`/view` renders the shell with its endpoints at the root and these parameters:
+
+- `?minimal=1` hides the toolbar (for a frame).
+- `?input=mouse|touch` and `?transport=webrtc|mjpeg` set the pointer mode and the picture's transport for that page load.
+- `?toolbar=show|auto|off`, `?align=`, `?zoom=` and `?stats=1` are the page's own.
 
 ### `WS /api/mic`
 WebSocket endpoint for voice input: audio sent here plays out of the HID board's USB microphone (or, with `--hid-backend linux-gadget`, the Pi's USB gadget microphone, upsampled to 48 kHz), so the target hears it as mic input.
@@ -701,7 +718,7 @@ websocat ws://localhost:8080/session
 
 **Touch input:** Use pointer actions with `"parameters": {"pointerType": "touch"}`. Up to 2 simultaneous touch contacts are supported.
 
-**Key input:** Key values follow the [WebDriver key mapping](https://w3c.github.io/webdriver/#keyboard-actions) — printable characters as literals, special keys as Unicode Private Use Area values (e.g., `"\uE007"` for Enter, `"\uE008"` for Shift).
+**Key input:** Key values follow the [WebDriver key mapping](https://w3c.github.io/webdriver/#keyboard-actions), with printable characters as literals and special keys as Unicode Private Use Area values (e.g., `"\uE007"` for Enter, `"\uE008"` for Shift).
 
 **Session limit:** Only one BiDi session can be active at a time. The session is automatically cleaned up when the WebSocket disconnects.
 
@@ -800,7 +817,29 @@ Files, next to the local token in the user config directory (`~/.config/roadie`)
 | `rig.json` | The policy: the stations accepted, and per station the allowed scopes (`view`, `input`, `bidi`), whether `admin` grants are taken, `max_session` and optional `hours` (`"09:00-18:00"`). Written by `roadie enroll`, edited by hand; nothing remote can change it |
 | `rig-state.json` | The hold state: the current hold per device and the highest sequence seen, so a restart cannot be made to accept an older hold |
 
-Through the tunnel the station reaches only an allowlist of endpoints, each with the scope a grant must carry, and every request presents a hold grant: in `Authorization: Hold <base64url event>` for plain requests, or in the first message of a WebSocket. Today that is [`/api/webrtc/signal`](#ws-apiwebrtcsignal) (`view`; the hello carries `"grant"`), `GET /health` (`view`), [`GET /stream`](#get-stream) (`view`, capped at `--relay-fps`, 5 a second by default, for the station's MJPEG fallback), [`GET /snapshot`](#get-snapshot) (`view`), [`/api/hid/ws`](#ws-apihidws) (`input`, the fallback's input path), [`/audio`](#get-audio) (`view`, sent as 16 kHz mono 16-bit through a station), [`/api/mic`](#ws-apimic) (`input`), [`/session`](#ws-session) (`bidi`: WebDriver BiDi, relayed byte for byte, so a generic BiDi client through the station sees exactly what it would see here), `/api/hid/status` (`view`), the HID REST under `/api/hid/` and `/api/rotate` (`input`), and `/api/settings`, `/api/crop` and the resets (`admin`, which the rig policy grants only with `roadie enroll --admin`). Each hold is limited to 120 requests and messages a second (burst 240), one stream, one audio and one mic socket, one BiDi socket and two HID sockets; a hold that ends closes every connection admitted on it. A grant through a station with a TURN server names it (`stun` and `turn` tags), and Roadie's peer connection uses those servers, so the WebRTC path works across NATs. The grant is checked on the Pi: signed by a station in the policy, for this rig and device, not expired, not replayed, not revoked, not older than the hold the device has, and inside the policy. A viewer refreshes its grant every few minutes by sending `{"type":"grant","grant":{...}}` on the control channel; a grant that no longer passes ends the session. A revocation from the station, or a newer hold, ends a hold's sessions within a second.
+Through the tunnel the station reaches only an allowlist of endpoints, each with the scope a grant must carry, and every request presents a hold grant, either in `Authorization: Hold <base64url event>` for plain requests or in the first message of a WebSocket. Today that is:
+
+- [`/api/webrtc/signal`](#ws-apiwebrtcsignal) (`view`; the hello carries `"grant"`)
+- `GET /health` (`view`)
+- [`GET /stream`](#get-stream) (`view`, capped at `--relay-fps`, 5 a second by default, for the station's MJPEG fallback)
+- [`GET /snapshot`](#get-snapshot) (`view`)
+- [`/api/hid/ws`](#ws-apihidws) (`input`, the fallback's input path)
+- [`/audio`](#get-audio) (`view`, sent as 16 kHz mono 16-bit through a station)
+- [`/api/mic`](#ws-apimic) (`input`)
+- [`/session`](#ws-session) (`bidi`: WebDriver BiDi, relayed byte for byte, so a generic BiDi client through the station sees exactly what it would see here)
+- `/api/hid/status` (`view`)
+- the HID REST under `/api/hid/` and `/api/rotate` (`input`)
+- `/api/settings`, `/api/crop` and the resets (`admin`, which the rig policy grants only with `roadie enroll --admin`)
+
+Each hold is limited to 120 requests and messages a second (burst 240), one stream, one audio and one mic socket, one BiDi socket and two HID sockets; a hold that ends closes every connection admitted on it. A grant through a station with a TURN server names it (`stun` and `turn` tags), and Roadie's peer connection uses those servers, so the WebRTC path works across NATs. The grant is checked on the Pi, which accepts it only when it is:
+
+- signed by a station in the policy
+- for this rig and device
+- not expired, replayed or revoked
+- not older than the hold the device has
+- inside the policy
+
+A viewer refreshes its grant every few minutes by sending `{"type":"grant","grant":{...}}` on the control channel; a grant that no longer passes ends the session. A revocation from the station, or a newer hold, ends a hold's sessions within a second.
 
 `/health` gains a `station` block: the rig's npub and, per station, its name, URL, rig id, whether the tunnel is up, and the hold currently held.
 

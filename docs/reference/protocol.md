@@ -39,7 +39,7 @@ Byte 1: echo of sequence number
 
 ## Commands
 
-Codes are grouped by what they drive, one range per group, with room to grow inside it:
+Codes are grouped by what they drive, with one range per group and room to grow inside it:
 
 | Range | Group |
 |-------|-------|
