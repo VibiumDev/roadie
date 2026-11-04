@@ -73,9 +73,10 @@ Every run, both kinds:
 `--gadget` also:
 
 - Installs `dnsmasq-base` and `nftables`.
-- Runs `gadget/install`: the USB-C port in peripheral mode, the composite
-  USB gadget at boot, DHCP/DNS/NAT for the phone, and `roadie.service`.
-  Details: [Drive a Phone from a Raspberry Pi 4](linux-gadget.md#install).
+- Runs `gadget/install`, which puts the USB-C port in peripheral mode, brings
+  up the composite USB gadget at boot, provides DHCP/DNS/NAT for the phone,
+  and installs `roadie.service`. Details:
+  [Drive a Phone from a Raspberry Pi 4](linux-gadget.md#install).
 
 `--boards` also:
 

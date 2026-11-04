@@ -66,12 +66,12 @@ relayed through the grid: each panel streams point-to-point from its own Roadie
 to the browser.
 
 Targets launched with `--input` need nothing further here. For one that wasn't,
-`&input=touch` sets the mode from the grid — one mode for every panel, or a
-positional list (`&input=touch,mouse`) to mix a phone with a laptop. It matters
-on the grid specifically: each panel embeds a view with its toolbar hidden, and
-the toolbar is where the mouse/touch toggle lives, so a panel with neither
-`--input` nor `&input=` falls back to whatever that instance's origin last
-stored — defaulting to mouse.
+`&input=touch` sets the mode from the grid, either as one mode for every panel
+or as a positional list (`&input=touch,mouse`) to mix a phone with a laptop. It
+matters on the grid specifically: each panel embeds a view with its toolbar
+hidden, and the toolbar is where the mouse/touch toggle lives, so a panel with
+neither `--input` nor `&input=` falls back to whatever that instance's origin
+last stored — defaulting to mouse.
 
 Keyboard input goes to the panel the pointer is over, and that panel is
 outlined so it is clear where typing will land. The pointer already decides

@@ -67,9 +67,9 @@ make rtcprobe
 
 ## Results on the reference Pi
 
-Raspberry Pi 4, Linux 6.18, UGREEN 15389 on USB 3, YUYV 1920x1080 at
-30 fps, 2 Mbps, 20 s runs on Oct 26, 2026. The crop is an iPhone in
-portrait, 448x972.
+These are 20 s runs from Oct 26, 2026, on a Raspberry Pi 4 running
+Linux 6.18 with a UGREEN 15389 on USB 3, capturing YUYV 1920x1080 at 30 fps
+and encoding at 2 Mbps. The crop is an iPhone in portrait, 448x972.
 
 | Mode | Encoded | CPU | Copy or convert | Stamp to encoded, p50 |
 |---|---|---|---|---|

@@ -98,7 +98,7 @@ chromium board/e2e/page.html
 Opened on its own it still works as a live input monitor: it has no external
 dependencies, and its attempts to report back fail harmlessly. So you can
 point the HID board at this machine, open the page, and watch keystrokes,
-pointer moves and touches arrive — a cursor ring, a touch blob, the typed
+pointer moves and touches arrive as a cursor ring, a touch blob, the typed
 text, and a running event log.
 
 ## Watching the tests
@@ -226,10 +226,10 @@ crosshair is, so you can aim one at something on the target and watch what it
 does. Switch the host with `make multitouch-on` first if the target is this
 machine.
 
-To watch the result, open **`/gestures`** on the target: a guitar that scales
-when you pinch, turns when you twist, and moves when you drag, with the contact
-count, scale and rotation printed underneath. It is the same page
-`make test-multitouch` drives.
+To watch the result, open **`/gestures`** on the target, which shows a guitar
+that scales when you pinch, turns when you twist, and moves when you drag,
+with the contact count, scale and rotation printed underneath. It is the same
+page `make test-multitouch` drives.
 
 ## Testing a phone instead
 
@@ -244,13 +244,13 @@ make test-e2e-pc         # prints a URL for another computer
 ```
 
 Input goes through roadie's HTTP API (`/api/hid/...`). With `--via bidi` the
-same checks send it through WebDriver BiDi instead: a session on `/session`,
-and `input.performActions` for the pointer, keys, touch and wheel, placed in
-the viewport's pixels. With `--via view` they go in as a person gives them to
-`/view`: a headless Chromium, driven through Vibium (`board/e2e/view-driver.cjs`,
-needing node), moves the mouse over `/view`'s picture, clicks, types and turns
-the wheel, and drags in its Touch mode for touch. `make test-e2e-iphone` runs
-all three.
+same checks send it through WebDriver BiDi instead, opening a session on
+`/session` and using `input.performActions` for the pointer, keys, touch and
+wheel, placed in the viewport's pixels. With `--via view` they go in as a
+person gives them to `/view`: a headless Chromium, driven through Vibium
+(`board/e2e/view-driver.cjs`, needing node), moves the mouse over `/view`'s
+picture, clicks, types and turns the wheel, and drags in its Touch mode for
+touch. `make test-e2e-iphone` runs all three.
 
 The phone targets start roadie with `--platform android` or `--platform ios`,
 so the viewer maps pointers the way that device expects if you open `/view`
@@ -265,9 +265,10 @@ wiring.
 A drag check traces the Vibium mark with the button held, which is how iOS
 scrolls and swipes; the page has to see every stroke through to the end. The
 test page holds still under the wheel, so for the wheel Safari goes to a page
-that scrolls (`board/e2e/scroll-page.html`): ten notches down, then ten up,
-each moving it at least a third of the screen. If it doesn't move at all, see
-"the scroll wheel does nothing" in [Troubleshooting](troubleshooting.md).
+that scrolls (`board/e2e/scroll-page.html`), where the test sends ten notches
+down and then ten up, each moving it at least a third of the screen. If it
+doesn't move at all, see "the scroll wheel does nothing" in
+[Troubleshooting](troubleshooting.md).
 
 The iPhone run ends with a soundcheck both ways. For the speaker, the test
 page plays five notes and roadie listens on `/audio`. Safari only gives the
@@ -311,9 +312,9 @@ iPhone: a text field still focused on the page Safari comes back to keeps
 ### A run to show people
 
 `--hud` runs the same checks under a sci-fi heads-up display, paced to be
-watched: a boot sequence, target locks where the pointer presses, keys
-materialising as they are typed, the Vibium mark traced in neon, and a
-verdict at the end. Record the phone's screen, or `/view` from another
+watched. It opens with a boot sequence, draws a target lock where the pointer
+presses, materialises keys as they are typed, traces the Vibium mark in neon,
+and ends with a verdict. Record the phone's screen, or `/view` from another
 machine:
 
 ```bash

@@ -55,10 +55,14 @@ sudo poweroff         # first time only; the Pi has to be rewired anyway
 ```
 
 Then, with the Pi off, wire it as in [Wiring and power](#wiring-and-power):
-its supply into the splitter's power input, the splitter into the Pi's USB-C,
-and the hub's USB-A into the splitter's data input — where the HID board
-used to go. The relay and HID board can stay on the Pi's USB-A ports;
-gadget mode ignores them. Power on.
+
+- its supply into the splitter's power input
+- the splitter into the Pi's USB-C
+- the hub's USB-A into the splitter's data input — where the HID board used
+  to go
+
+The relay and HID board can stay on the Pi's USB-A ports; gadget mode
+ignores them. Power on.
 
 Nothing needs starting after boot: the gadget, the phone's network and
 roadie come up by themselves. Open `http://<pi>.local:8080/view`, and check:
@@ -94,8 +98,8 @@ ROADIE_ARGS="--hid-backend linux-gadget --platform android --port 8080"
 
 ### Switching backends
 
-One Pi can be wired for both: the capture dongle and the relay use its USB-A
-ports, the gadget its USB-C port.
+One Pi can be wired for both, since the capture dongle and the relay use its
+USB-A ports while the gadget uses its USB-C port.
 
 ```bash
 roadie-mode                # which mode, and whether everything agrees with it
@@ -131,8 +135,8 @@ Roadie's own arguments, for `roadie.service`:
 ROADIE_ARGS="--hid-backend linux-gadget --platform android --port 8080"
 ```
 
-For an iPhone, change `--platform android` to `--platform ios` (mouse input,
-coordinates mapped to the phone's screen), then
+For an iPhone, change `--platform android` to `--platform ios`, which
+switches to mouse input with coordinates mapped to the phone's screen, then
 `sudo systemctl restart roadie`; the phone is not re-enumerated. An iPhone
 also needs AssistiveTouch on, with the settings in
 [Connect a Phone → iPhone](connect-a-phone.md#recommended-settings).
@@ -158,13 +162,14 @@ Every default is listed in the file:
 | `NET_HOST_MAC` | this Pi's eth0 MAC | Must be universally administered or Android ignores the link (see below) |
 | `USB_VENDOR_ID:USB_PRODUCT_ID` | `0x1d6b:0x0104` | Linux Foundation "Multifunction Composite Gadget"; use your own for a fleet |
 
-Changing a setting: `sudo systemctl restart roadie-gadget` (the phone sees a
-replug), then `sudo systemctl restart roadie` if audio settings changed.
+After changing a setting, run `sudo systemctl restart roadie-gadget`, which
+the phone sees as a replug, and then `sudo systemctl restart roadie` if audio
+settings changed.
 
 ### The phone's network: `/etc/roadie/phone-net.conf`
 
-Uplink (`eth0`), phone subnet
-(`192.168.42.0/24`, Pi `.1`, phone always `.2`), DNS, and isolation
+The file sets the uplink (`eth0`), the phone subnet (`192.168.42.0/24`, with
+the Pi at `.1` and the phone always at `.2`), DNS, and the isolation
 exceptions (`ALLOW_DESTS`, `ALLOW_PI_TCP_PORTS`).
 
 ## What the phone gets
@@ -187,13 +192,14 @@ exceptions (`ALLOW_DESTS`, `ALLOW_PI_TCP_PORTS`).
   silence is sent whenever nobody is talking, and an underrun plays
   silence, never a replayed buffer.
 - Speaker: with `AUDIO_SPEAKER=1`, `/audio` follows whichever way the phone
-  sends its sound: the gadget's USB speaker whenever the phone uses it (the
-  default, and what calls need), the capture dongle's HDMI audio otherwise.
-  Android picks USB. iOS lists both — the gadget as **"Playback
-  Inactive"** with a headphones icon (the kernel's fixed name for it), the
-  dongle by its own name — and can stay on HDMI; switch it in Control
-  Center's output picker, or `roadie-gadget reset`, after which iOS picks
-  USB again. The viewer's speaker button works as before.
+  sends its sound, so it carries the gadget's USB speaker whenever the phone
+  uses it, which is the default and what calls need, and the capture
+  dongle's HDMI audio otherwise. Android picks USB. iOS lists both and can
+  stay on HDMI: it shows the gadget as **"Playback Inactive"** with a
+  headphones icon (the kernel's fixed name for it) and the dongle by its own
+  name. Switch it in Control Center's output picker, or
+  `roadie-gadget reset`, after which iOS picks USB again. The viewer's
+  speaker button works as before.
 - The dongle's audio is read straight from its own ALSA card, the one on
   the same USB device as the video (or `--audio NAME`), in both backends.
 - Streams reopen by themselves after a replug or a gadget rebuild.
@@ -210,8 +216,9 @@ exceptions (`ALLOW_DESTS`, `ALLOW_PI_TCP_PORTS`).
   off on eth0 before, nothing else is forwarded from eth0, so the LAN can't
   route through the Pi.
 - Whenever the service is not running — stopped, restarting, failed — the
-  phone link is closed: no address, no forwarding, every packet dropped.
-  The phone keeps its lease, so the link fails closed, not open.
+  phone link is closed: it has no address, nothing is forwarded and every
+  packet is dropped. The phone keeps its lease, so the link fails closed,
+  not open.
 - A host firewall with a DROP forward policy (ufw, Docker) also needs to
   allow `phone0 → eth0`.
 
@@ -340,15 +347,18 @@ Record pass/fail and notes for each.
     `http://<Pi LAN IP>:8080` and the LAN router's page all fail.
 12. **Video.** `/view` shows the phone over HDMI throughout 3–11.
 13. **Roadie restarts.** `for i in $(seq 10); do sudo systemctl restart roadie; sleep 5; done`
-    while the phone streams a video: Ethernet stays up, no input devices
-    removed (`adb shell getevent` shows none), `usb state` stays `configured`.
+    while the phone streams a video: Ethernet stays up, no input devices are
+    removed (`adb shell getevent` shows none), and `usb state` stays
+    `configured`.
 14. **Replug.** Pull the data cable for 10 s and replug: input, audio and
     `192.168.42.2` are back within 10 s, no reboot. Then `roadie-gadget reset`
     (soft re-enumeration) recovers the same way.
-15. **Everything at once, for hours.** Video viewer open, continuous mic
-    injection, headset audio playing, `adb shell ping 1.1.1.1`, a tap every
-    minute, for 8 h. Afterwards: `journalctl -u roadie` drop/xrun counts,
-    roadie's memory (`ps -o rss -C roadie`) flat, `/health` temperature.
+15. **Everything at once, for hours.** Run for 8 h with the video viewer
+    open, continuous mic injection, headset audio playing,
+    `adb shell ping 1.1.1.1` and a tap every minute. Afterwards, record the
+    drop/xrun counts from `journalctl -u roadie` and the temperature from
+    `/health`, and check that roadie's memory (`ps -o rss -C roadie`) stayed
+    flat.
 16. **Sleeping phone.** Screen off 5 min; send a key
     (`{"keycode":102,"action":"click"}`, 0x66 power). Note whether the phone
     wakes (remote wakeup is untested).
