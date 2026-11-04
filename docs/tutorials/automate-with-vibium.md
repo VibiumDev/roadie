@@ -31,8 +31,9 @@ export VIBIUM_CONNECT_URL=ws://roadie.local:8080/session
 export VIBIUM_CONNECT_API_KEY=<the token roadie token prints>
 ```
 
-From anywhere, through a [Vibium Station](https://github.com/VibiumDev/station)
-the Roadie is enrolled with, the same two variables take the station's
+From anywhere, through a [Vibium Station](https://github.com/VibiumDev/station),
+a server your Roadie has joined that passes connections through to it
+from outside your network, the same two variables take the station's
 address and one of its API tokens:
 
 ```bash
@@ -40,9 +41,10 @@ export VIBIUM_CONNECT_URL=wss://example.vibium.cloud/session
 export VIBIUM_CONNECT_API_KEY=stk_...
 ```
 
-The station hands `/session` your first online phone and holds it for you
-while the session lasts. Holds, waiting in line and the station's tokens
-are covered in the station's own tutorial,
+The station hands `/session` your first online phone and keeps it yours
+while the session lasts, so nobody else drives it meanwhile. That
+arrangement, waiting in line for a phone someone else has, and the
+station's tokens are covered in the station's own tutorial,
 [Reach a device through the station](https://github.com/VibiumDev/station/blob/main/docs/tutorials/agent-through-the-station.md).
 Everything below is the same either way.
 
