@@ -151,7 +151,7 @@ To drive more than one device from the same host, see
 | [Measure the Encoder](docs/how-to/measure-encoder.md) | `encbench`: what the capture dongle and the hardware H.264 encoder cost, for the WebRTC path |
 | [Running Multiple Targets](docs/how-to/multiple-targets.md) | Driving several devices from one host, and viewing them together |
 | [Troubleshooting](docs/how-to/troubleshooting.md) | Common problems and fixes |
-| [Automate with Vibium](docs/tutorials/automate-with-vibium.md) | Drive Roadie from the CLI, JavaScript, Python or an AI agent |
+| [Automate with Vibium](docs/tutorials/automate-with-vibium.md) | Drive the phone from the CLI, a script or an AI agent, on the LAN or through a station, with a recording at the end |
 | [REPL Tutorial](docs/tutorials/repl.md) | Interactive debugging via CircuitPython REPL |
 | [Roadie Remote Spec](https://github.com/VibiumDev/station/blob/main/docs/remote-spec.md) | WebRTC, the Pi tunnel, holds and Vibium Station: the plan for using a Roadie from anywhere (in the Station repo) |
 
