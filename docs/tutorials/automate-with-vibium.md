@@ -1,14 +1,14 @@
 # Automate Roadie with Vibium
 
 Roadie speaks [WebDriver BiDi](../../API.md#webdriver-bidi), so
-[Vibium](https://github.com/VibiumDev/vibium) drives the phone behind it
-the way it drives a remote browser: from the command line, from a script
-in JavaScript or Python, or from an AI agent such as Claude Code or Codex.
-No browser runs. A screenshot is the phone's screen, and keys and touches
-become USB input on the phone.
+[Vibium](https://github.com/VibiumDev/vibium) can drive the phone behind
+it the way it drives a remote browser. That works from the command line,
+from a script in JavaScript or Python, and from an AI agent such as
+Claude Code or Codex. No browser runs. A screenshot is the phone's
+screen. Keys and touches become USB input on the phone.
 
-In this tutorial you point Vibium at the phone, open the Calculator
-through the phone's own Search with three key presses, and keep a
+In this tutorial you point Vibium at the phone and open the Calculator
+through the phone's own Search with three key presses. You also keep a
 recording of what happened. Nothing depends on where an icon sits on the
 screen, so the same steps work on any iPhone.
 
@@ -31,22 +31,24 @@ export VIBIUM_CONNECT_URL=ws://roadie.local:8080/session
 export VIBIUM_CONNECT_API_KEY=<the token roadie token prints>
 ```
 
-From anywhere, through a [Vibium Station](https://github.com/VibiumDev/station),
-a server your Roadie has joined that passes connections through to it
-from outside your network, the same two variables take the station's
-address and one of its API tokens:
+You can also reach the phone from anywhere through a
+[Vibium Station](https://github.com/VibiumDev/station). A station is a
+server your Roadie has joined, and it passes connections through to the
+Roadie from outside your network. The same two variables then take the
+station's address and one of its API tokens:
 
 ```bash
 export VIBIUM_CONNECT_URL=wss://example.vibium.cloud/session
 export VIBIUM_CONNECT_API_KEY=stk_...
 ```
 
-The station hands `/session` your first online phone and keeps it yours
-while the session lasts, so nobody else drives it meanwhile. That
-arrangement, waiting in line for a phone someone else has, and the
-station's tokens are covered in the station's own tutorial,
-[Reach a device remotely through the station](https://github.com/VibiumDev/station/blob/main/docs/tutorials/agent-through-the-station.md).
-Everything below is the same either way.
+The station gives `/session` your first online phone and keeps it yours
+while the session lasts, so nobody else can drive it meanwhile. The
+station's own tutorial,
+[Reach a device remotely through the station](https://github.com/VibiumDev/station/blob/main/docs/tutorials/agent-through-the-station.md),
+explains that arrangement in full. It also covers waiting in line for a
+phone someone else has, and the station's tokens. Everything below is
+the same either way.
 
 Roadie serves one BiDi session at a time. The viewer in a browser keeps
 working beside it. A session whose connection drops is let go, and so is
@@ -70,7 +72,7 @@ vibium stop                       # ends the session
 ```
 
 `vibium start` prints `Connected to ws://...`. After `Meta+Space` the
-phone shows Search; after `calc` the Calculator is the Top Hit; after
+phone shows Search. After `calc` the Calculator is the Top Hit. After
 Enter it is open, and `calc.jpg` shows it. Give screenshots a `.jpg`
 name, since Roadie's are JPEG. A screenshot taken right after input
 waits for the screen to show it, so no sleeps are needed.
@@ -84,8 +86,9 @@ A few things worth knowing:
   form needs a Vibium newer than 26.8.21; older ones insist on a
   selector, so there send the letters one at a time with `vibium keys`.
 - When only a finger will do, `vibium tap X Y` taps the picture at those
-  pixels. Take a screenshot first and read the coordinates off it; they
-  are the screenshot's pixels, and they move if you change Roadie's crop.
+  pixels. Take a screenshot first and read the coordinates off it. They
+  are pixels of the screenshot, and they move if you change Roadie's
+  crop.
 
 ## 3. The same from an agent
 
@@ -100,16 +103,21 @@ claude mcp add vibium \
   -- npx -y vibium mcp
 ```
 
-Then ask for what you want in words. A phone has no DOM, so the tools
-that matter are `browser_start`, `browser_screenshot`, `browser_keys`,
-`browser_type` (with `text` alone it types into whatever has focus),
-`browser_tap`, `browser_long_press`, and `browser_record_start` and
-`browser_record_stop`. A prompt like this works:
+Then ask for what you want in words. A phone has no DOM, so only a few
+of the tools matter:
 
-> Start a recording to calc.zip, take a screenshot of the phone, open
-> Search with Meta+Space, type calc, press Enter to launch the
-> Calculator, screenshot again, press Meta+h to go home, and stop the
-> recording.
+- `browser_start` and `browser_screenshot`.
+- `browser_keys` for a key or a chord, and `browser_type` with `text`
+  alone to type into whatever has focus.
+- `browser_tap` and `browser_long_press` for what only a finger reaches.
+- `browser_record_start` and `browser_record_stop`.
+
+A prompt like this works:
+
+> Start a recording to calc.zip. Take a screenshot of the phone. Open
+> Search with Meta+Space, type calc and press Enter to launch the
+> Calculator. Take another screenshot. Press Meta+h to go home and stop
+> the recording.
 
 The agent sees each screenshot, so it can check that the Calculator came
 up before it moves on.
@@ -170,7 +178,7 @@ Run them with `node calc.mjs` and `python calc.py`. Both read the URL and
 the token from the environment and pass them to `start()`. The scripts
 run the Vibium engine on your machine, and the engine holds the socket to
 the phone. The two-second pause gives the Calculator time to open before
-the second screenshot; `keyboard.type` sends the word as key presses, one
+the second screenshot. `keyboard.type` sends the word as key presses, one
 character at a time.
 
 ## The recording
@@ -183,20 +191,20 @@ traces, so `npx playwright show-trace calc.zip` opens it too.
 Inside, `trace.trace` lists each action with its timing, and `resources/`
 holds a JPEG of the phone's screen for every step. `trace.network` is
 empty, since a phone makes no page requests the engine can see. There is
-no video: the engine records video on the machine the browser runs on,
-and here that is the Roadie. Screenshots are the record.
+no video, because the engine records video on the machine the browser
+runs on, and here that is the Roadie. Screenshots are the record.
 
-The scripts above give a recording of six steps; the CLI gives eleven,
-since it records its page lookup before every command as a step of its
-own. All of them hold the same two pictures: the home screen before the
-search and the Calculator after it.
+The scripts above give a recording of six steps. The CLI gives eleven,
+because it records its page lookup before every command as a step of
+its own. All of them hold the same two pictures: the home screen before
+the search and the Calculator after it.
 
 ## Driving the viewer
 
 Vibium can also launch a browser of its own, open Roadie's `/view` page
 and work it like any web page. The viewer passes the mouse and keyboard
 on to the phone, and screenshots are of the page. This is the way to
-reach several phones from one script, or to test the viewer itself; for
+reach several phones from one script, or to test the viewer itself. For
 one phone, the direct connection above is simpler.
 
 The picture sits at the page's top-left at full size, so coordinates are
@@ -228,8 +236,8 @@ pointer.
 ## When something is off
 
 - `failed to connect`: the laptop cannot reach Roadie. Check the address
-  and the port, and that Roadie runs with `--auth token`; without it,
-  only the Pi itself may connect.
+  and the port. Check too that Roadie runs with `--auth token`, because
+  without it only the Pi itself may connect.
 - `session not created: a session is already active`: another BiDi
   client has the phone. Wait for it, or stop it.
 - `session not created: held by token:ci, place 1 in line` or `this
@@ -240,13 +248,13 @@ pointer.
   a person taking the phone at the viewer, or the eight-hour maximum on
   a hold. Start again.
 - `Meta+Space` opens nothing: the phone is asleep or locked. `Shift`
-  wakes it; unlock it once by hand, and `Meta+h` first puts it on the
-  home screen, where Search opens.
+  wakes it. Unlock it once by hand. `Meta+h` first puts it on the home
+  screen, which is where Search opens.
 - Enter opened the wrong thing: the top hit follows what the phone was
   used for lately. Type the whole name, `calculator`.
-- Taps land somewhere else: coordinates are the screenshot's pixels, not
-  the phone's screen, and they move with Roadie's crop. Take a fresh
-  screenshot and read them off it.
+- Taps land somewhere else: coordinates are pixels of the screenshot,
+  not of the phone's screen. They move when Roadie's crop changes. Take
+  a fresh screenshot and read them off it.
 
 ## Next steps
 
