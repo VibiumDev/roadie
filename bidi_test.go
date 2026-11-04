@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"net/http/httptest"
@@ -765,5 +766,53 @@ func TestBiDiRefusedConnectionCloseKeepsTheSession(t *testing.T) {
 	}))
 	if resp.Type != "success" {
 		t.Fatalf("the first session was ended by the refused connection's close: %s: %s", resp.Type, resp.Message)
+	}
+}
+
+// A session that sends no command for bidiIdleTimeout is ended: the
+// socket closes with a reason, and the device is free for the next one.
+func TestBiDiIdleSessionEnds(t *testing.T) {
+	resetBidiState()
+	old := bidiIdleTimeout
+	bidiIdleTimeout = 150 * time.Millisecond
+	t.Cleanup(func() { bidiIdleTimeout = old })
+	s, mux := newTestServer()
+	s.HID = &keyHID{}
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	conn := bidiDial(t, ts)
+	resp := parseBidiResp(t, bidiSend(t, conn, map[string]any{
+		"id": 1, "method": "session.new", "params": map[string]any{"capabilities": map[string]any{}},
+	}))
+	if resp.Type != "success" {
+		t.Fatalf("session.new: %s: %s", resp.Type, resp.Message)
+	}
+	// Commands keep it alive: four of them, each inside the timeout.
+	for i := 0; i < 4; i++ {
+		time.Sleep(60 * time.Millisecond)
+		resp = parseBidiResp(t, bidiSend(t, conn, map[string]any{"id": 10 + i, "method": "session.status", "params": map[string]any{}}))
+		if resp.Type != "success" {
+			t.Fatalf("session.status %d: %s: %s", i, resp.Type, resp.Message)
+		}
+	}
+	// Then silence: the server closes the socket with the reason.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _, err := conn.Read(ctx)
+	var ce websocket.CloseError
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected a close after the idle timeout, got %v", err)
+	}
+	if ce.Code != websocket.StatusGoingAway || !strings.HasPrefix(ce.Reason, "idle for") {
+		t.Fatalf("close %d %q, want 1001 idle for ...", ce.Code, ce.Reason)
+	}
+
+	next := bidiDial(t, ts)
+	resp = parseBidiResp(t, bidiSend(t, next, map[string]any{
+		"id": 2, "method": "session.new", "params": map[string]any{"capabilities": map[string]any{}},
+	}))
+	if resp.Type != "success" {
+		t.Fatalf("session.new after the idle end: %s: %s", resp.Type, resp.Message)
 	}
 }

@@ -68,6 +68,11 @@ var (
 	bidiActive    *bidiSession
 )
 
+// bidiIdleTimeout ends a BiDi connection that sends no command for this
+// long, so a session left open, say a CLI never stopped, does not keep the
+// device for good. Through a station, the socket's close releases the hold.
+var bidiIdleTimeout = 5 * time.Minute
+
 func (s *Server) handleBiDi(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
@@ -80,8 +85,16 @@ func (s *Server) handleBiDi(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	lim := rig.LimiterFrom(ctx) // through a station: the hold's pace
+	idle := time.AfterFunc(bidiIdleTimeout, func() {
+		log.Printf("bidi: no command for %s, closing the session", bidiIdleTimeout)
+		conn.Close(websocket.StatusGoingAway, fmt.Sprintf("idle for %s", bidiIdleTimeout))
+	})
+	defer idle.Stop()
 	for {
 		_, data, err := conn.Read(ctx)
+		if err == nil {
+			idle.Reset(bidiIdleTimeout)
+		}
 		if err == nil && lim != nil {
 			err = lim.Wait(ctx)
 		}

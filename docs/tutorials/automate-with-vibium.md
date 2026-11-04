@@ -49,7 +49,9 @@ station's tokens are covered in the station's own tutorial,
 Everything below is the same either way.
 
 Roadie serves one BiDi session at a time. The viewer in a browser keeps
-working beside it, and a session whose connection drops is let go.
+working beside it. A session whose connection drops is let go, and so is
+one that sends no command for five minutes, so a forgotten `vibium
+start` does not keep the phone for good.
 
 ## 2. Drive it from the command line
 
@@ -233,9 +235,10 @@ pointer.
 - `session not created: held by token:ci, place 1 in line` or `this
   token may only view`: a station's answer; see
   [its tutorial](https://github.com/VibiumDev/station/blob/main/docs/tutorials/agent-through-the-station.md).
-- The socket closes while a script runs: through a station, your hold
-  ended, by a person taking the phone at the viewer, by five idle
-  minutes, or by the eight-hour maximum. Start again.
+- The socket closes while a script runs: five minutes passed without a
+  command, so Roadie ended the session. Through a station it can also be
+  a person taking the phone at the viewer, or the eight-hour maximum on
+  a hold. Start again.
 - `Meta+Space` opens nothing: the phone is asleep or locked. `Shift`
   wakes it; unlock it once by hand, and `Meta+h` first puts it on the
   home screen, where Search opens.
