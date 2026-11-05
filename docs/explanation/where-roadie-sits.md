@@ -17,10 +17,10 @@ gives its own test tools: it reads every element, taps one by name, sets the
 orientation, presses Home and the volume buttons, and locks the phone.
 UiAutomator, over adb, does the same on Android.
 
-The price: on iOS a Mac with Xcode, a developer account, and a build signed
-for each phone, signed again when its profile runs out, and broken often by
-iOS and Xcode updates; on Android, USB debugging left on. Either way the
-phone is in a mode a customer's isn't, and some apps notice.
+On iOS the price is a Mac with Xcode, a developer account, and a build signed
+for each phone, which is signed again when its profile runs out and broken
+often by iOS and Xcode updates; on Android it is USB debugging left on. Either
+way the phone is in a mode a customer's isn't, and some apps notice.
 
 ## Cables
 
@@ -43,14 +43,18 @@ accessibility features, the ones built for people who can't:
 
 On Android the touchscreen takes two fingers at once.
 
-Out of reach from the cables altogether: turning a phone on, Face ID and
-Touch ID, the phone's own microphone and cameras ("Hey Siri" didn't answer
-Roadie's microphone), and the sensors, such as turning the phone in a hand.
+These are out of reach from the cables altogether:
+
+- turning a phone on
+- Face ID and Touch ID
+- the phone's own microphone and cameras ("Hey Siri" didn't answer Roadie's
+  microphone)
+- the sensors, such as turning the phone in a hand
 
 ## In front
 
 A robot reaches what the cables can't: the side buttons, two fingers, the
-sensors, a phone that is off. It costs the most per phone, in hardware and
+sensors and a phone that is off. It costs the most per phone, in hardware and
 room, and its camera sees glare where HDMI sees pixels.
 
 ## Together

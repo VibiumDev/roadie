@@ -18,9 +18,9 @@ button.*
 ## Two things to take away
 
 1. **If an agent is driving, the stream hardly matters.** An agent does not
-   watch video. It asks for a screenshot when it needs one, a JPEG of 20 to
-   60 KB, so its cost is per screenshot, not per hour, and the rig encodes no
-   video at all while nobody is watching.
+   watch video. It asks for a screenshot when it needs one, and since each one
+   is a JPEG of 20 to 60 KB the agent's cost is per screenshot rather than per
+   hour, while the rig encodes no video at all as long as nobody is watching.
 2. **If a person is watching, use WebRTC.** For the same picture it moves a
    tenth to a fiftieth of the data MJPEG does and costs the rig a quarter of
    the work. MJPEG stays as the fallback for a browser or a network where
@@ -49,20 +49,20 @@ session, with nobody watching. The WebM file is written wherever that Firefox
 runs, a cloud box or a laptop, but the stream still crosses the network to get
 there.
 
-Behind those figures: MJPEG at 1080p, 30 frames a second, JPEG quality 94 is
-15.4 Mbps, 6.9 GB an hour. WebRTC on the same picture is 0.3 Mbps while
-the screen sits still and up to its cap when things move, 0.1 to 0.7 GB an
-hour. Measured on Oct 27, 2026 on a Roadie server: a Raspberry Pi 4 with an
-iPhone 15 Pro Max attached, in portrait. Landscape figures are scaled from
-those measurements by pixel count; everything else is measured. The method is
-at the end.
+Behind those figures, MJPEG at 1080p, 30 frames a second and JPEG quality 94
+is 15.4 Mbps, which is 6.9 GB an hour, while WebRTC on the same picture is
+0.3 Mbps when the screen sits still and up to its cap when things move, which
+is 0.1 to 0.7 GB an hour. Both were measured on Oct 27, 2026 on a Roadie
+server, a Raspberry Pi 4 with an iPhone 15 Pro Max attached in portrait.
+Landscape figures are scaled from those measurements by pixel count;
+everything else is measured. The method is at the end.
 
-About the cap: Xfinity's is 1.2 TB on older plans, dropped from plans sold
+Xfinity's cap is 1.2 TB on older plans, though it was dropped from plans sold
 since June 2025 and never applied in the Northeast; Cox keeps 1.25 TB on every
-wired plan; AT&T's older copper and DSL tiers have 1 to 1.5 TB, its fiber
-none. Most fiber providers have no cap, and overage runs about $10 per 50 GB
-where one applies. The stream counts on whichever end has a cap: the rig's
-connection uploads it, the viewer's downloads it.
+wired plan, and AT&T's older copper and DSL tiers have 1 to 1.5 TB while its
+fiber has none. Most fiber providers have no cap, and overage runs about $10
+per 50 GB where one applies. The stream counts on whichever end has a cap:
+the rig's connection uploads it, the viewer's downloads it.
 
 ## How the picture gets to you
 
@@ -72,15 +72,15 @@ Roadie → network → your browser.
 The phone's screen leaves it as an HDMI signal, the same kind a TV takes,
 through a USB-C hub. A small HDMI-to-USB capture device, the kind sold for
 recording game consoles, turns that signal into a stream of plain 1920×1080
-pictures, 30 a second, and hands them to the rig, the Raspberry Pi 4 that runs
-Roadie. Roadie first crops away the black bars around the phone's picture, so
-what travels is the phone's screen and nothing else. From there, the picture
-has two roads to the browser:
+pictures at 30 a second and hands them to the rig, the Raspberry Pi 4 that
+runs Roadie. Roadie first crops away the black bars around the phone's
+picture, so what travels is the phone's screen and nothing else. From there,
+the picture has two roads to the browser:
 
 - **MJPEG**, Motion JPEG. The rig compresses each picture into a JPEG, like a
   photo from a camera, and sends them one after another over an ordinary web
-  connection. The browser shows each one as it arrives. Simple, works
-  everywhere, and every frame starts from scratch.
+  connection. The browser shows each one as it arrives. MJPEG is simple, works
+  everywhere and starts every frame from scratch.
 - **WebRTC**, carrying H.264. The Pi 4's built-in video encoder, the same kind
   of hardware that compresses video in a phone camera, turns the pictures into
   an H.264 video stream. Every two seconds it sends a complete picture, a
@@ -106,12 +106,12 @@ a person watches plus the agent's screenshots.
 | **A vibe-coding platform checking its work.** Lovable, Replit and the like: ten checks a day, three minutes of watching each, 30 screenshots per check. Screenshot data: 248 MB. | 11 h | 6,600 | 2.7 GB (under 1% of the cap) | 45 GB (4% of the cap) |
 | **Someone spot-checking by hand.** Ten minutes a day, no agent. | 5 h | 0 | 900 MB (under 1% of the cap) | 20 GB (2% of the cap) |
 
-Assumptions: watching over WebRTC averages 0.5 Mbps, between a still screen
-and light activity; with an agent tapping away the whole time, 0.8 Mbps.
-MJPEG is at Roadie's defaults: 1080p, 30 frames a second, quality 80. A
-screenshot at quality 80 is 39 KB. A month is 30 days, a working month 22 days
-of 8 hours. While nobody is watching, the rig captures but encodes nothing; a
-screenshot costs it a few milliseconds of work.
+The table assumes that watching over WebRTC averages 0.5 Mbps, between a
+still screen and light activity, and 0.8 Mbps with an agent tapping away the
+whole time. MJPEG is at Roadie's defaults: 1080p, 30 frames a second, quality
+80. A screenshot at quality 80 is 39 KB. A month is 30 days, a working month
+22 days of 8 hours. While nobody is watching, the rig captures but encodes
+nothing; a screenshot costs it a few milliseconds of work.
 
 ## An hour, a week, a month
 
@@ -139,10 +139,11 @@ to a working session, is a third of each.
 Two more things can run around the clock. Audio today travels as raw PCM over
 a WebSocket, 48 kHz stereo 32-bit samples at 3.1 Mbps, which is more than the
 video over WebRTC: a month of it alone almost fills a 1.2 TB cap. The next
-milestone moves audio onto the WebRTC connection as G.722 or PCMU, 64 kbps of
-sound, about 80 kbps on the wire with packet headers, a fortieth of today. The
-microphone the other way, from the viewer to the phone, is 256 kbps today
-while someone talks and will share the WebRTC connection at 64 kbps as well.
+milestone moves audio onto the WebRTC connection as G.722 or PCMU, which is
+64 kbps of sound and about 80 kbps on the wire with packet headers, a
+fortieth of today. The microphone the other way, from the viewer to the
+phone, is 256 kbps today while someone talks and will share the WebRTC
+connection at 64 kbps as well.
 
 An agent that takes a screenshot on a timer, rather than when it needs one,
 spends by the pace it picks:
@@ -234,11 +235,12 @@ only spends that when something is moving.
 
 The Battery page of the phone's Settings, watched over WebRTC at two
 different caps. The outlined band, a paragraph of text and two figures, is
-shown below at its true size: first with the page sitting still, then at the
-same instant of the same animation, the Charging page sliding in from the
-right after a tap on its row. A slide like that is about as fast as a phone
-screen changes outside video. A third stream at the 4 Mbps cap looked the
-same as the 1.5 Mbps one in both states, so it is left out of the pictures.
+shown below at its true size. It appears first with the page sitting still
+and then at the same instant of the same animation, which is the Charging
+page sliding in from the right after a tap on its row. A slide like that is
+about as fast as a phone screen changes outside video. A third stream at the
+4 Mbps cap looked the same as the 1.5 Mbps one in both states, so it is left
+out of the pictures.
 
 | 300 kbps | 1.5 Mbps |
 |---|---|
@@ -264,11 +266,11 @@ nothing on either transport.
 |---|---|
 | ![The whole captured frame with Calculator in portrait](mjpeg-vs-webrtc/raw-portrait.jpg) The whole frame as it arrives from the capture device, Calculator open, from Roadie's raw snapshot. The outline is the 446×972 picture Roadie keeps: 21% of the frame. | ![The whole captured frame with Calculator in landscape](mjpeg-vs-webrtc/raw-landscape.jpg) The same app after turning the screen through Roadie's rotate call. The picture is now 1728×798, 66% of the frame, with the bars above and below instead. |
 
-The same app, the same quality 80, measured a minute apart: the portrait
-screenshot is 38 KB, the landscape one 64 KB. That is 1.7 times the bytes for
-3.2 times the pixels, because Calculator's landscape layout is mostly black. A
-text-heavy screen such as Settings grows closer to the pixel count, which is
-what the estimate in the table assumes.
+Screenshots of the same app at quality 80 in each orientation, measured a
+minute apart, are 38 KB in portrait and 64 KB in landscape. That is 1.7 times
+the bytes for 3.2 times the pixels, because Calculator's landscape layout is
+mostly black. A text-heavy screen such as Settings grows closer to the pixel
+count, which is what the estimate in the table assumes.
 
 | Picture | Pixels | Share of the frame | MJPEG frame at quality 80 | MJPEG at 30 fps |
 |---|---:|---:|---:|---:|
@@ -325,9 +327,14 @@ in Chromium, against building a new image from a JPEG thirty times a second.
 ## Delay
 
 On the same network both arrive quickly. WebRTC measured about 90 to 100 ms
-from the phone's glass to the browser's: 32 ms for the capture device to
-deliver a frame, 5 ms to compress it, 1 ms across the network, 33 ms waiting
-in the browser's buffer so that playback stays smooth, and 2 ms to decode.
+from the phone's glass to the browser's:
+
+- 32 ms for the capture device to deliver a frame
+- 5 ms to compress it
+- 1 ms across the network
+- 33 ms waiting in the browser's buffer so that playback stays smooth
+- 2 ms to decode
+
 MJPEG travels over an ordinary web connection, which never drops anything, so
 on a congested or lossy link it queues up and the picture falls behind. WebRTC
 drops late frames and stays current. That matters more away from home than on
@@ -378,16 +385,17 @@ neither exists yet.
   scaled to 720p. The landscape rows scale those bytes by pixel count, since
   the phone was in portrait.
 - **WebRTC:** a test viewer with no screen (`rtcprobe`, in this repository)
-  connected to the running Roadie for 20 s while the screen sat still: 597
-  frames, 0.21 Mbps including a keyframe every 2 s; the encoder reported
-  0.33 Mbps in its busiest second. The caps are targets the encoder does not
-  exceed over time.
+  connected to the running Roadie for 20 s while the screen sat still and
+  received 597 frames at 0.21 Mbps, including a keyframe every 2 s; the
+  encoder reported 0.33 Mbps in its busiest second. The caps are targets the
+  encoder does not exceed over time.
 - **The cap pictures:** the headless viewer asked for each cap over the
   control channel and saved the H.264 stream while a held press opened the
-  Battery page's Charging row; the frames were split out with ffmpeg, the
-  still one taken a second before the slide and the moving one as the
-  fastest-changing frame of it in each run, shown at the phone picture's own
-  size. Rates are the bytes of the stream in the second around that frame.
+  Battery page's Charging row. The frames were split out with ffmpeg and are
+  shown at the phone picture's own size; in each run the still one is the
+  frame taken a second before the slide and the moving one is the
+  fastest-changing frame of it. Rates are the bytes of the stream in the
+  second around that frame.
 - **The viewer screenshot:** headless Chromium on the rig, signed in with the
   token, with the WebRTC picture playing.
 - **CPU:** Roadie's own `/health` page and `top` on the rig, with Roadie

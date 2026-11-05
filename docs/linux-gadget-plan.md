@@ -151,8 +151,9 @@ f_uac2 exposes an ALSA card on the Pi. Gadget-side **playback** is the phone's
 - Format: 48 kHz, S16_LE; mic mono, headset stereo (configurable). UAC1 is a
   config option for phones with poor UAC2 support; both are standard in
   Android's kernel (`snd-usb-audio`).
-- ALSA is driven with its kernel ioctl ABI from Go (`alsa_linux.go`) — no
-  cgo, no new dependency, and full control of software parameters.
+- ALSA is driven with its kernel ioctl ABI from Go (`alsa_linux.go`), which
+  needs no cgo and no new dependency and gives full control of software
+  parameters.
 - **Mic:** `/api/mic` still takes 16 kHz mono; a polyphase FIR upsamples
   ×3. A jitter buffer (bounded at 200 ms, oldest dropped) feeds ALSA one
   period at a time; when nothing is queued the writer sends silence, so the
@@ -173,10 +174,11 @@ f_uac2 exposes an ALSA card on the Pi. Gadget-side **playback** is the phone's
 
 ## Network (USB Ethernet)
 
-- **ECM by default.** Evaluated: ECM (`cdc_ether`, the simplest, in every
-  Android kernel), NCM (`cdc_ncm`, in Android GKI, faster, less field history with
-  Android's Ethernet service), RNDIS (deprecated, disabled in recent Android
-  kernels). NCM and RNDIS remain config options.
+- **ECM by default.** The options evaluated were ECM (`cdc_ether`), which is
+  the simplest and is in every Android kernel; NCM (`cdc_ncm`), which is in
+  Android GKI, is faster and has less field history with Android's Ethernet
+  service; and RNDIS, which is deprecated and disabled in recent Android
+  kernels. NCM and RNDIS remain config options.
 - **The phone-side MAC must be universally administered.** Android's
   EthernetTracker only adopts interfaces named `eth\d`, and the host's usbnet
   names a link `usb%d` when the MAC has the locally-administered bit set. The
@@ -281,8 +283,12 @@ With a phone (iPhone, USB-C, through a PD hub and the VBUS-cut splitter):
 | Touch through the pointer (`--platform ios`): tap, held touch, one-finger swipe on a Safari page; `make test-e2e-iphone`'s touch check; two fingers refused before either goes down | pass |
 | Long runs, audio dropouts over time | not yet run |
 
-Not yet checked (see the
+These are not yet checked (see the
 [checklist](how-to/linux-gadget.md#hardware-validation-checklist)):
-Android input, USB microphone and speaker recognition and streaming, Android
-Ethernet adoption and internet, the splitter/hub power checks, remote
-wakeup, and long-running operation with real traffic.
+
+- Android input
+- USB microphone and speaker recognition and streaming
+- Android Ethernet adoption and internet
+- the splitter/hub power checks
+- remote wakeup
+- long-running operation with real traffic

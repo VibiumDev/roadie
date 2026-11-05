@@ -76,11 +76,11 @@ The Go server captures video from a UVC-compatible HDMI-to-USB dongle:
 
 Each captured picture is kept in a shared buffer with its crop. Two JPEGs
 are made from it, cropped (black bars detected and removed) and raw (full
-capture resolution, for diagnostics), but only when wanted: in the capture
-loop while someone is streaming `/stream` or `/raw-stream`, and otherwise on
-demand when a snapshot or screenshot asks. An idle Roadie encodes nothing,
-which is the difference between a whole core and a fraction of one at
-1080p30.
+capture resolution, for diagnostics), but only when wanted: they are made in
+the capture loop while someone is streaming `/stream` or `/raw-stream`, and
+otherwise on demand when a snapshot or screenshot asks. An idle Roadie
+encodes nothing, which is the difference between a whole core and a fraction
+of one at 1080p30.
 
 ### WebRTC
 
@@ -91,14 +91,20 @@ the crop to NV12 and feeds an `encoder.Encoder`, and writes the access units
 that come out to one Pion video track shared by every session. The encoder
 is the Pi 4's hardware one through V4L2 (`encoder/v4l2m2m`, pure Go
 ioctls), or an ffmpeg subprocess on other hosts. Settings follow the Roadie
-Remote spec: Constrained Baseline, level 4.0, SPS and PPS on every keyframe,
-a 2 s GOP, a keyframe on each PLI or FIR, and VBR with the target moved by
-Pion's congestion control between 300 kbps and 4 Mbps. Signaling is a
-WebSocket at `/api/webrtc/signal`; media uses one UDP port. The viewer
-module (`viewer/webrtc.js`) keeps the page's `#feed` image, now see-through,
-over the video, so pointer mapping is unchanged, and goes back to MJPEG by
-itself when the connection fails. It is the viewer's default transport
-where the host has an encoder.
+Remote spec:
+
+- Constrained Baseline, level 4.0
+- SPS and PPS on every keyframe
+- a 2 s GOP
+- a keyframe on each PLI or FIR
+- VBR with the target moved by Pion's congestion control between 300 kbps
+  and 4 Mbps
+
+Signaling is a WebSocket at `/api/webrtc/signal`; media uses one UDP port.
+The viewer module (`viewer/webrtc.js`) keeps the page's `#feed` image, now
+see-through, over the video, so pointer mapping is unchanged, and goes back
+to MJPEG by itself when the connection fails. It is the viewer's default
+transport where the host has an encoder.
 
 The same peer connection carries the rest of a session. Sound: the
 broadcaster subscribes to the capture's audio while anyone is connected,
