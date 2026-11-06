@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	fiatjaf.com/nostr v0.0.0-20261026145325-252a038facda
-	github.com/VibiumDev/station v0.1.0
+	github.com/VibiumDev/station v0.0.0-20261106063858-b17f36ef90f4
 	github.com/coder/websocket v1.8.15
 	github.com/hashicorp/mdns v1.0.7
 	github.com/pion/ice/v4 v4.0.13
@@ -57,5 +57,5 @@ require (
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
 	golang.org/x/image v0.23.0 // indirect
 	golang.org/x/net v0.60.0 // indirect
-	golang.org/x/time v0.16.0
+	golang.org/x/time v0.16.0 // indirect
 )
