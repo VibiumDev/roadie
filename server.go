@@ -163,8 +163,7 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 {{define "foot"}}</body></html>{{end}}
 {{define "help"}}<button class="qhelp" type="button" aria-expanded="false" aria-controls="help-{{.}}" aria-label="What this is">?</button>{{end}}
 
-{{define "index"}}{{template "head" .}}{{template "header" .}}<main class="wrap"><h1 class="h1">Roadie.</h1>
-<p class="lead">The target wired to this machine, live in the browser.</p>
+{{define "index"}}{{template "head" .}}{{template "header" .}}<main class="wrap"><p class="lead">The target wired to this machine, live in the browser.</p>
 <ul class="links">
 <li><a href="/view">/view</a> <span>watch and drive the target: picture, sound, touch and keyboard</span></li>
 <li><a href="/stream">/stream</a> <span>the MJPEG stream, cropped to the target's screen</span></li>
