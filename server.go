@@ -124,6 +124,8 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/login", s.handleLogin)
 	mux.HandleFunc("/logout", s.handleLogout)
 	mux.HandleFunc("/viewer/", s.handleViewerAsset)
+	mux.HandleFunc("/favicon.png", serveIcon)
+	mux.HandleFunc("/apple-touch-icon.png", serveIcon)
 	return mux
 }
 
@@ -151,7 +153,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 // package's, served under /viewer/, so a station's pages and these match.
 var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{.Title}}</title><link rel="icon" href="data:,">
+<title>{{.Title}}</title><link rel="icon" type="image/png" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/viewer/pages.css"><script src="/viewer/pages.js"></script></head>
 <body>
 {{end}}

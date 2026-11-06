@@ -156,7 +156,7 @@ func equalSecret(a, b string) bool {
 // Wrap checks every request but the login pages.
 func (a *Auth) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if a.Mode == AuthUnset || a.Mode == AuthNone || r.URL.Path == "/login" || r.URL.Path == "/logout" {
+		if a.Mode == AuthUnset || a.Mode == AuthNone || r.URL.Path == "/login" || r.URL.Path == "/logout" || r.URL.Path == "/favicon.png" || r.URL.Path == "/apple-touch-icon.png" {
 			next.ServeHTTP(w, r)
 			return
 		}

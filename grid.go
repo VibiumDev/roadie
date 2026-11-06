@@ -157,11 +157,11 @@ func (s *Server) handleGrid(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
-<head><title>Roadie Grid</title><link rel="icon" href="data:,">
+<head><title>Roadie Grid</title><link rel="icon" type="image/png" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
   :root { --page-bg:#1a1a1a; --label:#6f6f6f; --label-on:#c8c8c8; --focus:rgba(255,255,255,0.30); }
-  :root[data-theme="light"] { --page-bg:#e8e8ed; --label:#8a8a8a; --label-on:#1a1a1a; --focus:rgba(0,0,0,0.28); }
-  @media (prefers-color-scheme:light) { :root:not([data-theme="dark"]) { --page-bg:#e8e8ed; --label:#8a8a8a; --label-on:#1a1a1a; --focus:rgba(0,0,0,0.28); } }
+  :root[data-theme="light"] { --page-bg:#e7e5e4; --label:#78716c; --label-on:#1c1917; --focus:rgba(0,0,0,0.28); }
+  @media (prefers-color-scheme:light) { :root:not([data-theme="dark"]) { --page-bg:#e7e5e4; --label:#78716c; --label-on:#1c1917; --focus:rgba(0,0,0,0.28); } }
   * { box-sizing:border-box; }
   body { margin:0; height:100vh; overflow:hidden; background:var(--page-bg);
          display:grid; grid-template-columns:repeat(%d, minmax(0, 1fr));
@@ -274,7 +274,7 @@ func (s *Server) handleGrid(w http.ResponseWriter, r *http.Request) {
 func writeGridUsage(w http.ResponseWriter, reason string) {
 	fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
-<head><title>Roadie Grid</title><link rel="icon" href="data:,">
+<head><title>Roadie Grid</title><link rel="icon" type="image/png" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
   body { margin:0; min-height:100vh; background:#1a1a1a; color:#ddd;
          font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;
