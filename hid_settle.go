@@ -59,6 +59,16 @@ type settledHID struct {
 
 	touchMu    sync.Mutex // one touch translated at a time
 	fingerDown bool
+	// onInput, when set, hears every input that went through: what it
+	// was and its parameters. The hold recorder listens here.
+	onInput func(kind string, params map[string]any)
+}
+
+// report tells the listener about one input.
+func (h *settledHID) report(kind string, params map[string]any) {
+	if h.onInput != nil {
+		h.onInput(kind, params)
+	}
 }
 
 // errOneFinger is what a two-finger gesture gets on a target whose only
@@ -69,7 +79,10 @@ func newSettledHID(b HIDBackend) *settledHID {
 	return &settledHID{HIDBackend: b, now: time.Now, sleep: time.Sleep}
 }
 
-func (h *settledHID) MouseMove(x, y int) error { return h.moveTo(x, y, true) }
+func (h *settledHID) MouseMove(x, y int) error {
+	h.report("mouse_move", map[string]any{"x": x, "y": y})
+	return h.moveTo(x, y, true)
+}
 
 // Glide reports whether jumps glide; SetGlide turns that on or off.
 func (h *settledHID) Glide() bool {
@@ -123,6 +136,7 @@ func (h *settledHID) route(x, y int) [][2]int {
 }
 
 func (h *settledHID) MousePress(buttons int) error {
+	h.report("mouse_press", map[string]any{"buttons": buttons})
 	h.wait(&h.moved, pressSettle)
 	err := h.HIDBackend.MousePress(buttons)
 	h.mu.Lock()
@@ -133,6 +147,7 @@ func (h *settledHID) MousePress(buttons int) error {
 }
 
 func (h *settledHID) MouseRelease(buttons int) error {
+	h.report("mouse_release", map[string]any{"buttons": buttons})
 	err := h.HIDBackend.MouseRelease(buttons)
 	h.mu.Lock()
 	h.held &^= buttons
@@ -142,6 +157,7 @@ func (h *settledHID) MouseRelease(buttons int) error {
 }
 
 func (h *settledHID) MouseClick(buttons int) error {
+	h.report("mouse_click", map[string]any{"buttons": buttons})
 	h.wait(&h.moved, pressSettle)
 	err := h.HIDBackend.MouseClick(buttons)
 	h.mark(&h.released, &h.input)
@@ -150,6 +166,7 @@ func (h *settledHID) MouseClick(buttons int) error {
 
 // MouseScroll turns the wheel amount notches; positive scrolls down.
 func (h *settledHID) MouseScroll(amount int) error {
+	h.report("mouse_scroll", map[string]any{"amount": amount})
 	if h.wheelIOS {
 		return h.notchesIOS(amount)
 	}
@@ -192,6 +209,7 @@ const (
 // the wheel scrolls what is under the pointer, and a scroll leaves the
 // pointer where it was.
 func (h *settledHID) ScrollAt(x, y, amount int) error {
+	h.report("scroll_at", map[string]any{"x": x, "y": y, "amount": amount})
 	h.mu.Lock()
 	px, py, placed := h.x, h.y, h.placed
 	h.mu.Unlock()
@@ -215,24 +233,28 @@ func abs(n int) int {
 }
 
 func (h *settledHID) Type(text string) error {
+	h.report("type", map[string]any{"text": text})
 	err := h.HIDBackend.Type(text)
 	h.mark(&h.input)
 	return err
 }
 
 func (h *settledHID) KeyPress(keycode int) error {
+	h.report("key_press", map[string]any{"keycode": keycode})
 	err := h.HIDBackend.KeyPress(keycode)
 	h.mark(&h.input)
 	return err
 }
 
 func (h *settledHID) KeyRelease(keycode int) error {
+	h.report("key_release", map[string]any{"keycode": keycode})
 	err := h.HIDBackend.KeyRelease(keycode)
 	h.mark(&h.input)
 	return err
 }
 
 func (h *settledHID) Touch(contacts []TouchContact) error {
+	h.report("touch", map[string]any{"contacts": contacts})
 	if h.touchAsPointer {
 		return h.touchWithPointer(contacts)
 	}

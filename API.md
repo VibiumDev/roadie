@@ -806,7 +806,7 @@ Ctrl+Alt+Del: press 224, press 226, press 76, release 76, release 226, release 2
 Roadie can enroll as a rig with a [Vibium Station](https://github.com/VibiumDev/station), which brokers access to it from anywhere: the station holds the rig's outbound tunnel, signs session holds, and serves the shared viewer. Nothing is opened on the Pi; it dials out.
 
 ```bash
-roadie enroll https://station.example --code ABCD-1234-7F3A [--name NAME] [--platform ios] [--admin]
+roadie enroll https://station.example --code ABCD-1234-7F3A [--name NAME] [--platform ios] [--admin] [--record]
 ```
 
 The code comes from the station's Settings page or `station enroll`; it ends with the station key's fingerprint, which `roadie enroll` checks against the key the station presents before it sends anything. Without a URL the station is found on the LAN over mDNS (`_vibium-station._tcp`). On success the policy file is written and `roadie` connects at its next start.
@@ -816,8 +816,11 @@ Files, next to the local token in Roadie's config directory (`~/.config/roadie` 
 | File | Holds |
 |---|---|
 | `rig.key` | The rig's secp256k1 key, made on first use; its npub is in `/health` |
-| `rig.json` | The policy: the stations accepted, and per station the allowed scopes (`view`, `input`, `bidi`), whether `admin` grants are taken, `max_session` and optional `hours` (`"09:00-18:00"`). Written by `roadie enroll`, edited by hand; nothing remote can change it |
+| `rig.json` | The policy: the stations accepted, and per station the allowed scopes (`view`, `input`, `bidi`), whether `admin` grants are taken, whether holds are recorded (`record`), `max_session` and optional `hours` (`"09:00-18:00"`). Written by `roadie enroll`, edited by hand; nothing remote can change it |
 | `rig-state.json` | The hold state: the current hold per device and the highest sequence seen, so a restart cannot be made to accept an older hold |
+| `recordings/` | Hold recordings an upload could not deliver, as `<hold>.zip` with a sidecar naming the station, device and hold; sent again at the next start |
+
+**Recording a hold.** With `record` set for a station (`roadie enroll --record`, or the field in `rig.json`), every hold from that station is recorded in Vibium's recording format: a frame of the screen as the hold found it, then one step per burst of input (inputs less than 250 ms apart are one step, listed in the step's parameters up to sixteen with the count) with a frame of what the screen showed 400 ms after the burst, and a frame as the hold left it. A step names its first input (`Keyboard.type ×2`, `Touch`, `Pointer.click`). After 600 frames or 64 MB the steps keep coming without frames. When the hold ends the zip is written under `recordings/`, uploaded to that station's Record Store under the rig key with the device and hold named in the authorization (`PUT /upload`, see the station's API reference), and removed once the station has it; the station's file event records it against the hold. `/health` shows `record` per station.
 
 Through the tunnel the station reaches only an allowlist of endpoints, each with the scope a grant must carry, and every request presents a hold grant, either in `Authorization: Hold <base64url event>` for plain requests or in the first message of a WebSocket. Today that is:
 

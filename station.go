@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"fiatjaf.com/nostr"
+
 	"github.com/VibiumDev/station"
 	"github.com/VibiumDev/station/enroll"
 	"github.com/VibiumDev/station/rig"
@@ -144,7 +146,7 @@ func (rr *rigRunner) status() map[string]any {
 				up = true
 			}
 		}
-		st := map[string]any{"name": e.Name, "url": e.URL, "rig": e.RigID, "online": up}
+		st := map[string]any{"name": e.Name, "url": e.URL, "rig": e.RigID, "online": up, "record": e.Record}
 		for _, d := range rr.rig.Devices {
 			if hold, held := rr.rig.Gate.Current(station.DeviceID(e.RigID, d.Name)); held {
 				st["hold"] = hold
@@ -153,6 +155,20 @@ func (rr *rigRunner) status() map[string]any {
 		stations = append(stations, st)
 	}
 	return map[string]any{"npub": rig.Npub(rr.rig.Key.Public()), "stations": stations}
+}
+
+// current says who holds one of this rig's devices now, and through
+// which station, for the hold recorder.
+func (rr *rigRunner) current() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
+	for _, e := range rr.rig.Policy.Stations {
+		for _, d := range rr.rig.Devices {
+			id := station.DeviceID(e.RigID, d.Name)
+			if hold, held := rr.rig.Gate.Current(id); held {
+				return e, id, hold, rr.rig.Key, true
+			}
+		}
+	}
+	return nil, "", "", nostr.SecretKey{}, false
 }
 
 func (rr *rigRunner) shutdown() {
@@ -172,8 +188,9 @@ func enrollCommand(args []string) int {
 	name := fs.String("name", "", "this rig's name (default: the host name)")
 	platformFlag := fs.String("platform", "", "the target's platform, as for the server: ios, android, mac, windows, linux")
 	admin := fs.Bool("admin", false, "accept admin grants from this station (settings, resets)")
+	record := fs.Bool("record", false, "record every hold from this station (a screenshot after each burst of input) and upload it to the station's Record Store")
 	fs.Usage = func() {
-		fmt.Println("usage: roadie enroll [https://station[:port]] --code ABCD-1234-7F3A [--name NAME] [--platform P] [--admin]\n" +
+		fmt.Println("usage: roadie enroll [https://station[:port]] --code ABCD-1234-7F3A [--name NAME] [--platform P] [--admin] [--record]\n" +
 			"Without a URL the station is found on this network over mDNS.")
 		fs.PrintDefaults()
 	}
@@ -229,6 +246,7 @@ func enrollCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, "roadie enroll:", err)
 		return 1
 	}
+	entry.Record = *record
 	policy.Set(entry)
 	if err := policy.Save(policyPath); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -236,7 +254,7 @@ func enrollCommand(args []string) int {
 	}
 	scopes, _ := json.Marshal(entry.Scopes)
 	fmt.Printf("Enrolled with %s at %s as %s.\n", entry.Name, entry.URL, entry.RigID)
-	fmt.Printf("Policy written to %s: scopes %s, admin %v, sessions up to %s. Edit it to change what the station may do.\n", policyPath, scopes, entry.Admin, entry.MaxSession)
+	fmt.Printf("Policy written to %s: scopes %s, admin %v, record %v, sessions up to %s. Edit it to change what the station may do.\n", policyPath, scopes, entry.Admin, entry.Record, entry.MaxSession)
 	fmt.Println("Restart roadie to connect.")
 	return 0
 }

@@ -173,11 +173,15 @@ On the same network the URL can be left out. The code's last group is the
 station key's fingerprint, which `roadie enroll` checks before it sends
 anything, so a spoofed station on the LAN gets nothing. `--admin` lets the
 station's admin grants through (settings, resets); by default they are
-refused.
+refused. `--record` has Roadie record every hold from that station, as a
+screenshot after each burst of input in Vibium's recording format, and
+upload it to the station's Record Store when the hold ends, where it is
+listed on the station's Records page next to who held the device and when.
 
 What the station may do is yours to edit in
 `/var/lib/roadie/.config/roadie/rig.json`:
-the scopes (`view`, `input`, `bidi`), `admin`, `max_session` and `hours`.
+the scopes (`view`, `input`, `bidi`), `admin`, `record`, `max_session` and
+`hours`.
 `/health` shows the `station` block with the tunnel's state and the hold
 held, and the service log says when it connects. To leave a station, remove
 its entry from the file and restart; to be rid of a rig the station's owner

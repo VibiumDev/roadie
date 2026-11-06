@@ -17,7 +17,10 @@ import (
 	"syscall"
 	"time"
 
+	"fiatjaf.com/nostr"
+
 	"github.com/VibiumDev/roadie/rtc"
+	"github.com/VibiumDev/station/rig"
 	"github.com/VibiumDev/station/sdnotify"
 )
 
@@ -440,15 +443,31 @@ func main() {
 	}
 	// Enrolled with a station: a tunnel to it, serving the same mux behind
 	// the rig's gate instead of the local login.
-	var onHoldEnd func(deviceID, holdID string)
-	if broadcaster != nil {
-		onHoldEnd = func(_, holdID string) { broadcaster.EndHold(holdID) }
+	// A hold the policy says to record is recorded (see record.go): the
+	// recorder hears every input and learns the hold from the rig.
+	var rigRun *rigRunner
+	recDir, _ := rigPath("recordings")
+	recorder := newRecorder(buf, func() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
+		if rigRun == nil {
+			return nil, "", "", nostr.SecretKey{}, false
+		}
+		return rigRun.current()
+	}, recDir)
+	settled.onInput = recorder.input
+	onHoldEnd := func(_, holdID string) {
+		if broadcaster != nil {
+			broadcaster.EndHold(holdID)
+		}
+		recorder.end(holdID)
 	}
-	rigRun, err := startRig(handler, deviceOffer(platform, hid != nil, ab != nil, srv.effectiveInputMode(), *label), onHoldEnd)
+	rigRun, err = startRig(handler, deviceOffer(platform, hid != nil, ab != nil, srv.effectiveInputMode(), *label), onHoldEnd)
 	if err != nil {
 		log.Fatalf("station: %v", err)
 	}
 	srv.Station = rigRun
+	if rigRun != nil {
+		go recorder.retry(rigRun.rig.Policy, rigRun.rig.Key)
+	}
 	if certs != nil {
 		httpServer.TLSConfig = &tls.Config{GetCertificate: certs.GetCertificate, MinVersion: tls.VersionTLS12}
 	}
@@ -496,6 +515,9 @@ func main() {
 	sdnotify.Stopping()
 	fmt.Println("\nShutting down...")
 
+	// Recordings in progress are closed and uploaded; one the exit cuts
+	// off stays on disk for the next start.
+	recorder.endAll()
 	if rigRun != nil {
 		rigRun.shutdown()
 	}

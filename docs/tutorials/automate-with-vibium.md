@@ -201,6 +201,15 @@ eleven, because it records its page lookup before every command as a
 step of its own. All of them hold the same two pictures: the home screen
 before the search and the Calculator after it.
 
+Through a station there can be a second recording of the same session,
+made on the Pi. A rig enrolled with `roadie enroll --record` records
+every hold as a screenshot after each burst of input, in the same
+format, and uploads it to the station's Record Store when the hold
+ends; it appears on the station's Records page next to who held the
+device and when. Your own `calc.zip` can go there too, uploaded with
+an authorization the station signs for your token, as the station's
+API reference describes under The Record Store.
+
 ## Driving the viewer
 
 Vibium can also launch a browser of its own, open Roadie's `/view` page
