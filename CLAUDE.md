@@ -15,8 +15,8 @@ both ways. All of that works and must keep working.
   `../station/docs/remote-spec.md`. It is the source of truth; read it in
   full before writing code.
 - Progress, decisions, measured numbers and known issues live in
-  `../station/docs/progress.md`. Update it at every checkpoint so a fresh
-  session can continue.
+  `../station/docs/progress.md`, a local file kept out of git. Update it at
+  every checkpoint so a fresh session can continue.
 - Station owns the rig library (tunnel client, enrollment, token checks,
   endpoint allowlist); Roadie imports it. Commit to Station first, then bump
   Roadie's dependency. The `go.work` in the parent directory that ties the
