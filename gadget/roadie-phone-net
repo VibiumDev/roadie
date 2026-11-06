@@ -21,7 +21,8 @@ set -euo pipefail
 CONF="${ROADIE_PHONE_NET_CONF:-/etc/roadie/phone-net.conf}"
 readonly TABLE=roadie_phone
 readonly RUN_DIR=/run/roadie-phone-net
-readonly STATE_DIR=/var/lib/roadie
+# Root's own, apart from /var/lib/roadie, which is the service account's.
+readonly STATE_DIR=/var/lib/roadie-phone-net
 
 # ---- defaults (override in phone-net.conf) --------------------------------
 
@@ -35,6 +36,8 @@ DNS_SERVERS=""                         # empty: whatever this Pi uses
 BLOCK_PRIVATE=1                        # phone may not reach private/LAN addresses
 ALLOW_DESTS=""                         # CIDRs allowed even so, space-separated
 ALLOW_PI_TCP_PORTS=""                  # Pi ports the phone may open, e.g. "8080"
+EGRESS_MBPS=0                          # cap on what the phone sends out, in Mbit/s; 0: none
+BLOCK_SMTP=0                           # 1: refuse the phone's SMTP (port 25) connections
 GADGET=/sys/kernel/config/usb_gadget/roadie
 
 log() { echo "roadie-phone-net: $*" >&2; }
@@ -50,6 +53,8 @@ load_config() {
 	[[ "$PHONE_GATEWAY" =~ ^([0-9]+\.){3}[0-9]+$ ]] || die "PHONE_GATEWAY '$PHONE_GATEWAY' is not an address"
 	[[ "$PHONE_IP" =~ ^([0-9]+\.){3}[0-9]+$ ]] || die "PHONE_IP '$PHONE_IP' is not an address"
 	case "$BLOCK_PRIVATE" in 0|1) ;; *) die "BLOCK_PRIVATE must be 0 or 1";; esac
+	case "$BLOCK_SMTP" in 0|1) ;; *) die "BLOCK_SMTP must be 0 or 1";; esac
+	[[ "$EGRESS_MBPS" =~ ^[0-9]+$ ]] || die "EGRESS_MBPS '$EGRESS_MBPS' is not a whole number of Mbit/s"
 }
 
 check_iface() {
@@ -98,7 +103,17 @@ we_enabled_uplink_forwarding() {
 }
 
 nft_rules() {
-	local ifc=$1 allow="" ports="" private="" lan="" guard=""
+	local ifc=$1 allow="" ports="" private="" lan="" guard="" smtp="" cap=""
+	if [ "$BLOCK_SMTP" = 1 ]; then
+		smtp="tcp dport 25 counter reject with tcp reset"
+	fi
+	if [ "$EGRESS_MBPS" -gt 0 ]; then
+		# A policer, not a shaper: packets over the rate are dropped, and
+		# TCP slows down to fit. The burst is an eighth of a second.
+		local kb=$((EGRESS_MBPS * 125)) burst
+		burst=$((kb / 8)); [ "$burst" -ge 64 ] || burst=64
+		cap="limit rate over $kb kbytes/second burst $burst kbytes counter drop"
+	fi
 	if [ "$BLOCK_PRIVATE" = 1 ]; then
 		private="ip daddr @private4 counter drop"
 		local nets
@@ -161,6 +176,8 @@ table inet $TABLE {
 		meta nfproto ipv6 counter drop
 		oifname != "$UPSTREAM_IF" counter drop
 		ip saddr != $PHONE_SUBNET counter drop
+		$smtp
+		$cap
 		ip daddr @allow4 accept
 		$private
 		$lan
@@ -357,7 +374,23 @@ cmd_check() {
 }
 
 cmd_check_all() {
-	local u ifc
+	local u ifc state
+	# A unit that failed while its interface stayed (dnsmasq killed, a
+	# botched edit) would otherwise stay down, with the link closed,
+	# until the next boot. The firewall is what guards the link, so a
+	# restart here is only ever a repair.
+	while read -r u _ state _; do
+		case "$state" in failed|inactive) ;; *) continue ;; esac
+		ifc=${u#roadie-phone-net@}
+		ifc=${ifc%.service}
+		[ -e "/sys/class/net/$ifc" ] || continue
+		systemctl is-enabled -q "$u" 2>/dev/null || continue
+		if systemctl start "$u"; then
+			log "restarted $u: it was $state while $ifc was present"
+		else
+			log "could not restart $u (was $state): journalctl -u $u"
+		fi
+	done < <(systemctl list-units --all --plain --no-legend 'roadie-phone-net@*.service')
 	for u in $(systemctl list-units --plain --no-legend --state=active 'roadie-phone-net@*.service' | awk '{print $1}'); do
 		ifc=${u#roadie-phone-net@}
 		ifc=${ifc%.service}

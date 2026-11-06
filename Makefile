@@ -204,7 +204,7 @@ test-view:  ## Voice input through roadie's own /view page, clicked for real
 # See docs/how-to/linux-gadget.md, including how to power the Pi safely.
 
 gadget-install: build  ## Set this Pi up as the phone's USB devices (then reboot)
-	sudo gadget/install --user $(USER)
+	sudo gadget/install
 
 gadget-uninstall:  ## Remove it all, without touching the Pi's own network
 	sudo gadget/uninstall

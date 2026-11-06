@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
+	"os/user"
+	"strings"
+	"time"
 
 	"crypto/x509"
 )
@@ -15,10 +20,16 @@ import (
 func runCommand(name string, args []string) int {
 	switch name {
 	case "token":
+		if code := serviceAccountHint(name); code != 0 {
+			return code
+		}
 		return tokenCommand(args)
 	case "tls":
 		return tlsCommand(args)
 	case "enroll":
+		if code := serviceAccountHint(name); code != 0 {
+			return code
+		}
 		return enrollCommand(args)
 	case "help":
 		fmt.Println("usage: roadie [flags]            run the server (roadie -h for the flags)\n" +
@@ -29,6 +40,26 @@ func runCommand(name string, args []string) int {
 	}
 	fmt.Fprintf(os.Stderr, "roadie: unknown command %q (try roadie help)\n", name)
 	return 2
+}
+
+// serviceAccountHint stops a command that reads or writes the config
+// directory when roadie.service runs as another account, since the
+// token or enrollment would land in the wrong home: it says which
+// account to run as instead. Without systemd, or a service, it is quiet.
+func serviceAccountHint(cmd string) int {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "systemctl", "show", "roadie.service", "-p", "User", "--value").Output()
+	if err != nil {
+		return 0
+	}
+	svc := strings.TrimSpace(string(out))
+	me, uerr := user.Current()
+	if svc == "" || uerr != nil || svc == me.Username {
+		return 0
+	}
+	fmt.Fprintf(os.Stderr, "roadie %s: roadie.service runs as %s, and this would use %s's files instead; run:\n  sudo -u %s roadie %s ...\n", cmd, svc, me.Username, svc, cmd)
+	return 1
 }
 
 // tokenCommand prints the local admin token, making one on first use, or

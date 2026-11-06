@@ -1,0 +1,173 @@
+#!/bin/bash
+# setup/harden: close the doors a Roadie host does not need, one step at a
+# time, each with a way back. Nothing here runs on its own: machine-setup
+# never calls it, and each step says what it changed.
+#
+#   setup/harden status                     what is open: SSH logins, services, ports
+#   sudo setup/harden ssh-keys-only         password logins off for 5 minutes, then back on
+#   sudo setup/harden ssh-keys-only --keep  ...unless a key login worked and you say keep
+#   sudo setup/harden services [--vnc]      stop and disable services a Roadie does not need
+#   sudo setup/harden services --undo       enable them again
+#   sudo setup/harden watchdog [--undo]     the hardware watchdog: reboot when systemd hangs
+#
+# ssh-keys-only refuses to run until a key can get in: an authorized_keys
+# for your account, or Tailscale SSH. Even then the change reverts by
+# itself after five minutes, so a mistake cannot lock you out: open a new
+# terminal, log in with the key, and only then run it again with --keep.
+
+set -euo pipefail
+
+SSH_CONF=/etc/ssh/sshd_config.d/10-roadie-keys-only.conf
+SSH_ROLLBACK=roadie-harden-ssh-rollback
+WATCHDOG_CONF=/etc/systemd/system.conf.d/roadie-watchdog.conf
+# Running on a Pi that is nothing but a Roadie, none of these are needed:
+# rpcbind and nfs-blkmap serve NFS, cups prints, ModemManager drives modems
+# and bluetooth is unused. Each listens, or waits to, for no reason.
+SERVICES=(rpcbind.socket rpcbind.service nfs-blkmap.service cups.socket cups.service cups-browsed.service bluetooth.service ModemManager.service)
+VNC=(vncserver-x11-serviced.service wayvnc.service)
+
+say() { echo "  $*"; }
+die() { echo "setup/harden: $*" >&2; exit 1; }
+need_root() { [ "$(id -u)" -eq 0 ] || die "run with sudo"; }
+admin() { echo "${SUDO_USER:-$USER}"; }
+admin_home() { getent passwd "$(admin)" | cut -d: -f6; }
+
+key_count() {
+	local f
+	f="$(admin_home)/.ssh/authorized_keys"
+	[ -r "$f" ] && grep -c '^[^#[:space:]]' "$f" 2>/dev/null || echo 0
+}
+tailscale_ssh() {
+	command -v tailscale >/dev/null && tailscale debug prefs 2>/dev/null | grep -q '"RunSSH": true'
+}
+sshd_value() { sshd -T 2>/dev/null | awk -v k="$1" '$1 == k {print $2}'; }
+
+cmd_status() {
+	echo "SSH:"
+	if [ "$(id -u)" -eq 0 ]; then
+		say "password logins: $(sshd_value passwordauthentication)"
+	else
+		say "password logins: $(sudo -n sshd -T 2>/dev/null | awk '$1 == "passwordauthentication" {print $2}' || echo "(sudo to see)")"
+	fi
+	say "keys for $(admin): $(key_count) in $(admin_home)/.ssh/authorized_keys"
+	say "Tailscale SSH: $(tailscale_ssh && echo on || echo off)"
+	[ -f "$SSH_CONF" ] && say "keys-only drop-in: $SSH_CONF" || say "keys-only drop-in: not installed"
+	if systemctl is-active -q "$SSH_ROLLBACK.timer" 2>/dev/null; then
+		say "rollback pending: $(systemctl show "$SSH_ROLLBACK.timer" -p NextElapseUSecRealtime --value)"
+	fi
+	echo "Services a Roadie does not need:"
+	local s
+	for s in "${SERVICES[@]}" "${VNC[@]}"; do
+		local state
+		state=$(systemctl is-enabled "$s" 2>/dev/null || true)
+		[ -n "$state" ] && [ "$state" != not-found ] && say "$s: $state, $(systemctl is-active "$s" 2>/dev/null || true)"
+	done
+	echo "Hardware watchdog:"
+	[ -f "$WATCHDOG_CONF" ] && say "on ($WATCHDOG_CONF)" || say "off"
+	echo "Listening on every address (TCP):"
+	ss -tlnH 2>/dev/null | awk '{print $4}' | grep -v '^127\.\|^\[::1\]' | sed 's/^/  /' | sort -u
+}
+
+cmd_ssh_keys_only() {
+	need_root
+	local keep=0
+	[ "${1:-}" = --keep ] && keep=1
+	if [ "$keep" = 1 ]; then
+		[ -f "$SSH_CONF" ] || die "nothing to keep: the drop-in is gone (the rollback fired, or it was never applied); run ssh-keys-only again, then --keep within five minutes"
+		systemctl stop "$SSH_ROLLBACK.timer" 2>/dev/null || true
+		systemctl stop "$SSH_ROLLBACK.service" 2>/dev/null || true
+		say "✅ kept: password logins stay off ($SSH_CONF)"
+		return
+	fi
+	local keys
+	keys=$(key_count)
+	if [ "$keys" -eq 0 ] && ! tailscale_ssh; then
+		cat >&2 <<MSG
+setup/harden: no key can log in yet, so password logins stay on.
+  From your computer, give this Pi your key:  ssh-copy-id $(admin)@$(hostname)
+  or turn on Tailscale SSH on it:            sudo tailscale set --ssh
+  Then run this again.
+MSG
+		exit 1
+	fi
+	say "a key can get in: $keys authorized key(s) for $(admin)$(tailscale_ssh && echo ', and Tailscale SSH')"
+	install -d -m 755 "$(dirname "$SSH_CONF")"
+	cat > "$SSH_CONF" <<CONF
+# Written by roadie's setup/harden ssh-keys-only. Remove to allow passwords.
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+CONF
+	if ! sshd -t; then
+		rm -f "$SSH_CONF"
+		die "sshd rejected the configuration; nothing changed"
+	fi
+	systemctl reload ssh
+	systemctl stop "$SSH_ROLLBACK.timer" 2>/dev/null || true
+	systemd-run --quiet --on-active=5min --unit="$SSH_ROLLBACK" \
+		--description="Put SSH password logins back (setup/harden)" \
+		/bin/sh -c "rm -f '$SSH_CONF' && systemctl reload ssh"
+	cat <<MSG
+  ✅ password logins are off, for five minutes.
+     Open a NEW terminal now and log in with your key. If that works, run
+       sudo $0 ssh-keys-only --keep
+     before the time is up. If it does not, wait: passwords come back by
+     themselves at $(systemctl show "$SSH_ROLLBACK.timer" -p NextElapseUSecRealtime --value).
+MSG
+}
+
+cmd_services() {
+	need_root
+	local undo=0 vnc=0 a
+	for a in "$@"; do
+		case "$a" in
+			--undo) undo=1 ;;
+			--vnc) vnc=1 ;;
+			*) die "unknown option $a" ;;
+		esac
+	done
+	local list=("${SERVICES[@]}")
+	[ "$vnc" = 1 ] && list+=("${VNC[@]}")
+	local s present=()
+	for s in "${list[@]}"; do
+		case "$(systemctl is-enabled "$s" 2>/dev/null || true)" in ""|not-found) ;; *) present+=("$s") ;; esac
+	done
+	[ ${#present[@]} -gt 0 ] || { say "nothing to do: none of these is installed"; return; }
+	if [ "$undo" = 1 ]; then
+		systemctl enable --now "${present[@]}" 2>&1 | sed 's/^/  /' || true
+		say "✅ enabled again: ${present[*]}"
+	else
+		systemctl disable --now "${present[@]}" 2>&1 | sed 's/^/  /' || true
+		say "✅ stopped and disabled: ${present[*]}"
+		say "   back: sudo $0 services --undo${vnc:+ --vnc}"
+	fi
+}
+
+cmd_watchdog() {
+	need_root
+	if [ "${1:-}" = --undo ]; then
+		rm -f "$WATCHDOG_CONF"
+		systemctl daemon-reexec
+		say "✅ hardware watchdog off"
+		return
+	fi
+	[ -e /dev/watchdog ] || die "no /dev/watchdog on this machine"
+	install -d -m 755 "$(dirname "$WATCHDOG_CONF")"
+	cat > "$WATCHDOG_CONF" <<CONF
+# Written by roadie's setup/harden watchdog: systemd pets the hardware
+# watchdog, and the board reboots if systemd itself stops for 15 s.
+[Manager]
+RuntimeWatchdogSec=15s
+CONF
+	systemctl daemon-reexec
+	say "✅ hardware watchdog on: a hung system reboots after 15 s (back: --undo)"
+}
+
+case "${1:-}" in
+	status) cmd_status ;;
+	ssh-keys-only) shift; cmd_ssh_keys_only "$@" ;;
+	services) shift; cmd_services "$@" ;;
+	watchdog) shift; cmd_watchdog "$@" ;;
+	-h|--help|"") sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; [ -n "${1:-}" ] || exit 2 ;;
+	*) die "unknown command $1 (see --help)" ;;
+esac

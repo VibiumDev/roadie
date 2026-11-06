@@ -462,6 +462,7 @@ def main():
             fail(f"typing after re-enumeration: {code} {body} {typed_text(ev)!r}")
         # A replug gives the phone a new network interface; it asks again.
         sudo("ip", "netns", "del", NETNS, check=False)
+        sudo("rm", "-rf", f"/etc/netns/{NETNS}", check=False)
         lease = join_phone_network(dhcp_script, lease_out)
         if "ip=192.168.42.2 " not in lease + " ":
             fail(f"after re-enumeration: {lease}")
@@ -482,6 +483,7 @@ def main():
         sudo(NET_SCRIPT, "cleanup", "phone0", env={"ROADIE_PHONE_NET_CONF": netconf}, check=False)
         sudo(NET_SCRIPT, "remove", check=False)
         sudo("ip", "netns", "del", NETNS, check=False)
+        sudo("rm", "-rf", f"/etc/netns/{NETNS}", check=False)
         sudo(GADGET_SCRIPT, "down", env={"ROADIE_GADGET_CONF": conf}, check=False)
         time.sleep(2)  # let the interface's sysfs entries go before the devices do
         sudo("rmmod", "dummy_hcd", check=False)
@@ -497,12 +499,21 @@ def main():
         note(f"logs in {tmp}")
 
 
+def ns_resolver():
+    """Names in the namespace resolve through the Pi, as a phone's would
+    (the DHCP answer names it); the host's own resolv.conf may point at a
+    stub or a tailnet resolver the phone link cannot reach."""
+    sudo("mkdir", "-p", f"/etc/netns/{NETNS}")
+    sudo("sh", "-c", f"echo nameserver 192.168.42.1 > /etc/netns/{NETNS}/resolv.conf")
+
+
 def join_phone_network(dhcp_script, lease_out, dev=None):
     """Move the host side's Ethernet into the phone's namespace and DHCP.
     dev: an interface already in the namespace (the veth peer)."""
     if dev is None:
         dev = wait_for("the host-side Ethernet interface", host_netdev)
         sudo("ip", "netns", "add", NETNS, check=False)
+        ns_resolver()
         sudo("ip", "link", "set", dev, "netns", NETNS)
     in_ns("ip", "link", "set", "lo", "up")
     in_ns("ip", "link", "set", dev, "up")
@@ -555,6 +566,31 @@ def network_checks(upstream):
     if fwd["all"] != "0":
         warn(f"net.ipv4.conf.all.forwarding is {fwd['all']} (something else enabled it)")
     check("forwarding", ", ".join(f"{k}={v}" for k, v in fwd.items()) + " (per interface only)")
+
+
+def abuse_checks():
+    """With BLOCK_SMTP=1 and EGRESS_MBPS=20 in the config: port 25 is refused
+    while other ports still get out, and the cap is in the ruleset."""
+    rules = sudo("nft", "list", "table", "inet", "roadie_phone").stdout
+    if "tcp dport 25 counter" not in rules or "reject" not in rules:
+        fail("BLOCK_SMTP=1 left no port 25 rule")
+    if "limit rate over 2500 kbytes/second" not in rules:
+        fail("EGRESS_MBPS=20 left no rate limit (2500 kbytes/second)")
+    check("guards", "port 25 refused and a 20 Mbit/s cap, in the ruleset")
+
+    def ok(*cmd):
+        r = in_ns(*cmd)
+        return r is not None and r.returncode == 0
+    pi_has_internet = subprocess.run(["ping", "-c", "1", "-W", "2", "1.1.1.1"],
+                                     capture_output=True).returncode == 0
+    if not pi_has_internet:
+        skip("SMTP", "this Pi has no internet to test port 25 against")
+        return
+    if ok("timeout", "3", "bash", "-c", "echo > /dev/tcp/1.1.1.1/25"):
+        fail("phone reached port 25 on the internet; BLOCK_SMTP=1 must refuse it")
+    if not ok("timeout", "5", "bash", "-c", "echo > /dev/tcp/1.1.1.1/443"):
+        fail("phone could not reach port 443 with the guards on")
+    check("SMTP", "port 25 refused, port 443 still reached")
 
 
 def closed_checks(upstream, netconf):
@@ -658,7 +694,8 @@ def phone_net_only():
     netconf = os.path.join(tmp, "phone-net.conf")
     with open(netconf, "w") as f:
         # No gadget to pin the lease to: the phone gets one from the range.
-        f.write(f"UPSTREAM_IF={upstream}\nGADGET=/nonexistent\n")
+        # Both abuse guards on, to check them as well.
+        f.write(f"UPSTREAM_IF={upstream}\nGADGET=/nonexistent\nBLOCK_SMTP=1\nEGRESS_MBPS=20\n")
     dhcp_script = os.path.join(tmp, "udhcpc.sh")
     with open(dhcp_script, "w") as f:
         f.write(DHCP_SCRIPT)
@@ -667,6 +704,7 @@ def phone_net_only():
     dnsmasq = None
     try:
         sudo("ip", "netns", "add", NETNS)
+        ns_resolver()
         sudo("ip", "link", "add", IFACE, "type", "veth", "peer", "name", "vphone", "netns", NETNS)
         sudo(NET_SCRIPT, "prepare", IFACE, env={"ROADIE_PHONE_NET_CONF": netconf})
         dnsmasq = subprocess.Popen(["sudo", "-n", "env", f"ROADIE_PHONE_NET_CONF={netconf}",
@@ -679,8 +717,9 @@ def phone_net_only():
             fail(f"DHCP: {lease}")
         check("DHCP", lease)
         network_checks(upstream)
+        abuse_checks()
         closed_checks(upstream, netconf)
-        result("phone network: served, isolated, and closed whenever it is not running")
+        result("phone network: served, isolated, guarded, and closed whenever it is not running")
     finally:
         if dnsmasq:
             sudo("pkill", "-f", f"dnsmas[q] .*roadie-phone-net/{IFACE}", check=False)
@@ -688,6 +727,7 @@ def phone_net_only():
         sudo(NET_SCRIPT, "cleanup", IFACE, env={"ROADIE_PHONE_NET_CONF": netconf}, check=False)
         sudo(NET_SCRIPT, "remove", check=False)
         sudo("ip", "netns", "del", NETNS, check=False)
+        sudo("rm", "-rf", f"/etc/netns/{NETNS}", check=False)
         sudo("ip", "link", "del", IFACE, check=False)
         note(f"logs in {tmp}")
 

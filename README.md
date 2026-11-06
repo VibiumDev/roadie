@@ -143,6 +143,7 @@ To drive more than one device from the same host, see
 | [Install Raspberry Pi OS](docs/how-to/install-os.md) | Step 1 of setting up a new Pi: Imager settings for a Roadie |
 | [Configure Raspberry Pi OS](docs/how-to/configure-os.md) | Step 2: the one-shot `setup/machine-setup` script, and updating with it |
 | [Run Roadie](docs/how-to/run-roadie.md) | The `roadie` service: start, stop, its log, its flags, and running a build by hand |
+| [Harden the Pi](docs/how-to/harden-the-pi.md) | The sandboxed service and the phone's walled-off link, then SSH with keys only, unneeded services, the hardware watchdog, and notes on a read-only root |
 | [Flash Boards](docs/how-to/flash-boards.md) | Flashing, re-flashing, and syncing board code |
 | [Connect a Phone](docs/how-to/connect-a-phone.md) | Wiring a phone through a hub, and the iOS AssistiveTouch settings a mouse needs |
 | [Drive a Phone from a Pi 4](docs/how-to/linux-gadget.md) | The linux-gadget backend: power, install, audio, USB Ethernet, recovery, hardware checklist |

@@ -81,10 +81,11 @@ if [ "$KEEP_BOOT" = 0 ] && grep -qF "$BEGIN_MARK" "$BOOT_CONFIG"; then
 fi
 
 if [ "$PURGE" = 1 ]; then
-	rm -rf "$D/etc/roadie" "$D/var/lib/roadie"
+	rm -rf "$D/etc/roadie" "$D/var/lib/roadie" "$D/var/lib/roadie-phone-net"
 	rm -f "$D/etc/default/roadie" "$D/usr/local/bin/roadie"
+	getent passwd roadie >/dev/null && userdel roadie
 	getent group roadie >/dev/null && groupdel roadie
-	say "✅ settings, leases, binary and group removed"
+	say "✅ settings, leases, binary, account and group removed"
 else
 	say "kept /etc/roadie, /etc/default/roadie and /usr/local/bin/roadie (--purge removes them)"
 fi

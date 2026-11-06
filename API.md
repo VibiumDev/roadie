@@ -201,7 +201,9 @@ target shows something bright to its edges, such as
 each keep their own, picked by the shape of the picture; where there is none,
 saved means auto. A crop saved at one capture resolution is scaled to another,
 as the dongle scales the picture. The choice and the saved crops survive
-restarts (in `~/.config/roadie/crop-<name>.json`, by `--name`). The viewer's
+restarts (in `crop-<name>.json` in Roadie's config directory, by `--name`:
+`~/.config/roadie` for a build run by hand, `/var/lib/roadie/.config/roadie`
+for the service). The viewer's
 settings panel and [`/settings`](#get-settings) have the same controls.
 
 - `GET` returns the state below.
@@ -809,7 +811,7 @@ roadie enroll https://station.example --code ABCD-1234-7F3A [--name NAME] [--pla
 
 The code comes from the station's Settings page or `station enroll`; it ends with the station key's fingerprint, which `roadie enroll` checks against the key the station presents before it sends anything. Without a URL the station is found on the LAN over mDNS (`_vibium-station._tcp`). On success the policy file is written and `roadie` connects at its next start.
 
-Files, next to the local token in the user config directory (`~/.config/roadie`):
+Files, next to the local token in Roadie's config directory (`~/.config/roadie` for a build run by hand; `/var/lib/roadie/.config/roadie` for the service, whose `roadie token` and `roadie enroll` then run as `sudo -u roadie`):
 
 | File | Holds |
 |---|---|

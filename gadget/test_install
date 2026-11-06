@@ -36,7 +36,7 @@ enable_uart=1
 EOF
 cp "$ROOT/boot/firmware/config.txt" "$T/config.orig"
 echo "console=serial0,115200 root=PARTUUID=x rootwait" > "$ROOT/boot/firmware/cmdline.txt"
-for c in systemctl udevadm usermod groupadd groupdel apt-get; do
+for c in systemctl udevadm usermod useradd userdel groupadd groupdel apt-get; do
 	printf '#!/bin/sh\necho "%s $*" >> "%s/calls"\n' "$c" "$T" > "$T/bin/$c"
 	chmod +x "$T/bin/$c"
 done
@@ -136,8 +136,8 @@ rm -f "$ROOT/etc/default/roadie" "$ROOT/etc/systemd/system/roadie.service"
 # setup/machine-setup, dry run: the steps each mode takes, and bad input.
 ms="$REPO/setup/machine-setup"
 out=$(DESTDIR="$ROOT" bash "$ms" --gadget --dry-run --name t1 2>&1) && \
-	grep -q 'gadget/install --user' <<<"$out" && grep -q 'dnsmasq-base nftables' <<<"$out" && \
-	grep -q 'ROADIE_ARGS="--hid-backend linux-gadget --platform android --name t1 --port 8080"' <<<"$out" && \
+	grep -q 'gadget/install' <<<"$out" && grep -q 'dnsmasq-base nftables' <<<"$out" && \
+	grep -q 'ROADIE_ARGS="--hid-backend linux-gadget --platform android --name t1 --port 8080 --auth token"' <<<"$out" && \
 	! grep -q 'flash' <<<"$out" \
 	&& pass "machine-setup --gadget: packages, gadget/install, roadie arguments" \
 	|| fail "machine-setup --gadget dry run: $out"

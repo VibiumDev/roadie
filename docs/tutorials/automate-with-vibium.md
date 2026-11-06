@@ -17,7 +17,7 @@ screen, so the same steps work on any iPhone.
 - A phone on a Roadie, awake and unlocked, with Roadie started with
   `--auth token` so other machines may connect. Without `--auth` it
   listens on localhost only. See [Run Roadie](../how-to/run-roadie.md).
-- The token: `roadie token` prints it on the Pi.
+- The token: `sudo -u roadie roadie token` prints it on the Pi.
 - Node.js 18 or newer, or Python 3.9 or newer, on your machine.
 - Vibium: `npm install -g vibium`, or `npx vibium` for one-off use.
 
@@ -28,7 +28,7 @@ how to get in. On the same network as the Roadie:
 
 ```bash
 export VIBIUM_CONNECT_URL=ws://roadie.local:8080/session
-export VIBIUM_CONNECT_API_KEY=<the token roadie token prints>
+export VIBIUM_CONNECT_API_KEY=<the token from sudo -u roadie roadie token>
 ```
 
 You can also reach the phone from anywhere through a

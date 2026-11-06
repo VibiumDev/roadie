@@ -1,0 +1,74 @@
+#!/bin/bash
+# setup/install-service: put roadie.service in place for the account it
+# runs as, and make that account when it is the dedicated one.
+#
+#   sudo setup/install-service [--user NAME] [--no-enable]
+#
+# Without --user the service runs as "roadie", a system account with its
+# home in /var/lib/roadie, created here when missing. On the first run the
+# installing user's ~/.config/roadie (token, rig key and policy, crops) is
+# copied there, so an enrolled rig stays enrolled; the originals are left
+# alone. With --user NAME the service runs as that login account instead,
+# and the sandbox is opened just enough to read and write NAME's
+# ~/.config/roadie. DESTDIR installs into another root (the tests).
+
+set -euo pipefail
+
+REPO=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+D=${DESTDIR:-}
+SVC_USER=roadie
+ENABLE=1
+UNIT=$D/etc/systemd/system/roadie.service
+
+say() { echo "  $*"; }
+die() { echo "setup/install-service: $*" >&2; exit 1; }
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--user) SVC_USER=${2:-}; [ -n "$SVC_USER" ] || die "--user needs a name"; shift 2 ;;
+		--no-enable) ENABLE=0; shift ;;
+		-h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+		*) die "unknown option $1 (see --help)" ;;
+	esac
+done
+[ "$(id -u)" -eq 0 ] || [ -n "$D" ] || die "run with sudo"
+
+getent group roadie >/dev/null || groupadd --system roadie
+if [ "$SVC_USER" = roadie ]; then
+	if ! getent passwd roadie >/dev/null; then
+		useradd --system --gid roadie --home-dir /var/lib/roadie --create-home \
+			--shell /usr/sbin/nologin --comment "Roadie service" roadie
+		say "✅ account roadie created (home /var/lib/roadie, no login)"
+	fi
+	home_rules="ProtectHome=yes"
+	# A first switch from running as a person: carry their files over.
+	admin=${SUDO_USER:-}
+	if [ -n "$admin" ] && [ "$admin" != roadie ]; then
+		src=$(getent passwd "$admin" | cut -d: -f6)/.config/roadie
+		dst=$D/var/lib/roadie/.config/roadie
+		if [ -d "$src" ] && [ ! -e "$dst" ]; then
+			install -d -m 700 "$dst"
+			cp -a "$src"/. "$dst"/
+			[ -n "$D" ] || chown -R roadie:roadie "$D/var/lib/roadie"
+			say "✅ copied $src to $dst (the originals stay; the service reads the copy)"
+		fi
+	fi
+else
+	id "$SVC_USER" >/dev/null 2>&1 || die "no such user: $SVC_USER"
+	home=$(getent passwd "$SVC_USER" | cut -d: -f6)
+	[ -n "$home" ] || die "$SVC_USER has no home directory"
+	# ProtectHome hides every home; this one is let through, read-only but
+	# for roadie's own directory, which has to exist before the first start.
+	install -d -m 700 -o "$SVC_USER" "$D$home/.config/roadie" 2>/dev/null || install -d -m 700 "$D$home/.config/roadie"
+	home_rules="ProtectHome=read-only\nReadWritePaths=-$home/.config/roadie"
+	usermod -aG roadie,audio,video,dialout "$SVC_USER"
+fi
+
+install -d -m 755 "$(dirname "$UNIT")"
+sed -e "s|@ROADIE_USER@|$SVC_USER|" -e "s|^@ROADIE_HOME@$|$home_rules|" "$REPO/setup/roadie.service" > "$UNIT"
+systemctl daemon-reload
+[ "$ENABLE" = 1 ] && systemctl enable -q roadie.service
+say "✅ roadie.service runs /usr/local/bin/roadie as $SVC_USER (arguments: /etc/default/roadie)"
+if [ "$SVC_USER" = roadie ]; then
+	say "   its files are in /var/lib/roadie/.config/roadie; the token: sudo -u roadie roadie token"
+fi

@@ -220,11 +220,7 @@ write_defaults() {
 		"$ARGS" | sudo tee "$DEFAULTS" >/dev/null
 }
 replace_args() { sudo sed -i "s|^ROADIE_ARGS=.*|ROADIE_ARGS=\"$ARGS\"|" "$DEFAULTS"; }
-install_service() {
-	sed "s/@ROADIE_USER@/$USER_NAME/" "$DIR/setup/roadie.service" |
-		sudo tee /etc/systemd/system/roadie.service >/dev/null &&
-		sudo systemctl daemon-reload && sudo systemctl enable -q roadie.service
-}
+install_service() { sudo "$DIR/setup/install-service"; }
 if [ -f "$DEFAULTS" ] && grep -q '^ROADIE_ARGS=' "$DEFAULTS"; then
 	current=$(sed -n 's/^ROADIE_ARGS="\(.*\)"$/\1/p' "$DEFAULTS" | tail -1)
 	have=rp2040
@@ -242,12 +238,12 @@ fi
 
 if [ "$MODE" = gadget ]; then
 	# The USB gadget, the phone's network and roadie.service, all at once.
-	opts=(--user "$USER_NAME")
+	opts=()
 	[ "$NETWORK" = 0 ] && opts+=(--no-network)
 	step "Set up the USB gadget (gadget/install)" sudo "$DIR/gadget/install" "${opts[@]}"
 else
 	step "Install roadie into /usr/local/bin" sudo install -m 755 "$DIR/roadie" /usr/local/bin/roadie
-	step "Install and enable roadie.service (runs as $USER_NAME)" install_service
+	step "Install and enable roadie.service (runs as the roadie account)" install_service
 	step "Install roadie-mode (switch between boards and gadget)" \
 		sudo install -m 755 "$DIR/setup/roadie-mode" /usr/local/sbin/roadie-mode
 fi
@@ -282,7 +278,7 @@ else
 	echo "      make -C $DIR flash-relay"
 	echo "  - Wiring: $DIR/docs/how-to/connect-a-phone.md"
 fi
-echo "  - Open http://$NAME.local:$PORT/view and sign in with the token from: roadie token"
+echo "  - Open http://$NAME.local:$PORT/view and sign in with the token from: sudo -u roadie roadie token"
 
 NEED_REBOOT=$FIRST_INSTALL
 [ -e /run/reboot-required ] && NEED_REBOOT=1

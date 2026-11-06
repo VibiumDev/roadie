@@ -1,8 +1,10 @@
 # How to Run Roadie
 
 On a Pi set up with [`machine-setup`](configure-os.md), Roadie runs as the
-systemd service `roadie`. It starts at boot, runs as your user, and starts
-again by itself within 2 s if it stops for any reason other than a `stop`.
+systemd service `roadie`. It starts at boot and runs as the `roadie`
+account inside a sandbox, which [How to Harden the Pi](harden-the-pi.md)
+describes. It starts again by itself within 2 s if it stops for any reason
+other than a `stop`, and is restarted when it stops answering for 30 s.
 
 ## Start, stop, restart
 
@@ -67,23 +69,28 @@ Roadie's command line says who may use its pages and API:
 | `tailscale` | Whoever the local `tailscaled` says a connection belongs to: anyone on your tailnet, or only the logins and tags in `--allow you@example.com,tag:ci`. Nothing to type; connections from the LAN that are not from the tailnet are refused. |
 | `none` | Everyone who can reach the port, with a warning at every start. |
 
-The token lives in `~/.config/roadie/token`, readable by your user only.
-To see it, on the Pi:
+The token lives in `/var/lib/roadie/.config/roadie/token`, readable by the
+`roadie` account only, so the commands that show or replace it run as that
+account:
 
 ```bash
-roadie token            # prints it; makes one on the first run
-roadie token --rotate   # a new one; every browser signs in again
+sudo -u roadie roadie token            # prints it; makes one on the first run
+sudo -u roadie roadie token --rotate   # a new one; every browser signs in again
 ```
+
+Run as yourself, `roadie token` stops with that reminder rather than make a
+second token in your own home. A build run by hand, with no service, keeps
+its token in your own `~/.config/roadie`.
 
 A browser that opens `/view` is sent to `/login`, where the token goes in
 once. From a script:
 
 ```bash
-curl -H "Authorization: Bearer $(roadie token)" http://roadie.local:8080/health
+curl -H "Authorization: Bearer $(sudo -u roadie roadie token)" http://roadie.local:8080/health
 ```
 
-`--auth tailscale` asks `tailscaled` over its local socket, so Roadie's user
-must be allowed to: `sudo tailscale set --operator=$USER`. Behind
+`--auth tailscale` asks `tailscaled` over its local socket, so the `roadie`
+account must be allowed to: `sudo tailscale set --operator=roadie`. Behind
 `tailscale serve` it reads a header instead; see [HTTPS](#https).
 
 ## HTTPS
@@ -158,7 +165,7 @@ and keeps a tunnel, and the station signs holds that Roadie checks itself.
 On the station's Settings page make an enrollment code, then on the Pi:
 
 ```bash
-roadie enroll https://station.example --code ABCD-1234-7F3A --name "pi in the lab" --platform ios
+sudo -u roadie roadie enroll https://station.example --code ABCD-1234-7F3A --name "pi in the lab" --platform ios
 sudo systemctl restart roadie
 ```
 
@@ -168,7 +175,8 @@ anything, so a spoofed station on the LAN gets nothing. `--admin` lets the
 station's admin grants through (settings, resets); by default they are
 refused.
 
-What the station may do is yours to edit in `~/.config/roadie/rig.json`:
+What the station may do is yours to edit in
+`/var/lib/roadie/.config/roadie/rig.json`:
 the scopes (`view`, `input`, `bidi`), `admin`, `max_session` and `hours`.
 `/health` shows the `station` block with the tunnel's state and the hold
 held, and the service log says when it connects. To leave a station, remove
@@ -180,7 +188,7 @@ removes it on their Settings page, after which its key is refused.
 | Kept | From |
 |---|---|
 | Flags | `/etc/default/roadie` |
-| Saved crops and the crop choice | `~/.config/roadie/crop-<name>.json`, by `--name` ([`/api/crop`](../../API.md#get-put-post-delete-apicrop)) |
+| Saved crops and the crop choice | `/var/lib/roadie/.config/roadie/crop-<name>.json`, by `--name` ([`/api/crop`](../../API.md#get-put-post-delete-apicrop)) |
 
 Everything changed through [`/api/settings`](../../API.md#put-apisettings),
 such as quality, frame rate and resolution, goes back to the flags. A browser

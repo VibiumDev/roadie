@@ -28,8 +28,8 @@ bash machine-setup --gadget    # this Pi's USB-C port is the phone's keyboard, m
 bash machine-setup --boards    # the RP2040 relay and HID boards
 ```
 
-Run it as your normal user, not with `sudo`: Roadie runs as whoever runs
-it, and the script uses `sudo` where it needs to. A first run takes around
+Run it as your normal user, not with `sudo`; the script uses `sudo` where
+it needs to, and the service it installs runs as its own `roadie` account. A first run takes around
 ten minutes, most of it upgrading packages and fetching Go. It reboots at
 the end; add `--noreboot` to read the output first.
 
@@ -59,7 +59,10 @@ Every run, both kinds:
   `go.mod` names (checksum-verified) on the first build.
 - Clones Roadie into `~/Projects/roadie`, or fast-forwards it to the latest
   `main`; a checkout with local changes is left alone. Builds it.
-- Creates the `roadie` group and adds you to `roadie`, `audio`, `video`,
+- Creates the `roadie` group and the `roadie` account the service runs as
+  (home `/var/lib/roadie`, no login). If you have a `~/.config/roadie`
+  from running Roadie as yourself, its files are copied there once, so an
+  enrolled rig stays enrolled. Adds you to `roadie`, `audio`, `video`,
   `dialout` and `plugdev`.
 - Installs the capture dongle's udev rule (for `POST /api/capture/reset`).
 - Writes `/etc/default/roadie` with your options, the first time only:
@@ -93,6 +96,7 @@ After the reboot, SSH back in:
 ```bash
 systemctl status roadie        # active (running)
 roadie-gadget check            # --gadget: everything green
+sudo -u roadie roadie token    # the token /login asks for
 ```
 
 Then open `http://roadie-01.local:8080/view`. To start, stop or restart
@@ -106,11 +110,13 @@ Roadie, read its log, or change its flags, see
   the [hardware checklist](linux-gadget.md#hardware-validation-checklist).
 - `--boards`: [flash the boards](flash-boards.md) and
   [connect the phone](connect-a-phone.md).
+- Either way: [Harden the Pi](harden-the-pi.md) closes what the script
+  leaves open on purpose, SSH passwords first.
 
 ## Switching between boards and gadget
 
 A Pi set up either way can switch, once the gadget is installed
-(`--gadget`, or `sudo ~/Projects/roadie/gadget/install --user $USER` later):
+(`--gadget`, or `sudo ~/Projects/roadie/gadget/install` later):
 
 ```bash
 roadie-mode                  # current mode

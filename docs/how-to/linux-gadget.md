@@ -86,7 +86,7 @@ units:
 | `roadie-gadget.service` | Builds the configfs gadget and binds it | Boot. Oneshot, no stop action |
 | `roadie-phone-net@phone0.service` | Address, firewall/NAT, DHCP+DNS (dnsmasq) for the phone | Follows the `phone0` interface |
 | `roadie-phone-net-check.timer` | Re-applies anything that drifted, every 30 s; logs what it fixed | Always |
-| `roadie.service` | The server, as your user (groups roadie, audio, video, dialout) | Restartable at will |
+| `roadie.service` | The server, as the `roadie` account in a sandbox ([Harden the Pi](harden-the-pi.md)) | Restartable at will |
 
 Restarting or crashing roadie never re-enumerates USB: the phone keeps its
 keyboard, audio and network. Arguments live in `/etc/default/roadie` (see
@@ -169,8 +169,10 @@ settings changed.
 ### The phone's network: `/etc/roadie/phone-net.conf`
 
 The file sets the uplink (`eth0`), the phone subnet (`192.168.42.0/24`, with
-the Pi at `.1` and the phone always at `.2`), DNS, and the isolation
-exceptions (`ALLOW_DESTS`, `ALLOW_PI_TCP_PORTS`).
+the Pi at `.1` and the phone always at `.2`), DNS, the isolation
+exceptions (`ALLOW_DESTS`, `ALLOW_PI_TCP_PORTS`), and two guards against
+abuse through your network that are off by default: `EGRESS_MBPS` caps what
+the phone sends out, and `BLOCK_SMTP=1` refuses its connections to port 25.
 
 ## What the phone gets
 
@@ -305,7 +307,7 @@ Roadie never re-enumerates on its own after an application error.
 | `go test -run TestALSALoopback` | the ALSA client against the real kernel, including silence on underrun | `sudo modprobe snd-aloop` |
 | `make test-gadget` | installed gadget: functions, descriptors, nodes, permissions, sound card, interface | the gadget up |
 | `make test-gadget-loopback` | the gadget through this Pi's own USB host stack (kernel `dummy_hcd`): HID through hid-multitouch, DHCP/DNS/NAT/isolation, roadie restart/kill/replug | kernel headers, sudo; no phone. Run once per boot: reloading `dummy_hcd` can leave the kernel unable to bind it again until a reboot |
-| `make test-phone-net` | the phone network on a virtual link: DHCP, DNS, NAT, isolation, router guard, closed while stopped | sudo |
+| `make test-phone-net` | the phone network on a virtual link: DHCP, DNS, NAT, isolation, the SMTP and rate guards, router guard, closed while stopped | sudo |
 | `make test-gadget-install` | install and uninstall in a scratch root; `machine-setup` dry runs | nothing |
 | [Checklist](#hardware-validation-checklist) | everything a phone has to confirm | phone, hub, splitter |
 

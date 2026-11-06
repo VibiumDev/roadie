@@ -24,9 +24,9 @@ sudo systemctl start roadie
 ```
 
 `--crop x,y,w,h` is the phone's rectangle in the 1080p frame; the default
-is the iPhone on the reference Pi. Roadie's saved crop is in
-`~/.config/roadie/crop-<name>.json`. `--out file.h264` keeps the Annex-B
-stream for a look with `ffprobe` or `ffplay`.
+is the iPhone on the reference Pi. The service's saved crop is in
+`/var/lib/roadie/.config/roadie/crop-<name>.json`. `--out file.h264` keeps
+the Annex-B stream for a look with `ffprobe` or `ffplay`.
 
 | Mode | What it does |
 |---|---|
@@ -48,7 +48,7 @@ no video comes, so a script can check the remote video path.
 
 ```bash
 make rtcprobe
-./rtcprobe/rtcprobe -url http://roadie.local:8080 -token "$(roadie token)" -t 20s
+./rtcprobe/rtcprobe -url http://roadie.local:8080 -token "$(sudo -u roadie roadie token)" -t 20s
 ```
 
 ## What the numbers mean

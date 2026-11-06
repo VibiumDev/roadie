@@ -89,7 +89,7 @@ restart_roadie() {
 }
 
 show() {
-	local args want gadget enabled live port
+	local args want gadget enabled live port code=""
 	args=$(roadie_args)
 	want=$(backend_of "$args")
 	gadget=$(gadget_state)
@@ -99,11 +99,16 @@ show() {
 	live=""
 	if [ -z "$D" ] && command -v curl >/dev/null; then
 		live=$(curl -fsS -m 2 "http://127.0.0.1:$port/api/hid/status" 2>/dev/null || true)
+		# With --auth token the status needs the token; any answer at all
+		# still says roadie is up.
+		[ -n "$live" ] || code=$(curl -s -o /dev/null -w '%{http_code}' -m 2 "http://127.0.0.1:$port/api/hid/status" 2>/dev/null || true)
 	fi
 	echo "mode:    $([ "$want" = linux-gadget ] && echo gadget || echo boards)   (--hid-backend $want in $DEFAULTS)"
 	echo "gadget:  $gadget$([ "$enabled" != "-" ] && echo ", at boot: $enabled")"
 	if [ -n "$live" ]; then
 		echo "roadie:  $live"
+	elif [ -n "$code" ] && [ "$code" != 000 ]; then
+		echo "roadie:  up on port $port (HTTP $code: the status needs the token, see roadie token)"
 	else
 		echo "roadie:  not answering on port $port"
 	fi

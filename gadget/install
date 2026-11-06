@@ -5,7 +5,8 @@
 #
 #   sudo gadget/install [--user NAME] [--no-network] [--no-server]
 #
-#   --user NAME    account roadie.service runs as (default: whoever ran sudo)
+#   --user NAME    run roadie.service as this login account instead of the
+#                  dedicated "roadie" account (setup/install-service)
 #   --no-network   do not share this Pi's Ethernet with the phone
 #   --no-server    set up the gadget only; run roadie yourself
 #
@@ -15,7 +16,7 @@
 #   /etc/modules-load.d/roadie-gadget.conf, /etc/udev/rules.d/99-roadie-gadget.rules
 #   /usr/local/lib/roadie, /usr/local/sbin/roadie-{gadget,phone-net,mode}
 #   /etc/systemd/system/roadie*.service|timer, /etc/roadie, /etc/default/roadie
-#   group "roadie", and the service user's membership of roadie/audio/video
+#   the "roadie" group and account, and your membership of roadie/audio/video
 #
 # It does not touch NetworkManager, eth0, wlan0, SSH or DNS.
 
@@ -24,7 +25,7 @@ set -euo pipefail
 REPO=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
 # DESTDIR installs into another root; gadget/test_install uses it.
 D=${DESTDIR:-}
-SVC_USER=${SUDO_USER:-}
+SVC_USER=""
 NETWORK=1
 SERVER=1
 BOOT_CONFIG=$D/boot/firmware/config.txt
@@ -46,7 +47,6 @@ while [ $# -gt 0 ]; do
 done
 
 [ "$(id -u)" -eq 0 ] || [ -n "$D" ] || die "run with sudo"
-[ -n "$SVC_USER" ] || [ "$SERVER" = 0 ] || die "say which account runs roadie: --user NAME"
 
 echo "▶ roadie linux-gadget install"
 
@@ -75,7 +75,7 @@ if [ "$SERVER" = 1 ] && [ ! -x "$REPO/roadie" ]; then
 fi
 
 # ---- files -----------------------------------------------------------------
-install -d -m 755 "$D$LIB/hid" "$D/etc/roadie" "$D/var/lib/roadie" "$D/usr/local/share/doc/roadie" \
+install -d -m 755 "$D$LIB/hid" "$D/etc/roadie" "$D/var/lib/roadie-phone-net" "$D/usr/local/share/doc/roadie" \
 	"$D/usr/local/sbin" "$D/usr/local/bin" "$D/etc/udev/rules.d" "$D/etc/modules-load.d" \
 	"$D/etc/systemd/system" "$D/etc/default"
 install -m 755 "$REPO/gadget/roadie-gadget" "$REPO/gadget/roadie-phone-net" "$D$LIB/"
@@ -89,10 +89,10 @@ install -m 644 "$REPO/docs/how-to/linux-gadget.md" "$D/usr/local/share/doc/roadi
 say "✅ scripts in $LIB, settings in /etc/roadie"
 
 getent group roadie >/dev/null || groupadd --system roadie
-if [ -n "$SVC_USER" ]; then
-	id "$SVC_USER" >/dev/null 2>&1 || die "no such user: $SVC_USER"
-	usermod -aG roadie,audio,video "$SVC_USER"
-	say "✅ $SVC_USER is in groups roadie, audio, video"
+# Whoever installs gets the device groups too, for the gadget tests.
+if [ -n "${SUDO_USER:-}" ]; then
+	usermod -aG roadie,audio,video "$SUDO_USER"
+	say "✅ $SUDO_USER is in groups roadie, audio, video"
 fi
 
 install -m 644 "$REPO/gadget/udev/99-roadie-gadget.rules" "$D/etc/udev/rules.d/"
@@ -128,11 +128,14 @@ fi
 
 if [ "$SERVER" = 1 ]; then
 	install -m 755 "$REPO/roadie" "$D/usr/local/bin/roadie"
-	# Shared with setup/machine-setup --boards: the same unit either way.
-	sed "s/@ROADIE_USER@/$SVC_USER/" "$REPO/setup/roadie.service" > "$D/etc/systemd/system/roadie.service"
 	[ -f "$D/etc/default/roadie" ] || install -m 644 "$REPO/gadget/roadie.default" "$D/etc/default/roadie"
+	# Shared with setup/machine-setup --boards: the same unit either way.
+	if [ -n "$SVC_USER" ]; then
+		"$REPO/setup/install-service" --no-enable --user "$SVC_USER"
+	else
+		"$REPO/setup/install-service" --no-enable
+	fi
 	units+=(roadie.service)
-	say "✅ roadie.service runs /usr/local/bin/roadie as $SVC_USER (arguments: /etc/default/roadie)"
 fi
 systemctl daemon-reload
 systemctl enable -q "${units[@]}"

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/VibiumDev/roadie/rtc"
+	"github.com/VibiumDev/station/sdnotify"
 )
 
 // deviceHint shortens a capture device name to the part worth typing.
@@ -479,7 +480,20 @@ func main() {
 		}()
 	}
 
+	// Under systemd (Type=notify): say so once the port answers, then keep
+	// answering the watchdog only while it still does, so a wedged roadie
+	// is restarted rather than kept.
+	answers := func() bool { return portAnswers(certs != nil, bind, listenPort) }
+	for i := 0; i < 50 && !answers(); i++ {
+		time.Sleep(100 * time.Millisecond)
+	}
+	sdnotify.Ready()
+	watchCtx, stopWatch := context.WithCancel(context.Background())
+	go sdnotify.Keep(watchCtx, answers)
+
 	<-done
+	stopWatch()
+	sdnotify.Stopping()
 	fmt.Println("\nShutting down...")
 
 	if rigRun != nil {
@@ -521,6 +535,27 @@ func httpsRedirect(port int) http.Handler {
 }
 
 // findAvailablePort tries ports starting from start and returns the first one available.
+// portAnswers reports whether roadie's own port replies at all. The status
+// does not matter, so a refusal from --auth counts as an answer.
+func portAnswers(tlsOn bool, bind string, port int) bool {
+	host := bind
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	scheme := "http"
+	client := &http.Client{Timeout: 5 * time.Second}
+	if tlsOn {
+		scheme = "https"
+		client.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}} // our own listener
+	}
+	resp, err := client.Get(scheme + "://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/health")
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return true
+}
+
 func findAvailablePort(bind string, start int) int {
 	for p := start; p < start+100; p++ {
 		ln, err := net.Listen("tcp", net.JoinHostPort(bind, strconv.Itoa(p)))
