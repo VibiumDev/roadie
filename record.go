@@ -111,7 +111,10 @@ func (r *recorder) input(kind string, params map[string]any) {
 	if rec == nil {
 		rec = &holdRecording{entry: entry, key: key, deviceID: deviceID, holdID: holdID, started: now, frames: map[string][]byte{}}
 		rec.lines = append(rec.lines, map[string]any{
-			"version": 8, "type": "context-options", "origin": "library", "libraryName": "roadie", "libraryVersion": roadieVersion,
+			// libraryName says whose format this is, which is what the Record
+			// Player reads to tell a Vibium recording from a Playwright trace;
+			// producer says who made it.
+			"version": 8, "type": "context-options", "origin": "library", "libraryName": "vibium", "libraryVersion": roadieVersion, "producer": "roadie",
 			"browserName": "phone", "platform": "linux", "wallTime": now.UnixMilli(), "monotonicTime": 0, "sdkLanguage": "javascript",
 			"title": deviceID + " · " + holdID, "contextId": "context@" + holdID, "options": map[string]any{},
 		})
@@ -168,7 +171,7 @@ func (r *recorder) closeStep(rec *holdRecording, now time.Time) {
 	callID := fmt.Sprintf("call@%d", st.callID)
 	params := map[string]any{"inputs": st.params, "count": st.count}
 	rec.lines = append(rec.lines, map[string]any{"type": "before", "title": stepTitle(st.kind, st.count), "callId": callID,
-		"startTime": r.ms(rec, st.start), "class": "HID", "method": st.kind, "pageId": "page@screen", "params": params})
+		"startTime": r.ms(rec, st.start), "class": "HID", "method": "vibium:hid." + st.kind, "pageId": "page@screen", "params": params})
 	r.frame(rec, now)
 	rec.lines = append(rec.lines, map[string]any{"type": "after", "callId": callID, "endTime": r.ms(rec, now)})
 }

@@ -113,7 +113,7 @@ func TestRecorderRecordsAHold(t *testing.T) {
 		t.Fatalf("upload: %+v", rec)
 	}
 	lines, files := readTrace(t, up.data[0])
-	if lines[0]["type"] != "context-options" || lines[0]["libraryName"] != "roadie" || lines[0]["title"] != "rig_1/phone · hld_1" {
+	if lines[0]["type"] != "context-options" || lines[0]["libraryName"] != "vibium" || lines[0]["producer"] != "roadie" || lines[0]["title"] != "rig_1/phone · hld_1" {
 		t.Fatalf("first line: %v", lines[0])
 	}
 	var befores, frames []map[string]any
@@ -128,7 +128,7 @@ func TestRecorderRecordsAHold(t *testing.T) {
 	if len(befores) != 2 {
 		t.Fatalf("want two steps (a typing burst and a tap), got %d: %v", len(befores), befores)
 	}
-	if befores[0]["title"] != "Keyboard.type ×2" || befores[1]["title"] != "Touch ×2" {
+	if befores[0]["title"] != "Keyboard.type ×2" || befores[1]["title"] != "Touch ×2" || befores[0]["method"] != "vibium:hid.type" {
 		t.Fatalf("titles: %v %v", befores[0]["title"], befores[1]["title"])
 	}
 	if p := befores[0]["params"].(map[string]any); p["count"].(float64) != 2 || len(p["inputs"].([]any)) != 2 {
