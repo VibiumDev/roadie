@@ -158,7 +158,7 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 <body>
 {{end}}
 {{define "header"}}<header class="top"><div class="wrap"><a class="brand" href="/"><span class="wordmark">Vibium</span><span class="product">Roadie</span></a>
-<nav class="pages"><a href="/view">View</a><a href="/settings">Settings</a><a href="/test">Test</a></nav><div class="theme" role="group" aria-label="Theme"><button type="button" data-pick="light" aria-label="Light" title="Light"></button><button type="button" data-pick="dark" aria-label="Dark" title="Dark"></button><button type="button" data-pick="system" aria-label="System default" title="System default"></button></div><span class="break"></span></div></header>
+<nav class="pages"><a href="/view">View</a><a href="/settings">Settings</a><a href="/test">Test</a></nav><button id="themeBtn" class="iconbtn" type="button" aria-label="Theme"></button><span class="break"></span></div></header>
 {{end}}
 {{define "foot"}}</body></html>{{end}}
 {{define "help"}}<button class="qhelp" type="button" aria-expanded="false" aria-controls="help-{{.}}" aria-label="What this is">?</button>{{end}}
