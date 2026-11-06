@@ -73,6 +73,24 @@ var (
 // device for good. Through a station, the socket's close releases the hold.
 var bidiIdleTimeout = 5 * time.Minute
 
+// bidiDrop ends the session a connection owns, if it owns one, and
+// releases what it held. releaseAllInput takes the mutex itself, so it
+// runs after the unlock; holding it across the call deadlocked every
+// later session.new until a restart.
+func (s *Server) bidiDrop(conn *websocket.Conn) {
+	bidiSessionMu.Lock()
+	sess := bidiActive
+	if sess != nil && sess.conn == conn {
+		bidiActive = nil
+	} else {
+		sess = nil
+	}
+	bidiSessionMu.Unlock()
+	if sess != nil {
+		s.releaseAllInput(sess)
+	}
+}
+
 func (s *Server) handleBiDi(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
@@ -87,6 +105,10 @@ func (s *Server) handleBiDi(w http.ResponseWriter, r *http.Request) {
 	lim := rig.LimiterFrom(ctx) // through a station: the hold's pace
 	idle := time.AfterFunc(bidiIdleTimeout, func() {
 		log.Printf("bidi: no command for %s, closing the session", bidiIdleTimeout)
+		// The session goes before the socket does: a client that opens a
+		// new one the moment it sees the close must not find the old one
+		// still active.
+		s.bidiDrop(conn)
 		conn.Close(websocket.StatusGoingAway, fmt.Sprintf("idle for %s", bidiIdleTimeout))
 	})
 	defer idle.Stop()
@@ -99,21 +121,8 @@ func (s *Server) handleBiDi(w http.ResponseWriter, r *http.Request) {
 			err = lim.Wait(ctx)
 		}
 		if err != nil {
-			// Connection closed: end the session if this connection owns
-			// it. releaseAllInput takes the mutex itself, so it runs after
-			// the unlock; holding it across the call deadlocked every later
-			// session.new until a restart.
-			bidiSessionMu.Lock()
-			sess := bidiActive
-			if sess != nil && sess.conn == conn {
-				bidiActive = nil
-			} else {
-				sess = nil
-			}
-			bidiSessionMu.Unlock()
-			if sess != nil {
-				s.releaseAllInput(sess)
-			}
+			// Connection closed: end the session if this connection owns it.
+			s.bidiDrop(conn)
 			return
 		}
 
