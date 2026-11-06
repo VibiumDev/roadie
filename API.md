@@ -636,6 +636,8 @@ websocat ws://localhost:8080/session
 
 **Viewport size:** `session.new` returns `roadie:viewport: {width, height}` in capabilities, and `browsingContext.captureScreenshot` includes it in the result. This tells you the coordinate space for `input.performActions` — pixel coordinates are relative to this viewport (the cropped screenshot). Roadie translates them to the 0–32767 HID absolute coordinate range internally.
 
+**Input mode:** `session.new` returns `roadie:inputMode` (`mouse` or `touch`) in capabilities, the same mode [`/health`](#get-health) reports as `input_mode`: `--input`, else the platform default. It is absent when neither gives one.
+
 **Touch input:** Use pointer actions with `"parameters": {"pointerType": "touch"}`. Up to 2 simultaneous touch contacts are supported.
 
 **Key input:** Key values follow the [WebDriver key mapping](https://w3c.github.io/webdriver/#keyboard-actions) — printable characters as literals, special keys as Unicode Private Use Area values (e.g., `"\uE007"` for Enter, `"\uE008"` for Shift).

@@ -107,6 +107,42 @@ func TestBiDiSessionNew(t *testing.T) {
 	}
 }
 
+func TestBiDiSessionNewInputMode(t *testing.T) {
+	tests := []struct {
+		name      string
+		platform  Platform
+		inputMode string
+		want      any
+	}{
+		{name: "unspecified", want: nil},
+		{name: "ios", platform: PlatformIOS, want: "mouse"},
+		{name: "android", platform: PlatformAndroid, want: "touch"},
+		{name: "--input wins", platform: PlatformIOS, inputMode: "touch", want: "touch"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetBidiState()
+			s, mux := newTestServer()
+			s.Platform = tt.platform
+			s.InputMode = tt.inputMode
+			ts := httptest.NewServer(mux)
+			defer ts.Close()
+
+			conn := bidiDial(t, ts)
+			resp := parseBidiResp(t, bidiSend(t, conn, map[string]any{
+				"id": 1, "method": "session.new", "params": map[string]any{"capabilities": map[string]any{}},
+			}))
+			var result struct {
+				Capabilities map[string]any `json:"capabilities"`
+			}
+			json.Unmarshal(resp.Result, &result)
+			if got := result.Capabilities["roadie:inputMode"]; got != tt.want {
+				t.Errorf("roadie:inputMode = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBiDiSessionNewRejectsSecond(t *testing.T) {
 	resetBidiState()
 	_, mux := newTestServer()

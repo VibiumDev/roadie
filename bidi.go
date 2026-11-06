@@ -187,6 +187,9 @@ func (s *Server) bidiSessionNew(conn *websocket.Conn, ctx context.Context, cmd b
 	caps["roadie:device"] = s.Device
 	caps["roadie:resolution"] = fmt.Sprintf("%dx%d", s.Buf.Width(), s.Buf.Height())
 	caps["roadie:viewport"] = s.viewportSize()
+	if mode := s.effectiveInputMode(); mode != "" {
+		caps["roadie:inputMode"] = mode
+	}
 
 	writeJSON(conn, ctx, bidiResult{
 		Type: "success",
