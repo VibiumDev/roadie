@@ -178,7 +178,7 @@ screenshot after each burst of input in Vibium's recording format, and
 upload it to the station's Record Store when the hold ends, where it is
 listed on the station's Records page next to who held the device and when.
 Manual sessions count as much as an agent's, and Roadie tells the station,
-whose Devices page and viewer say "holds recorded" for the device.
+whose Devices page says "every session recorded: screen and input" for the device and whose viewer shows a REC note.
 
 What the station may do is yours to edit in
 `/var/lib/roadie/.config/roadie/rig.json`:
