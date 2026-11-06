@@ -158,13 +158,12 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 <body>
 {{end}}
 {{define "header"}}<header class="top"><div class="wrap"><a class="brand" href="/"><span class="wordmark">Vibium</span><span class="product">Roadie</span></a>
-<nav class="pages"><a href="/view">View</a><a href="/settings">Settings</a><a href="/test">Test</a></nav><button id="themeBtn" class="iconbtn" type="button" aria-label="Switch theme"></button><span class="break"></span></div></header>
+<nav class="pages"><a href="/view">View</a><a href="/settings">Settings</a><a href="/test">Test</a></nav><div class="theme" role="group" aria-label="Theme"><button type="button" data-pick="light" aria-label="Light" title="Light"></button><button type="button" data-pick="dark" aria-label="Dark" title="Dark"></button><button type="button" data-pick="system" aria-label="System default" title="System default"></button></div><span class="break"></span></div></header>
 {{end}}
-{{define "foot"}}<footer class="foot"><div class="wrap"><span class="wordmark">Vibium</span><span class="line">Roadie · open source</span><span><a href="https://vibium.dev">vibium.dev ↗</a></span></div></footer>
-</body></html>{{end}}
+{{define "foot"}}</body></html>{{end}}
 {{define "help"}}<button class="qhelp" type="button" aria-expanded="false" aria-controls="help-{{.}}" aria-label="What this is">?</button>{{end}}
 
-{{define "index"}}{{template "head" .}}{{template "header" .}}<main class="wrap"><p class="kicker">{{if and .Name (ne .Name "roadie")}}{{.Name}}{{else}}{{.Host}}{{end}}</p><h1 class="h1">Roadie.</h1>
+{{define "index"}}{{template "head" .}}{{template "header" .}}<main class="wrap"><h1 class="h1">Roadie.</h1>
 <p class="lead">The target wired to this machine, live in the browser.</p>
 <ul class="links">
 <li><a href="/view">/view</a> <span>watch and drive the target: picture, sound, touch and keyboard</span></li>
@@ -178,6 +177,7 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 </ul>
 <h2 class="h2">This host</h2>
 <div class="tablewrap"><table class="kv">
+<tr><th>Host</th><td>{{.Host}}{{if and .Name (ne .Name "roadie")}} <span class="muted">{{.Name}}</span>{{end}}</td></tr>
 <tr><th>Platform</th><td>{{if .Platform}}{{.Platform}}{{else}}<span class="muted">not set (--platform)</span>{{end}}</td></tr>
 <tr><th>Pointer</th><td>{{if .Input}}{{.Input}}{{else}}<span class="muted">the viewer decides</span>{{end}}</td></tr>
 <tr><th>Stations</th><td>{{if .Stations}}{{range .Stations}}<div>{{.name}} <span class="muted mono">{{.rig}}</span> {{if .online}}<span class="ok">online</span>{{else}}<span class="muted">offline</span>{{end}}</div>{{end}}{{else}}<span class="muted">none: <code>roadie enroll https://&lt;station&gt; --code …</code></span>{{end}}</td></tr>
