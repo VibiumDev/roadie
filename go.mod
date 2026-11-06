@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	fiatjaf.com/nostr v0.0.0-20261026145325-252a038facda
-	github.com/VibiumDev/station v0.0.0-20261106063858-b17f36ef90f4
+	github.com/VibiumDev/station v0.0.0-20261106072407-3ae80e7d96ec
 	github.com/coder/websocket v1.8.15
 	github.com/hashicorp/mdns v1.0.7
 	github.com/pion/ice/v4 v4.0.13
@@ -36,15 +36,16 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/pion/datachannel v1.5.10 // indirect
-	github.com/pion/dtls/v3 v3.0.8 // indirect
+	github.com/pion/dtls/v3 v3.1.4 // indirect
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pion/mdns/v2 v2.1.0 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/sctp v1.8.41 // indirect
 	github.com/pion/sdp/v3 v3.0.16 // indirect
 	github.com/pion/srtp/v3 v3.0.9 // indirect
-	github.com/pion/stun/v3 v3.0.2 // indirect
+	github.com/pion/stun/v3 v3.1.5 // indirect
 	github.com/pion/transport/v3 v3.1.1 // indirect
+	github.com/pion/transport/v4 v4.0.2 // indirect
 	github.com/pion/turn/v4 v4.1.3 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/templexxx/cpu v0.0.1 // indirect
