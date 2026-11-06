@@ -166,16 +166,16 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 
 {{define "index"}}{{template "head" .}}{{template "header" .}}<main class="wrap"><p class="kicker">{{if and .Name (ne .Name "roadie")}}{{.Name}}{{else}}{{.Host}}{{end}}</p><h1 class="h1">Roadie.</h1>
 <p class="lead">The target wired to this machine, live in the browser.</p>
-<div class="grid">
-<a class="card" href="/view" style="text-decoration:none; color:inherit"><h3>View</h3><p>Watch and drive the target: the picture, sound, touch and keyboard.</p><span class="path">/view</span></a>
-<a class="card" href="/stream" style="text-decoration:none; color:inherit"><h3>Stream</h3><p>The MJPEG stream, cropped to the target's screen.</p><span class="path">/stream</span></a>
-<a class="card" href="/snapshot" style="text-decoration:none; color:inherit"><h3>Snapshot</h3><p>One frame as a JPEG, cropped the same way.</p><span class="path">/snapshot</span></a>
-<a class="card" href="/raw-stream" style="text-decoration:none; color:inherit"><h3>Raw stream</h3><p>The capture device's whole frame, uncropped.</p><span class="path">/raw-stream</span></a>
-<a class="card" href="/raw-snapshot" style="text-decoration:none; color:inherit"><h3>Raw snapshot</h3><p>One uncropped frame.</p><span class="path">/raw-snapshot</span></a>
-<a class="card" href="/health" style="text-decoration:none; color:inherit"><h3>Health</h3><p>Service status as JSON: capture, the target's screen, input, stations.</p><span class="path">/health</span></a>
-<a class="card" href="/settings" style="text-decoration:none; color:inherit"><h3>Settings</h3><p>Capture quality, the crop, and the device's details.</p><span class="path">/settings</span></a>
-<a class="card" href="/test" style="text-decoration:none; color:inherit"><h3>Test</h3><p>Try the mouse and keyboard over USB.</p><span class="path">/test</span></a>
-</div>
+<ul class="links">
+<li><a href="/view">/view</a> <span>watch and drive the target: picture, sound, touch and keyboard</span></li>
+<li><a href="/stream">/stream</a> <span>the MJPEG stream, cropped to the target's screen</span></li>
+<li><a href="/snapshot">/snapshot</a> <span>one frame as a JPEG, cropped the same way</span></li>
+<li><a href="/raw-stream">/raw-stream</a> <span>the capture device's whole frame, uncropped</span></li>
+<li><a href="/raw-snapshot">/raw-snapshot</a> <span>one uncropped frame</span></li>
+<li><a href="/health">/health</a> <span>service status as JSON</span></li>
+<li><a href="/settings">/settings</a> <span>capture quality, the crop, the device's details</span></li>
+<li><a href="/test">/test</a> <span>try the mouse and keyboard over USB</span></li>
+</ul>
 <h2 class="h2">This host</h2>
 <div class="tablewrap"><table class="kv">
 <tr><th>Platform</th><td>{{if .Platform}}{{.Platform}}{{else}}<span class="muted">not set (--platform)</span>{{end}}</td></tr>
