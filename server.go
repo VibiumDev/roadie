@@ -157,7 +157,7 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 <link rel="stylesheet" href="/viewer/pages.css"><script src="/viewer/pages.js"></script></head>
 <body>
 {{end}}
-{{define "header"}}<header class="top"><div class="wrap"><a class="brand" href="/"><span class="wordmark">Vibium</span><span class="product">Roadie</span></a>
+{{define "header"}}<header class="top"><div class="wrap"><a class="brand" href="/"><img class="logo square" src="/favicon.png" alt=""><span class="wordmark">Roadie</span></a>
 <nav class="pages"><a href="/view">View</a><a href="/settings">Settings</a><a href="/test">Test</a></nav><button id="themeBtn" class="iconbtn" type="button" aria-label="Theme"></button><span class="break"></span></div></header>
 {{end}}
 {{define "foot"}}</body></html>{{end}}
