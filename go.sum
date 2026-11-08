@@ -2,8 +2,8 @@ fiatjaf.com/nostr v0.0.0-20261026145325-252a038facda h1:tzM+LEIsWRrx4mV+Q6RZKy0t
 fiatjaf.com/nostr v0.0.0-20261026145325-252a038facda/go.mod h1:b1EIUDnd133Ie8Pg8O/biaKdFyCMz28aD4n64g1GqvM=
 github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 h1:ClzzXMDDuUbWfNNZqGeYq4PnYOlwlOVIvSyNaIy0ykg=
 github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3/go.mod h1:we0YA5CsBbH5+/NUzC/AlMmxaDtWlXeNsqrwXjTzmzA=
-github.com/VibiumDev/station v0.0.0-20261107042010-6e7205f18161 h1:gCaTMjlFMYELg1zNIgqJ7Tdk7PAE4o7v6cqNWMpwRSU=
-github.com/VibiumDev/station v0.0.0-20261107042010-6e7205f18161/go.mod h1:sdVsg7RidXrmLySMIrWih+HxeuOj83NO/XX0/DbI1VY=
+github.com/VibiumDev/station v0.0.0-20261108222234-7a10a88997c7 h1:k+W1nRneuLH3yVyJ6OLHnxmugvrsyyJpfkw2P5moqUI=
+github.com/VibiumDev/station v0.0.0-20261108222234-7a10a88997c7/go.mod h1:sdVsg7RidXrmLySMIrWih+HxeuOj83NO/XX0/DbI1VY=
 github.com/aead/siphash v1.0.1/go.mod h1:Nywa3cDsYNNK3gaciGTWPwHt0wlpNV15vwmswBAUSII=
 github.com/blackjack/webcam v0.6.1 h1:K0T6Q0zto23U99gNAa5q/hFoye6uGcKr2aE6hFoxVoE=
 github.com/blackjack/webcam v0.6.1/go.mod h1:zs+RkUZzqpFPHPiwBZ6U5B34ZXXe9i+SiHLKnnukJuI=
