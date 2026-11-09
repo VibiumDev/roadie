@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package alsa
 
 import (
 	"context"
@@ -26,7 +26,7 @@ import (
 
 // errNoDongleCard means no ALSA card was found for the dongle; the caller
 // falls back to the microphone driver.
-var errNoDongleCard = errors.New("no ALSA sound card found for the capture device")
+var ErrNoDongleCard = errors.New("no ALSA sound card found for the capture device")
 
 // The formats tried, best first. USB capture dongles almost all do the first.
 var dongleFormats = []struct{ rate, channels int }{
@@ -50,11 +50,11 @@ func dongleSoundCard(sys, videoNode, filter string) (int, string, error) {
 	var want string
 	if filter == "" {
 		if videoNode == "" {
-			return 0, "", errNoDongleCard
+			return 0, "", ErrNoDongleCard
 		}
 		p, err := usbParent(filepath.Join(sys, "class/video4linux", videoNode))
 		if err != nil {
-			return 0, "", errNoDongleCard
+			return 0, "", ErrNoDongleCard
 		}
 		want = p
 	}
@@ -85,14 +85,14 @@ func dongleSoundCard(sys, videoNode, filter string) (int, string, error) {
 			return n, name, nil
 		}
 	}
-	return 0, "", errNoDongleCard
+	return 0, "", ErrNoDongleCard
 }
 
-func openDongleCapture(card int) (pcmStream, error) {
+func openDongleCapture(card int) (PCMStream, error) {
 	var last error
 	for _, f := range dongleFormats {
-		s, err := openPCM(card, false, pcmParams{
-			rate: f.rate, channels: f.channels, periodFrames: f.rate / 100, periods: 8,
+		s, err := OpenPCM(card, false, PCMParams{
+			Rate: f.rate, Channels: f.channels, PeriodFrames: f.rate / 100, Periods: 8,
 		})
 		if err == nil {
 			return s, nil
@@ -107,7 +107,7 @@ func openDongleCapture(card int) (pcmStream, error) {
 
 // startDongleAudio streams the dongle's audio into ab until ctx ends,
 // reopening it after an error. The returned channel closes on exit.
-func startDongleAudio(ctx context.Context, dev devices.DeviceInfo, filter string, ab *audio.AudioBroadcaster) (<-chan struct{}, string, error) {
+func StartDongleAudio(ctx context.Context, dev devices.DeviceInfo, filter string, ab *audio.AudioBroadcaster) (<-chan struct{}, string, error) {
 	card, name, err := dongleSoundCard("/sys", dev.VideoNode(), filter)
 	if err != nil {
 		return nil, "", err
@@ -116,13 +116,13 @@ func startDongleAudio(ctx context.Context, dev devices.DeviceInfo, filter string
 	if err != nil {
 		return nil, "", fmt.Errorf("%s (card %d): %w", name, card, err)
 	}
-	desc := fmt.Sprintf("%s (ALSA card %d, %d Hz, %d ch)", name, card, s.Params().rate, s.Params().channels)
+	desc := fmt.Sprintf("%s (ALSA card %d, %d Hz, %d ch)", name, card, s.Params().Rate, s.Params().Channels)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		reader := &headsetStream{ab: ab}
+		reader := &HeadsetStream{Ab: ab}
 		for {
-			err := reader.pump(ctx, s)
+			err := reader.Pump(ctx, s)
 			s.Close()
 			if ctx.Err() != nil {
 				return

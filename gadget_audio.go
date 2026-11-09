@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/alsa"
 	"github.com/VibiumDev/roadie/internal/audio"
 	"github.com/VibiumDev/roadie/internal/devices"
 	"log"
@@ -10,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -58,28 +58,14 @@ func readGadgetAudioConfig(paths gadgetPaths) (gadgetAudioConfig, error) {
 	return gadgetAudioConfig{}, fmt.Errorf("USB gadget %q has no audio function", gadgetName)
 }
 
-// alsaCardIndex finds a card's number from its id. Card numbers depend on
-// what else is plugged in; ids do not.
-func alsaCardIndex(procAsound, id string) (int, error) {
-	target, err := os.Readlink(filepath.Join(procAsound, id))
-	if err != nil {
-		return 0, fmt.Errorf("no ALSA card %q: %w", id, err)
-	}
-	n, err := strconv.Atoi(strings.TrimPrefix(filepath.Base(target), "card"))
-	if err != nil {
-		return 0, fmt.Errorf("ALSA card %q links to %q", id, target)
-	}
-	return n, nil
-}
-
 // GadgetAudio runs the gadget microphone and speaker streams.
 type GadgetAudio struct {
 	cfg        gadgetAudioConfig
 	procAsound string
-	open       func(card int, playback bool, want pcmParams) (pcmStream, error)
+	open       func(card int, playback bool, want alsa.PCMParams) (alsa.PCMStream, error)
 
-	Mic     *micStream     // nil without a microphone
-	headset *headsetStream // nil without a speaker
+	Mic     *alsa.MicStream     // nil without a microphone
+	headset *alsa.HeadsetStream // nil without a speaker
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -89,18 +75,18 @@ type GadgetAudio struct {
 // NewGadgetAudio prepares the streams the gadget's audio function has. ab
 // receives the phone's speaker output; it may be nil to leave it unused.
 func NewGadgetAudio(cfg gadgetAudioConfig, ab *audio.AudioBroadcaster) *GadgetAudio {
-	return newGadgetAudio(cfg, ab, "/proc/asound", openPCM)
+	return newGadgetAudio(cfg, ab, "/proc/asound", alsa.OpenPCM)
 }
 
 func newGadgetAudio(cfg gadgetAudioConfig, ab *audio.AudioBroadcaster, procAsound string,
-	open func(int, bool, pcmParams) (pcmStream, error)) *GadgetAudio {
+	open func(int, bool, alsa.PCMParams) (alsa.PCMStream, error)) *GadgetAudio {
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &GadgetAudio{cfg: cfg, procAsound: procAsound, open: open, ctx: ctx, cancel: cancel}
 	if cfg.hasMic() {
-		a.Mic = newMicStream(cfg.micRate, cfg.micChannels)
+		a.Mic = alsa.NewMicStream(cfg.micRate, cfg.micChannels)
 	}
 	if cfg.hasSpeaker() && ab != nil {
-		a.headset = &headsetStream{ab: ab}
+		a.headset = &alsa.HeadsetStream{Ab: ab}
 	}
 	return a
 }
@@ -111,14 +97,14 @@ func (a *GadgetAudio) Start() {
 		a.wg.Add(1)
 		go func() {
 			defer a.wg.Done()
-			a.keepOpen("microphone", true, a.cfg.micRate, a.cfg.micChannels, micPeriods, a.Mic.pump)
+			a.keepOpen("microphone", true, a.cfg.micRate, a.cfg.micChannels, alsa.MicPeriods, a.Mic.Pump)
 		}()
 	}
 	if a.headset != nil {
 		a.wg.Add(1)
 		go func() {
 			defer a.wg.Done()
-			a.keepOpen("speaker", false, a.cfg.spkRate, a.cfg.spkChannels, headsetPeriod, a.headset.pump)
+			a.keepOpen("speaker", false, a.cfg.spkRate, a.cfg.spkChannels, alsa.HeadsetPeriod, a.headset.Pump)
 		}()
 	}
 }
@@ -138,18 +124,18 @@ func (a *GadgetAudio) Shutdown() {
 // whenever the device goes away -- the gadget rebuilt, the card renumbered
 // -- until shutdown. Each distinct failure is logged once.
 func (a *GadgetAudio) keepOpen(what string, playback bool, rate, channels, periods int,
-	pump func(context.Context, pcmStream) error) {
-	delay := pcmRetryMin
+	pump func(context.Context, alsa.PCMStream) error) {
+	delay := alsa.PcmRetryMin
 	lastErr := ""
 	for a.ctx.Err() == nil {
-		card, err := alsaCardIndex(a.procAsound, a.cfg.cardID)
-		var s pcmStream
+		card, err := alsa.CardIndex(a.procAsound, a.cfg.cardID)
+		var s alsa.PCMStream
 		if err == nil {
-			s, err = a.open(card, playback, pcmParams{
-				rate:         rate,
-				channels:     channels,
-				periodFrames: int(int64(rate) * int64(pcmPeriod) / int64(time.Second)),
-				periods:      periods,
+			s, err = a.open(card, playback, alsa.PCMParams{
+				Rate:         rate,
+				Channels:     channels,
+				PeriodFrames: int(int64(rate) * int64(alsa.PcmPeriod) / int64(time.Second)),
+				Periods:      periods,
 			})
 		}
 		if err != nil {
@@ -162,12 +148,12 @@ func (a *GadgetAudio) keepOpen(what string, playback bool, rate, channels, perio
 				return
 			case <-time.After(delay):
 			}
-			delay = min(delay*2, pcmRetryMax)
+			delay = min(delay*2, alsa.PcmRetryMax)
 			continue
 		}
 		p := s.Params()
 		log.Printf("USB audio %s: open on card %s, %d Hz, %d channel(s), %d x %d frames",
-			what, a.cfg.cardID, p.rate, p.channels, p.periods, p.periodFrames)
+			what, a.cfg.cardID, p.Rate, p.Channels, p.Periods, p.PeriodFrames)
 		lastErr = ""
 		opened := time.Now()
 		err = pump(a.ctx, s)
@@ -178,8 +164,8 @@ func (a *GadgetAudio) keepOpen(what string, playback bool, rate, channels, perio
 		log.Printf("USB audio %s: %v; reopening", what, err)
 		// A stream that ran a while gets an immediate retry; one that keeps
 		// failing as soon as it opens backs off instead of spinning.
-		if time.Since(opened) > pcmStableAfter {
-			delay = pcmRetryMin
+		if time.Since(opened) > alsa.PcmStableAfter {
+			delay = alsa.PcmRetryMin
 			continue
 		}
 		select {
@@ -187,6 +173,6 @@ func (a *GadgetAudio) keepOpen(what string, playback bool, rate, channels, perio
 			return
 		case <-time.After(delay):
 		}
-		delay = min(delay*2, pcmRetryMax)
+		delay = min(delay*2, alsa.PcmRetryMax)
 	}
 }

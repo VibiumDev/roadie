@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/VibiumDev/roadie/internal/alsa"
 	"github.com/VibiumDev/roadie/internal/audio"
 	"github.com/VibiumDev/roadie/internal/devices"
 	"github.com/VibiumDev/roadie/rtc"
@@ -1542,12 +1543,12 @@ func (cm *CaptureManager) Run() {
 			// one; the microphone driver only where there is none (macOS,
 			// capture that is not a USB dongle).
 			audioCtx, ac := context.WithCancel(captureCtx)
-			ad, desc, err := startDongleAudio(audioCtx, dev, cm.AudioFilter, cm.AudioBroadcast)
+			ad, desc, err := alsa.StartDongleAudio(audioCtx, dev, cm.AudioFilter, cm.AudioBroadcast)
 			switch {
 			case err == nil:
 				audioCancel, audioDone = ac, ad
 				log.Printf("audio capture started on %s", desc)
-			case errors.Is(err, errNoDongleCard):
+			case errors.Is(err, alsa.ErrNoDongleCard):
 				ac()
 				useDriver = true
 			default:

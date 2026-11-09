@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/binary"
 	"errors"
+	"github.com/VibiumDev/roadie/internal/alsa"
 	"os"
 	"path/filepath"
 	"sync"
@@ -32,17 +34,6 @@ func TestReadGadgetAudioConfig(t *testing.T) {
 	}
 }
 
-func TestAlsaCardIndex(t *testing.T) {
-	proc := t.TempDir()
-	os.Symlink("card6", filepath.Join(proc, "UAC2Gadget"))
-	if n, err := alsaCardIndex(proc, "UAC2Gadget"); err != nil || n != 6 {
-		t.Errorf("card %d, %v", n, err)
-	}
-	if _, err := alsaCardIndex(proc, "UAC1Gadget"); err == nil {
-		t.Error("missing card found")
-	}
-}
-
 // A stream whose device disappears is reopened, and one that cannot be
 // opened is retried, without anything else restarting.
 func TestGadgetAudioReopens(t *testing.T) {
@@ -51,25 +42,25 @@ func TestGadgetAudioReopens(t *testing.T) {
 	cfg := gadgetAudioConfig{cardID: "UAC2Gadget", micRate: 48000, micChannels: 1}
 	var mu sync.Mutex
 	opens := 0
-	open := func(card int, playback bool, want pcmParams) (pcmStream, error) {
+	open := func(card int, playback bool, want alsa.PCMParams) (alsa.PCMStream, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		opens++
-		if card != 3 || !playback || want.periodFrames != 480 {
+		if card != 3 || !playback || want.PeriodFrames != 480 {
 			t.Errorf("open(card %d, playback %v, %+v)", card, playback, want)
 		}
 		switch opens {
 		case 1:
 			return nil, errors.New("busy")
 		case 2:
-			return &fakePCM{params: want, errs: []error{errPCMGone}}, nil
+			return &fakePCM{params: want, errs: []error{alsa.ErrPCMGone}}, nil
 		}
 		return &fakePCM{params: want}, nil
 	}
 	a := newGadgetAudio(cfg, nil, proc, open)
-	saveMin := pcmRetryMin
-	defer func() { pcmRetryMin = saveMin }()
-	pcmRetryMin = 10 * time.Millisecond
+	saveMin := alsa.PcmRetryMin
+	defer func() { alsa.PcmRetryMin = saveMin }()
+	alsa.PcmRetryMin = 10 * time.Millisecond
 	a.Start()
 	deadline := time.Now().Add(2 * time.Second)
 	for {
@@ -86,3 +77,66 @@ func TestGadgetAudioReopens(t *testing.T) {
 	}
 	a.Shutdown()
 }
+
+// fakePCM is a PCM stream that fails on cue; the alsa package keeps its own.
+type fakePCM struct {
+	params alsa.PCMParams
+
+	mu        sync.Mutex
+	written   []int16
+	toRead    [][]byte
+	errs      []error // returned by successive transfers, nil = normal
+	recovered int
+	closed    bool
+}
+
+func (f *fakePCM) Params() alsa.PCMParams { return f.params }
+
+func (f *fakePCM) Wait(time.Duration) (bool, error) {
+	time.Sleep(time.Millisecond)
+	return true, nil
+}
+
+func (f *fakePCM) nextErr() error {
+	if len(f.errs) == 0 {
+		return nil
+	}
+	err := f.errs[0]
+	f.errs = f.errs[1:]
+	return err
+}
+
+func (f *fakePCM) WriteFrames(b []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.nextErr(); err != nil {
+		return 0, err
+	}
+	for i := 0; i+1 < len(b); i += 2 {
+		f.written = append(f.written, int16(binary.LittleEndian.Uint16(b[i:])))
+	}
+	return len(b) / (2 * f.params.Channels), nil
+}
+
+func (f *fakePCM) ReadFrames(b []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.nextErr(); err != nil {
+		return 0, err
+	}
+	if len(f.toRead) == 0 {
+		return 0, alsa.ErrPCMAgain
+	}
+	n := copy(b, f.toRead[0])
+	f.toRead = f.toRead[1:]
+	return n / (2 * f.params.Channels), nil
+}
+
+func (f *fakePCM) Recover(error) error {
+	f.mu.Lock()
+	f.recovered++
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *fakePCM) Close() error { f.closed = true; return nil }

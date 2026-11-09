@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package alsa
 
 import (
 	"errors"
@@ -154,7 +154,7 @@ type alsaPCM struct {
 	fd       int
 	path     string
 	playback bool
-	params   pcmParams
+	params   PCMParams
 }
 
 func pcmPath(card, device int, playback bool) string {
@@ -168,11 +168,11 @@ func pcmPath(card, device int, playback bool) string {
 // openPCM opens device 0 of a card for S16_LE interleaved I/O. want gives
 // the rate and channels the device must have, and the period size and count
 // to ask for; the result is what the driver granted.
-func openPCM(card int, playback bool, want pcmParams) (pcmStream, error) {
+func OpenPCM(card int, playback bool, want PCMParams) (PCMStream, error) {
 	return openPCMDevice(card, 0, playback, want)
 }
 
-func openPCMDevice(card, device int, playback bool, want pcmParams) (pcmStream, error) {
+func openPCMDevice(card, device int, playback bool, want PCMParams) (PCMStream, error) {
 	path := pcmPath(card, device, playback)
 	fd, err := unix.Open(path, unix.O_RDWR|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 	if err != nil {
@@ -186,30 +186,30 @@ func openPCMDevice(card, device int, playback bool, want pcmParams) (pcmStream, 
 	return p, nil
 }
 
-func (p *alsaPCM) setup(want pcmParams) error {
+func (p *alsaPCM) setup(want PCMParams) error {
 	var hw sndHwParams
 	hw.any()
 	hw.setMask(hwpAccess, sndAccessRWInterleaved)
 	hw.setMask(hwpFormat, sndFormatS16LE)
 	hw.setMask(hwpSubformat, sndSubformatStd)
 	hw.setInt(hwpSampleBits, 16)
-	hw.setInt(hwpFrameBits, uint32(16*want.channels))
-	hw.setInt(hwpChannels, uint32(want.channels))
-	hw.setInt(hwpRate, uint32(want.rate))
-	hw.setMin(hwpPeriodSize, uint32(want.periodFrames))
-	hw.setInt(hwpPeriods, uint32(want.periods))
+	hw.setInt(hwpFrameBits, uint32(16*want.Channels))
+	hw.setInt(hwpChannels, uint32(want.Channels))
+	hw.setInt(hwpRate, uint32(want.Rate))
+	hw.setMin(hwpPeriodSize, uint32(want.PeriodFrames))
+	hw.setInt(hwpPeriods, uint32(want.Periods))
 	if err := ioctl(p.fd, ioctlHwParams, unsafe.Pointer(&hw)); err != nil {
 		return fmt.Errorf("%s: %d Hz, %d channel S16_LE, %d periods of %d frames not available: %w",
-			p.path, want.rate, want.channels, want.periods, want.periodFrames, err)
+			p.path, want.Rate, want.Channels, want.Periods, want.PeriodFrames, err)
 	}
-	p.params = pcmParams{
-		rate:         int(hw.get(hwpRate)),
-		channels:     int(hw.get(hwpChannels)),
-		periodFrames: int(hw.get(hwpPeriodSize)),
-		periods:      int(hw.get(hwpPeriods)),
+	p.params = PCMParams{
+		Rate:         int(hw.get(hwpRate)),
+		Channels:     int(hw.get(hwpChannels)),
+		PeriodFrames: int(hw.get(hwpPeriodSize)),
+		Periods:      int(hw.get(hwpPeriods)),
 	}
 	buffer := uint(hw.get(hwpBufferSize))
-	period := uint(p.params.periodFrames)
+	period := uint(p.params.PeriodFrames)
 
 	sw := sndSwParams{
 		periodStep: 1,
@@ -251,7 +251,7 @@ func (p *alsaPCM) setup(want pcmParams) error {
 	return nil
 }
 
-func (p *alsaPCM) Params() pcmParams { return p.params }
+func (p *alsaPCM) Params() PCMParams { return p.params }
 
 // Wait blocks until a period can be written (or read), the timeout passes,
 // or the stream reports an error -- in which case the next transfer says
@@ -273,13 +273,13 @@ func (p *alsaPCM) Wait(timeout time.Duration) (bool, error) {
 		return false, nil
 	}
 	if fds[0].Revents&unix.POLLNVAL != 0 {
-		return false, errPCMGone
+		return false, ErrPCMGone
 	}
 	return true, nil
 }
 
 func (p *alsaPCM) transfer(req uintptr, b []byte) (int, error) {
-	frameBytes := 2 * p.params.channels
+	frameBytes := 2 * p.params.Channels
 	frames := len(b) / frameBytes
 	if frames == 0 {
 		return 0, nil
@@ -291,13 +291,13 @@ func (p *alsaPCM) transfer(req uintptr, b []byte) (int, error) {
 	case nil:
 		return x.result, nil
 	case unix.EAGAIN:
-		return 0, errPCMAgain
+		return 0, ErrPCMAgain
 	case unix.EPIPE:
-		return 0, errPCMXrun
+		return 0, ErrPCMXrun
 	case unix.ESTRPIPE:
-		return 0, errPCMSuspended
+		return 0, ErrPCMSuspended
 	case unix.ENODEV, unix.EBADFD, unix.EIO, unix.ENXIO:
-		return 0, fmt.Errorf("%s: %w (%v)", p.path, errPCMGone, err)
+		return 0, fmt.Errorf("%s: %w (%v)", p.path, ErrPCMGone, err)
 	}
 	return 0, fmt.Errorf("%s: %w", p.path, err)
 }
@@ -307,7 +307,7 @@ func (p *alsaPCM) ReadFrames(b []byte) (int, error)  { return p.transfer(ioctlRe
 
 // Recover brings the stream back after an xrun or a suspend.
 func (p *alsaPCM) Recover(cause error) error {
-	if errors.Is(cause, errPCMSuspended) {
+	if errors.Is(cause, ErrPCMSuspended) {
 		for i := 0; i < 50; i++ {
 			err := ioctl(p.fd, ioctlResume, nil)
 			if err == nil {

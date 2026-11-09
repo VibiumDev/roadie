@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package alsa
 
 import (
 	"os"
@@ -59,10 +59,10 @@ func TestDongleSoundCard(t *testing.T) {
 	if n, _, err := dongleSoundCard(sys, "video0", "uac2gadget"); err != nil || n != 4 {
 		t.Errorf("by --audio id: card %d %v; want card 4", n, err)
 	}
-	if _, _, err := dongleSoundCard(sys, "video9", ""); err != errNoDongleCard {
+	if _, _, err := dongleSoundCard(sys, "video9", ""); err != ErrNoDongleCard {
 		t.Errorf("unknown video node: %v; want errNoDongleCard (fall back to the driver)", err)
 	}
-	if _, _, err := dongleSoundCard(sys, "", ""); err != errNoDongleCard {
+	if _, _, err := dongleSoundCard(sys, "", ""); err != ErrNoDongleCard {
 		t.Errorf("no video node: %v", err)
 	}
 }

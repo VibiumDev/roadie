@@ -1,4 +1,4 @@
-package main
+package alsa
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"github.com/VibiumDev/roadie/internal/audio"
 	"math"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -110,7 +112,7 @@ func pcmBytes(samples []int16) []byte {
 }
 
 func TestMicPrefillAndSilence(t *testing.T) {
-	m := newMicStream(48000, 1)
+	m := NewMicStream(48000, 1)
 	period := make([]int16, 480)
 	m.take(period)
 	if rms(period) != 0 {
@@ -136,16 +138,16 @@ func TestMicPrefillAndSilence(t *testing.T) {
 }
 
 func TestMicQueueBoundedAndStale(t *testing.T) {
-	m := newMicStream(48000, 1)
+	m := NewMicStream(48000, 1)
 	for i := 0; i < 50; i++ { // a second of audio with nothing taking it
 		m.Write(make([]byte, 640))
 	}
-	if max := m.frames(micMaxQueue); len(m.queue) > max {
-		t.Errorf("queue holds %d frames, bound is %d", len(m.queue), max)
+	if max := m.frames(micMaxQueue); len(m.Queue) > max {
+		t.Errorf("queue holds %d frames, bound is %d", len(m.Queue), max)
 	}
 	m.lastTaken = time.Now().Add(-2 * micStaleAfter)
 	m.idle()
-	if len(m.queue) != 0 {
+	if len(m.Queue) != 0 {
 		t.Error("stale audio kept after the phone stopped taking it")
 	}
 }
@@ -153,7 +155,7 @@ func TestMicQueueBoundedAndStale(t *testing.T) {
 // Ten minutes of a sender running 0.5% fast with bursty delivery: latency
 // must stay bounded rather than growing for as long as the call lasts.
 func TestMicLongRunningDrift(t *testing.T) {
-	m := newMicStream(48000, 1)
+	m := NewMicStream(48000, 1)
 	rng := rand.New(rand.NewSource(1))
 	period := make([]int16, 480)
 	sentMs, takenMs := 0.0, 0.0
@@ -165,7 +167,7 @@ func TestMicLongRunningDrift(t *testing.T) {
 		}
 		m.take(period)
 		takenMs += 10
-		maxQueue = max(maxQueue, len(m.queue))
+		maxQueue = max(maxQueue, len(m.Queue))
 	}
 	if limit := m.frames(micMaxQueue); maxQueue > limit {
 		t.Errorf("queue reached %d frames, bound is %d", maxQueue, limit)
@@ -174,7 +176,7 @@ func TestMicLongRunningDrift(t *testing.T) {
 
 // fakePCM is a scripted PCM stream.
 type fakePCM struct {
-	params pcmParams
+	params PCMParams
 
 	mu        sync.Mutex
 	written   []int16
@@ -184,7 +186,7 @@ type fakePCM struct {
 	closed    bool
 }
 
-func (f *fakePCM) Params() pcmParams { return f.params }
+func (f *fakePCM) Params() PCMParams { return f.params }
 
 func (f *fakePCM) Wait(time.Duration) (bool, error) {
 	time.Sleep(time.Millisecond)
@@ -209,7 +211,7 @@ func (f *fakePCM) WriteFrames(b []byte) (int, error) {
 	for i := 0; i+1 < len(b); i += 2 {
 		f.written = append(f.written, int16(binary.LittleEndian.Uint16(b[i:])))
 	}
-	return len(b) / (2 * f.params.channels), nil
+	return len(b) / (2 * f.params.Channels), nil
 }
 
 func (f *fakePCM) ReadFrames(b []byte) (int, error) {
@@ -219,11 +221,11 @@ func (f *fakePCM) ReadFrames(b []byte) (int, error) {
 		return 0, err
 	}
 	if len(f.toRead) == 0 {
-		return 0, errPCMAgain
+		return 0, ErrPCMAgain
 	}
 	n := copy(b, f.toRead[0])
 	f.toRead = f.toRead[1:]
-	return n / (2 * f.params.channels), nil
+	return n / (2 * f.params.Channels), nil
 }
 
 func (f *fakePCM) Recover(error) error {
@@ -236,13 +238,13 @@ func (f *fakePCM) Recover(error) error {
 func (f *fakePCM) Close() error { f.closed = true; return nil }
 
 func TestMicPumpFeedsAudioThenSilence(t *testing.T) {
-	m := newMicStream(48000, 1)
+	m := NewMicStream(48000, 1)
 	m.Write(pcmBytes(sine(500, 16000, 1600, 8000))) // 100 ms
-	dev := &fakePCM{params: pcmParams{rate: 48000, channels: 1, periodFrames: 480, periods: 4},
-		errs: []error{nil, errPCMXrun, nil, errPCMAgain}}
+	dev := &fakePCM{params: PCMParams{Rate: 48000, Channels: 1, PeriodFrames: 480, Periods: 4},
+		errs: []error{nil, ErrPCMXrun, nil, ErrPCMAgain}}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error)
-	go func() { done <- m.pump(ctx, dev) }()
+	go func() { done <- m.Pump(ctx, dev) }()
 	time.Sleep(60 * time.Millisecond)
 	cancel()
 	if err := <-done; err != nil {
@@ -265,14 +267,14 @@ func TestMicPumpFeedsAudioThenSilence(t *testing.T) {
 }
 
 func TestMicPumpStopsWhenDeviceGone(t *testing.T) {
-	m := newMicStream(48000, 1)
-	dev := &fakePCM{params: pcmParams{rate: 48000, channels: 1, periodFrames: 480, periods: 4},
-		errs: []error{fmt.Errorf("x: %w", errPCMGone)}}
-	if err := m.pump(context.Background(), dev); !errors.Is(err, errPCMGone) {
+	m := NewMicStream(48000, 1)
+	dev := &fakePCM{params: PCMParams{Rate: 48000, Channels: 1, PeriodFrames: 480, Periods: 4},
+		errs: []error{fmt.Errorf("x: %w", ErrPCMGone)}}
+	if err := m.Pump(context.Background(), dev); !errors.Is(err, ErrPCMGone) {
 		t.Errorf("pump returned %v, want the device-gone error", err)
 	}
-	wrong := &fakePCM{params: pcmParams{rate: 44100, channels: 1, periodFrames: 441, periods: 4}}
-	if err := m.pump(context.Background(), wrong); err == nil {
+	wrong := &fakePCM{params: PCMParams{Rate: 44100, Channels: 1, PeriodFrames: 441, Periods: 4}}
+	if err := m.Pump(context.Background(), wrong); err == nil {
 		t.Error("pump accepted a device at the wrong rate")
 	}
 }
@@ -282,11 +284,11 @@ func TestHeadsetPumpBroadcasts(t *testing.T) {
 	ch, unsub := ab.Subscribe()
 	defer unsub()
 	frames := pcmBytes([]int16{16384, -16384, 0, 32767})
-	dev := &fakePCM{params: pcmParams{rate: 48000, channels: 2, periodFrames: 2, periods: 8},
-		toRead: [][]byte{frames, frames}, errs: []error{nil, errPCMXrun}}
+	dev := &fakePCM{params: PCMParams{Rate: 48000, Channels: 2, PeriodFrames: 2, Periods: 8},
+		toRead: [][]byte{frames, frames}, errs: []error{nil, ErrPCMXrun}}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error)
-	go func() { done <- (&headsetStream{ab: ab}).pump(ctx, dev) }()
+	go func() { done <- (&HeadsetStream{Ab: ab}).Pump(ctx, dev) }()
 
 	var chunk []byte
 	select {
@@ -310,5 +312,16 @@ func TestHeadsetPumpBroadcasts(t *testing.T) {
 	}
 	if dev.recovered != 1 {
 		t.Errorf("recovered %d times from one overrun", dev.recovered)
+	}
+}
+
+func TestCardIndex(t *testing.T) {
+	proc := t.TempDir()
+	os.Symlink("card6", filepath.Join(proc, "UAC2Gadget"))
+	if n, err := CardIndex(proc, "UAC2Gadget"); err != nil || n != 6 {
+		t.Errorf("card %d, %v", n, err)
+	}
+	if _, err := CardIndex(proc, "UAC1Gadget"); err == nil {
+		t.Error("missing card found")
 	}
 }

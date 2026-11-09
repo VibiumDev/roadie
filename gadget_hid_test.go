@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/alsa"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"os"
 	"path/filepath"
@@ -522,12 +523,12 @@ func TestGadgetSendAudio(t *testing.T) {
 	if err := g.SendAudio(make([]byte, 640)); err == nil {
 		t.Error("SendAudio succeeded with no microphone")
 	}
-	m := newMicStream(48000, 1)
+	m := alsa.NewMicStream(48000, 1)
 	g.SetMic(m)
 	if err := g.SendAudio(make([]byte, 640)); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(m.queue); n != 960 {
+	if n := len(m.Queue); n != 960 {
 		t.Errorf("20 ms of 16 kHz queued as %d samples at 48 kHz, want 960", n)
 	}
 }

@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package alsa
 
 import (
 	"encoding/binary"
@@ -47,11 +47,11 @@ func TestALSAStructSizes(t *testing.T) {
 // loopback card to itself -- each side opens the first free subdevice, so a
 // second user of snd-aloop at the same moment can pair them wrongly.
 func TestALSALoopback(t *testing.T) {
-	card, err := alsaCardIndex("/proc/asound", "Loopback")
+	card, err := CardIndex("/proc/asound", "Loopback")
 	if err != nil {
 		t.Skip("no snd-aloop card (sudo modprobe snd-aloop to run this)")
 	}
-	want := pcmParams{rate: 48000, channels: 1, periodFrames: 480, periods: 4}
+	want := PCMParams{Rate: 48000, Channels: 1, PeriodFrames: 480, Periods: 4}
 	play, err := openPCMDevice(card, 0, true, want)
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func TestALSALoopback(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rec.Close()
-	if got := play.Params(); got.rate != 48000 || got.channels != 1 || got.periodFrames < 480 {
+	if got := play.Params(); got.Rate != 48000 || got.Channels != 1 || got.PeriodFrames < 480 {
 		t.Fatalf("granted %+v", got)
 	}
 
@@ -78,7 +78,7 @@ func TestALSALoopback(t *testing.T) {
 				return
 			}
 			n, err := rec.ReadFrames(period)
-			if err == errPCMAgain {
+			if err == ErrPCMAgain {
 				return
 			}
 			if err != nil {
@@ -98,7 +98,7 @@ func TestALSALoopback(t *testing.T) {
 			t.Fatalf("playback never ready: %v", err)
 		}
 		n, err := play.WriteFrames(tone[off:min(off+len(period), len(tone))])
-		if err != nil && err != errPCMAgain {
+		if err != nil && err != ErrPCMAgain {
 			t.Fatal(err)
 		}
 		off += n * 2
@@ -110,7 +110,7 @@ func TestALSALoopback(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 		readSome()
 	}
-	if _, err := play.WriteFrames(make([]byte, 960)); err != nil && err != errPCMAgain {
+	if _, err := play.WriteFrames(make([]byte, 960)); err != nil && err != ErrPCMAgain {
 		t.Errorf("playback after the underrun: %v (the stream should still be running)", err)
 	}
 
@@ -138,7 +138,7 @@ func TestALSALoopback(t *testing.T) {
 }
 
 func TestALSAOpenMissingCard(t *testing.T) {
-	if _, err := openPCM(99, true, pcmParams{rate: 48000, channels: 1, periodFrames: 480, periods: 4}); err == nil {
+	if _, err := OpenPCM(99, true, PCMParams{Rate: 48000, Channels: 1, PeriodFrames: 480, Periods: 4}); err == nil {
 		t.Error("opened card 99")
 	} else if !os.IsNotExist(err) {
 		t.Logf("error: %v", err)

@@ -1,9 +1,9 @@
 //go:build !linux
 
-package main
+package alsa
 
 import "errors"
 
-func openPCM(card int, playback bool, want pcmParams) (pcmStream, error) {
+func OpenPCM(card int, playback bool, want PCMParams) (PCMStream, error) {
 	return nil, errors.New("USB gadget audio needs Linux")
 }
