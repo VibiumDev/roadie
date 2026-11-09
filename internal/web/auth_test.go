@@ -1,4 +1,4 @@
-package main
+package web
 
 import (
 	"errors"
@@ -22,7 +22,7 @@ func newTokenAuth(t *testing.T) (*Auth, *Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path, _ := tokenPath()
+	path, _ := TokenPath()
 	st, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
@@ -153,8 +153,8 @@ func TestLoginCookie(t *testing.T) {
 	}
 
 	// Rotating the token signs the cookie out.
-	path, _ := tokenPath()
-	if _, err := writeNewToken(path); err != nil {
+	path, _ := TokenPath()
+	if _, err := WriteNewToken(path); err != nil {
 		t.Fatal(err)
 	}
 	a2, err := NewAuth(AuthToken, "")
@@ -276,7 +276,7 @@ func TestAuthModes(t *testing.T) {
 		t.Error("--allow without tailscale accepted")
 	}
 	for in, want := range map[string]bool{"": false, "127.0.0.1": true, "localhost": true, "::1": true, "0.0.0.0": false, "10.1.10.104": false} {
-		if got := isLoopbackAddr(in); got != want {
+		if got := IsLoopbackAddr(in); got != want {
 			t.Errorf("isLoopbackAddr(%q) = %v", in, got)
 		}
 	}

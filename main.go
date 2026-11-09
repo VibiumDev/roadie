@@ -24,6 +24,7 @@ import (
 	"github.com/VibiumDev/roadie/internal/gadget"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
+	"github.com/VibiumDev/roadie/internal/web"
 	"github.com/VibiumDev/roadie/rtc"
 	"github.com/VibiumDev/station/rig"
 	"github.com/VibiumDev/station/sdnotify"
@@ -122,28 +123,28 @@ func main() {
 
 	// Local access control, and where to listen: without --auth only this
 	// machine may connect, so Roadie binds to localhost.
-	auth, err := NewAuth(*authMode, *allow)
+	auth, err := web.NewAuth(*authMode, *allow)
 	if err != nil {
 		log.Fatal(err)
 	}
 	bind := *bindAddr
-	if auth.Mode == AuthUnset {
+	if auth.Mode == web.AuthUnset {
 		if bind == "" {
 			bind = "127.0.0.1"
-		} else if !isLoopbackAddr(bind) {
+		} else if !web.IsLoopbackAddr(bind) {
 			log.Fatalf("--bind %s needs --auth token, --auth tailscale or --auth none: without --auth Roadie listens on localhost only", bind)
 		}
 	}
-	auth.Loopback = isLoopbackAddr(bind)
+	auth.Loopback = web.IsLoopbackAddr(bind)
 	if (*tlsCert == "") != (*tlsKey == "") {
 		log.Fatal("--tls-cert and --tls-key go together")
 	}
 	if *httpRedirect != "" && *tlsCert == "" {
 		log.Fatal("--http-redirect needs --tls-cert and --tls-key")
 	}
-	var certs *certReloader
+	var certs *web.CertReloader
 	if *tlsCert != "" {
-		if certs, err = newCertReloader(*tlsCert, *tlsKey); err != nil {
+		if certs, err = web.NewCertReloader(*tlsCert, *tlsKey); err != nil {
 			log.Fatalf("TLS: %v", err)
 		}
 		auth.Secure = true
@@ -347,7 +348,7 @@ func main() {
 	var mdnsShutdown func()
 	if !auth.Loopback {
 		resolution := fmt.Sprintf("%dx%d", *width, *height)
-		mdnsShutdown, err = RegisterMDNS(*name, listenPort, resolution)
+		mdnsShutdown, err = web.RegisterMDNS(*name, listenPort, resolution)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "⚠️  mDNS registration failed: %v\n", err)
 		}
@@ -401,17 +402,17 @@ func main() {
 		fmt.Printf("🌐 %s://%s.local:%d\n", scheme, platform.MDNSHostname(*name), listenPort)
 	}
 	switch auth.Mode {
-	case AuthUnset:
+	case web.AuthUnset:
 		fmt.Println("🔒 Listening on localhost only. To serve the network: --auth token, --auth tailscale or --auth none")
-	case AuthToken:
+	case web.AuthToken:
 		fmt.Println("🔐 Local auth: token. Browsers sign in at /login; agents send Authorization: Bearer. See: roadie token")
-	case AuthTailscale:
+	case web.AuthTailscale:
 		who := "anyone on the tailnet"
 		if len(auth.Allow) > 0 {
 			who = strings.Join(auth.Allow, ", ")
 		}
 		fmt.Printf("🔐 Local auth: tailscale (%s)\n", who)
-	case AuthNone:
+	case web.AuthNone:
 		fmt.Fprintln(os.Stderr, "⚠️  --auth none: no login. Anyone who can reach this port controls the target.")
 	}
 	if certs != nil {
@@ -421,7 +422,7 @@ func main() {
 	}
 
 	// Start HTTP server.
-	srv := &Server{
+	srv := &web.Server{
 		GesturePage:    gesturePageHTML,
 		SoundcheckPage: soundcheckPage,
 		Source:         buf,
@@ -450,10 +451,10 @@ func main() {
 		if input != nil {
 			mic = input.SendAudio
 		}
-		broadcaster.SetInput(srv.hidCommand, mic)
+		broadcaster.SetInput(srv.HidCommand, mic)
 	}
-	settled.Turned = srv.pointerTurned
-	handler := NewMux(srv)
+	settled.Turned = srv.PointerTurned
+	handler := web.NewMux(srv)
 	httpServer := &http.Server{
 		Addr:    net.JoinHostPort(bind, strconv.Itoa(listenPort)),
 		Handler: auth.Wrap(handler),
@@ -464,26 +465,26 @@ func main() {
 	// recorder hears every input and learns the hold from the rig.
 	var rigRun *rigRunner
 	recDir, _ := rigPath("recordings")
-	recorder := newRecorder(buf, func() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
+	recorder := web.NewRecorder(buf, func() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
 		if rigRun == nil {
 			return nil, "", "", nostr.SecretKey{}, false
 		}
 		return rigRun.current()
 	}, recDir)
-	settled.OnInput = recorder.input
+	settled.OnInput = recorder.Input
 	onHoldEnd := func(_, holdID string) {
 		if broadcaster != nil {
 			broadcaster.EndHold(holdID)
 		}
-		recorder.end(holdID)
+		recorder.End(holdID)
 	}
-	rigRun, err = startRig(handler, deviceOffer(*deviceNameFlag, plat, input != nil, ab != nil, srv.effectiveInputMode(), *label, *model, *osVersion), onHoldEnd)
+	rigRun, err = startRig(handler, deviceOffer(*deviceNameFlag, plat, input != nil, ab != nil, srv.EffectiveInputMode(), *label, *model, *osVersion), onHoldEnd)
 	if err != nil {
 		log.Fatalf("station: %v", err)
 	}
 	srv.Station = rigRun
 	if rigRun != nil {
-		go recorder.retry(rigRun.rig.Policy, rigRun.rig.Key)
+		go recorder.Retry(rigRun.rig.Policy, rigRun.rig.Key)
 	}
 	if certs != nil {
 		httpServer.TLSConfig = &tls.Config{GetCertificate: certs.GetCertificate, MinVersion: tls.VersionTLS12}
@@ -534,7 +535,7 @@ func main() {
 
 	// Recordings in progress are closed and uploaded; one the exit cuts
 	// off stays on disk for the next start.
-	recorder.endAll()
+	recorder.EndAll()
 	if rigRun != nil {
 		rigRun.shutdown()
 	}

@@ -1,4 +1,4 @@
-package main
+package web
 
 import (
 	"context"
@@ -102,7 +102,7 @@ func (s *Server) orientation() string {
 // held. An app that turned with it faces that way too, but one that can't
 // turn (the home screen, Settings) stays upright, and there every tap lands
 // a quarter turn away until the phone is turned upright again.
-func (s *Server) pointerTurned() bool {
+func (s *Server) PointerTurned() bool {
 	return s.turn.landscape.Load() && s.orientation() == capture.OrientationPortrait
 }
 

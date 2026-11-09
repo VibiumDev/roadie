@@ -1,4 +1,4 @@
-package main
+package web
 
 import (
 	"context"
@@ -77,11 +77,11 @@ func NewAuth(mode, allow string) (*Auth, error) {
 	switch mode {
 	case AuthUnset, AuthNone:
 	case AuthToken:
-		path, err := tokenPath()
+		path, err := TokenPath()
 		if err != nil {
 			return nil, err
 		}
-		if a.token, err = loadOrCreateToken(path); err != nil {
+		if a.token, err = LoadOrCreateToken(path); err != nil {
 			return nil, err
 		}
 	case AuthTailscale:
@@ -97,7 +97,7 @@ func NewAuth(mode, allow string) (*Auth, error) {
 
 // tokenPath is where the local admin token lives: a file only Roadie's
 // user can read, next to the saved crops.
-func tokenPath() (string, error) {
+func TokenPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -107,7 +107,7 @@ func tokenPath() (string, error) {
 
 // loadOrCreateToken reads the token file, making a new token if there is
 // none.
-func loadOrCreateToken(path string) (string, error) {
+func LoadOrCreateToken(path string) (string, error) {
 	b, err := os.ReadFile(path)
 	if err == nil {
 		t := strings.TrimSpace(string(b))
@@ -117,12 +117,12 @@ func loadOrCreateToken(path string) (string, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	return writeNewToken(path)
+	return WriteNewToken(path)
 }
 
 // writeNewToken replaces the token file with a fresh token: the prefix and
 // 32 random bytes in hex.
-func writeNewToken(path string) (string, error) {
+func WriteNewToken(path string) (string, error) {
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", err
@@ -421,7 +421,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 // isLoopbackAddr says whether a bind address only reaches this machine.
-func isLoopbackAddr(bind string) bool {
+func IsLoopbackAddr(bind string) bool {
 	if bind == "localhost" {
 		return true
 	}

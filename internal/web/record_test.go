@@ -1,4 +1,4 @@
-package main
+package web
 
 import (
 	"archive/zip"
@@ -83,7 +83,7 @@ func TestRecorderRecordsAHold(t *testing.T) {
 	key := nostr.Generate()
 	up := &uploaded{done: make(chan struct{}, 4)}
 	dir := t.TempDir()
-	r := newRecorder(newFakeFrames(t), func() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
+	r := NewRecorder(newFakeFrames(t), func() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
 		return entry, "rig_1/phone", "hld_1", key, true
 	}, dir)
 	r.settle, r.burst = 20*time.Millisecond, 10*time.Millisecond
@@ -98,13 +98,13 @@ func TestRecorderRecordsAHold(t *testing.T) {
 		return map[string]any{"url": "https://st.example/x.zip"}, nil
 	}
 	// A burst of typing, then a tap a while later.
-	r.input("type", map[string]any{"text": "hel"})
-	r.input("type", map[string]any{"text": "lo"})
+	r.Input("type", map[string]any{"text": "hel"})
+	r.Input("type", map[string]any{"text": "lo"})
 	time.Sleep(60 * time.Millisecond)
-	r.input("touch", map[string]any{"contacts": []hid.TouchContact{{ID: 0, Tip: true, X: 100, Y: 200}}})
-	r.input("touch", map[string]any{"contacts": []hid.TouchContact{}})
+	r.Input("touch", map[string]any{"contacts": []hid.TouchContact{{ID: 0, Tip: true, X: 100, Y: 200}}})
+	r.Input("touch", map[string]any{"contacts": []hid.TouchContact{}})
 	time.Sleep(60 * time.Millisecond)
-	r.end("hld_1")
+	r.End("hld_1")
 	select {
 	case <-up.done:
 	case <-time.After(5 * time.Second):
@@ -164,17 +164,17 @@ func TestRecorderRecordsAHold(t *testing.T) {
 
 func TestRecorderSkipsWithoutPolicy(t *testing.T) {
 	entry := &rig.StationEntry{Name: "st", RigID: "rig_1"}
-	r := newRecorder(newFakeFrames(t), func() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
+	r := NewRecorder(newFakeFrames(t), func() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
 		return entry, "rig_1/phone", "hld_1", nostr.Generate(), true
 	}, t.TempDir())
-	r.input("type", map[string]any{"text": "x"})
+	r.Input("type", map[string]any{"text": "x"})
 	if len(r.active) != 0 {
 		t.Fatal("recorded without the policy's say")
 	}
-	r2 := newRecorder(newFakeFrames(t), func() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
+	r2 := NewRecorder(newFakeFrames(t), func() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
 		return nil, "", "", nostr.SecretKey{}, false
 	}, t.TempDir())
-	r2.input("type", map[string]any{"text": "x"})
+	r2.Input("type", map[string]any{"text": "x"})
 	if len(r2.active) != 0 {
 		t.Fatal("recorded with no hold")
 	}
@@ -186,7 +186,7 @@ func TestRecorderKeepsAndRetriesAFailedUpload(t *testing.T) {
 	dir := t.TempDir()
 	fail := true
 	tries := make(chan string, 4)
-	r := newRecorder(newFakeFrames(t), func() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
+	r := NewRecorder(newFakeFrames(t), func() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
 		return entry, "rig_1/phone", "hld_2", key, true
 	}, dir)
 	r.settle, r.burst = 10*time.Millisecond, 5*time.Millisecond
@@ -198,15 +198,15 @@ func TestRecorderKeepsAndRetriesAFailedUpload(t *testing.T) {
 		}
 		return map[string]any{}, nil
 	}
-	r.input("key_press", map[string]any{"keycode": 40})
-	r.end("hld_2")
+	r.Input("key_press", map[string]any{"keycode": 40})
+	r.End("hld_2")
 	<-tries
 	time.Sleep(20 * time.Millisecond)
 	if _, err := os.Stat(filepath.Join(dir, "hld_2.zip")); err != nil {
 		t.Fatal("a failed upload should leave the zip")
 	}
 	fail = false
-	r.retry(&rig.Policy{Stations: []*rig.StationEntry{entry}}, key)
+	r.Retry(&rig.Policy{Stations: []*rig.StationEntry{entry}}, key)
 	if got := <-tries; got != "hld_2" {
 		t.Fatalf("retry sent %q", got)
 	}

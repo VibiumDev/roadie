@@ -1,4 +1,4 @@
-package main
+package web
 
 import (
 	"crypto/tls"
@@ -15,7 +15,7 @@ import (
 
 // certReloader serves a certificate and key from files and picks up new
 // ones when the files change, so a renewal needs no restart.
-type certReloader struct {
+type CertReloader struct {
 	certFile, keyFile string
 
 	mu      sync.RWMutex
@@ -28,15 +28,15 @@ type certReloader struct {
 // recheck is how often the files' timestamps are looked at, at most.
 const recheck = 30 * time.Second
 
-func newCertReloader(certFile, keyFile string) (*certReloader, error) {
-	r := &certReloader{certFile: certFile, keyFile: keyFile}
+func NewCertReloader(certFile, keyFile string) (*CertReloader, error) {
+	r := &CertReloader{certFile: certFile, keyFile: keyFile}
 	if err := r.load(); err != nil {
 		return nil, err
 	}
 	return r, nil
 }
 
-func (r *certReloader) load() error {
+func (r *CertReloader) load() error {
 	cert, err := tls.LoadX509KeyPair(r.certFile, r.keyFile)
 	if err != nil {
 		return err
@@ -60,7 +60,7 @@ func modTime(path string) time.Time {
 }
 
 // GetCertificate is for tls.Config.
-func (r *certReloader) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+func (r *CertReloader) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 	r.mu.RLock()
 	cert, checked, certMod, keyMod := r.cert, r.checked, r.certMod, r.keyMod
 	r.mu.RUnlock()
@@ -84,7 +84,7 @@ func (r *certReloader) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, e
 }
 
 // Leaf is the certificate being served.
-func (r *certReloader) Leaf() *x509.Certificate {
+func (r *CertReloader) Leaf() *x509.Certificate {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if r.cert == nil {
@@ -94,7 +94,7 @@ func (r *certReloader) Leaf() *x509.Certificate {
 }
 
 // tlsStatus describes a certificate file: `roadie tls status`.
-func tlsStatus(w io.Writer, certFile, keyFile string) error {
+func TlsStatus(w io.Writer, certFile, keyFile string) error {
 	pemData, err := os.ReadFile(certFile)
 	if err != nil {
 		return err

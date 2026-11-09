@@ -1,4 +1,4 @@
-package main
+package web
 
 import (
 	"bytes"
@@ -47,7 +47,7 @@ func writeCert(t *testing.T, dir string, serial int64, names ...string) (certFil
 func TestCertReloader(t *testing.T) {
 	dir := t.TempDir()
 	certFile, keyFile := writeCert(t, dir, 1, "roadie.example")
-	r, err := newCertReloader(certFile, keyFile)
+	r, err := NewCertReloader(certFile, keyFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestCertReloader(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := tlsStatus(&out, certFile, keyFile); err != nil {
+	if err := TlsStatus(&out, certFile, keyFile); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"roadie.example", "Expires in 59 days", "matches"} {
@@ -77,7 +77,7 @@ func TestCertReloader(t *testing.T) {
 			t.Errorf("status lacks %q:\n%s", want, out.String())
 		}
 	}
-	if err := tlsStatus(&out, certFile, filepath.Join(dir, "missing.pem")); err == nil {
+	if err := TlsStatus(&out, certFile, filepath.Join(dir, "missing.pem")); err == nil {
 		t.Error("a missing key passed")
 	}
 }

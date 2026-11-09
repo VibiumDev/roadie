@@ -1,4 +1,4 @@
-package main
+package web
 
 import (
 	"bytes"
@@ -298,8 +298,8 @@ func TestRotateToLandscape(t *testing.T) {
 	if h.page != "" {
 		t.Errorf("menu left open on %q", h.page)
 	}
-	if !s.turn.landscape.Load() || s.pointerTurned() {
-		t.Errorf("landscape %v, pointer turned %v", s.turn.landscape.Load(), s.pointerTurned())
+	if !s.turn.landscape.Load() || s.PointerTurned() {
+		t.Errorf("landscape %v, pointer turned %v", s.turn.landscape.Load(), s.PointerTurned())
 	}
 }
 
@@ -369,8 +369,8 @@ func TestRotateAnAppThatDoesNotTurn(t *testing.T) {
 	if code, body := postRotate(t, mux, `{"to":"landscape"}`); code != 200 || !strings.Contains(body, `"portrait"`) {
 		t.Fatalf("status %d: %s", code, body)
 	}
-	if h.turnedTo != capture.OrientationLandscape || !s.pointerTurned() {
-		t.Errorf("turned to %q, pointer turned %v", h.turnedTo, s.pointerTurned())
+	if h.turnedTo != capture.OrientationLandscape || !s.PointerTurned() {
+		t.Errorf("turned to %q, pointer turned %v", h.turnedTo, s.PointerTurned())
 	}
 }
 
@@ -383,7 +383,7 @@ func TestRotateWhenRoadieForgotThePhoneIsOnItsSide(t *testing.T) {
 	h.appTurns, h.leftways = false, true
 	settled := hid.NewSettledHID(h)
 	settled.Sleep = func(time.Duration) {}
-	settled.Turned = s.pointerTurned
+	settled.Turned = s.PointerTurned
 	s.HID = settled
 
 	if code, body := postRotate(t, mux, `{"to":"portrait"}`); code != 200 {

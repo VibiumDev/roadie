@@ -1,4 +1,4 @@
-package main
+package web
 
 import (
 	"archive/zip"
@@ -89,7 +89,7 @@ type recordStep struct {
 	start  time.Time
 }
 
-func newRecorder(source capture.FrameSource, current holdSource, dir string) *recorder {
+func NewRecorder(source capture.FrameSource, current holdSource, dir string) *recorder {
 	return &recorder{source: source, current: current, dir: dir, upload: rig.Upload, logf: log.Printf, now: time.Now,
 		settle: recordSettle, burst: recordBurst, active: map[string]*holdRecording{}}
 }
@@ -100,7 +100,7 @@ func (r *recorder) ms(rec *holdRecording, t time.Time) int64 {
 
 // input is what the HID wrapper reports: every input that went through.
 // Inputs under a hold the policy says to record are kept; others pass.
-func (r *recorder) input(kind string, params map[string]any) {
+func (r *recorder) Input(kind string, params map[string]any) {
 	entry, deviceID, holdID, key, ok := r.current()
 	if !ok || entry == nil || !entry.Record {
 		return
@@ -221,7 +221,7 @@ func (r *recorder) frame(rec *holdRecording, now time.Time) {
 
 // end finishes a hold's recording, if one is going: the zip is written
 // and uploaded in the background.
-func (r *recorder) end(holdID string) {
+func (r *recorder) End(holdID string) {
 	r.mu.Lock()
 	rec := r.active[holdID]
 	if rec == nil {
@@ -242,7 +242,7 @@ func (r *recorder) end(holdID string) {
 }
 
 // endAll finishes every recording, at shutdown.
-func (r *recorder) endAll() {
+func (r *recorder) EndAll() {
 	r.mu.Lock()
 	ids := make([]string, 0, len(r.active))
 	for id := range r.active {
@@ -250,7 +250,7 @@ func (r *recorder) endAll() {
 	}
 	r.mu.Unlock()
 	for _, id := range ids {
-		r.end(id)
+		r.End(id)
 	}
 }
 
@@ -306,7 +306,7 @@ func (r *recorder) send(base string, entry *rig.StationEntry, key nostr.SecretKe
 }
 
 // retry sends the zips an earlier run could not deliver.
-func (r *recorder) retry(policy *rig.Policy, key nostr.SecretKey) {
+func (r *recorder) Retry(policy *rig.Policy, key nostr.SecretKey) {
 	metas, _ := filepath.Glob(filepath.Join(r.dir, "*.json"))
 	sort.Strings(metas)
 	for _, m := range metas {

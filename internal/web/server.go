@@ -1,4 +1,4 @@
-package main
+package web
 
 import (
 	_ "embed"
@@ -102,7 +102,7 @@ func (s *Server) pageTitle() string {
 // effectiveInputMode is the mode viewers actually start in: --input when
 // given, otherwise whatever the platform implies. Reported by /health so the
 // answer is visible rather than inferred from two flags.
-func (s *Server) effectiveInputMode() string {
+func (s *Server) EffectiveInputMode() string {
 	if s.InputMode != "" {
 		return s.InputMode
 	}
@@ -159,7 +159,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	host, _ := os.Hostname()
-	data := map[string]any{"Title": s.pageTitle(), "Name": s.Name, "Host": host, "Platform": "", "Label": s.Label, "Model": s.Model, "OSVersion": s.OSVersion, "Input": s.effectiveInputMode(), "Stations": []map[string]any(nil)}
+	data := map[string]any{"Title": s.pageTitle(), "Name": s.Name, "Host": host, "Platform": "", "Label": s.Label, "Model": s.Model, "OSVersion": s.OSVersion, "Input": s.EffectiveInputMode(), "Stations": []map[string]any(nil)}
 	if s.Platform != "" {
 		data["Platform"] = string(s.Platform)
 	}
@@ -425,7 +425,7 @@ func (s *Server) viewerPage(w http.ResponseWriter, r *http.Request, watch bool) 
 	// --input (or its platform's). Either beats the viewer's stored choice.
 	mode := q.Get("input")
 	if mode != "touch" && mode != "mouse" {
-		mode = s.effectiveInputMode()
+		mode = s.EffectiveInputMode()
 	}
 	cfg := viewer.Config{Mode: "local", Watch: watch, Name: s.pageTitle(), API: viewer.Local(), InputMode: mode,
 		WebRTC: s.RTC != nil && s.RTC.Available(), Extras: "/viewer/extras.js", Info: s.viewerInfo()}
@@ -611,7 +611,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if s.Buf != nil {
 		resp["quality"] = s.Buf.Quality()
 	}
-	if mode := s.effectiveInputMode(); mode != "" {
+	if mode := s.EffectiveInputMode(); mode != "" {
 		resp["input_mode"] = mode
 	}
 	if s.HID != nil && s.HID.Status() == hid.HIDConnected && !s.HID.BoardResponding() {
@@ -1837,7 +1837,7 @@ func releasesOnly(cmd string, contacts []hid.TouchContact) bool {
 // hidCommand runs one input command from a viewer, the JSON /api/hid/ws
 // takes, whichever transport carried it: the WebSocket, or the "hid" data
 // channel of a WebRTC session.
-func (s *Server) hidCommand(data []byte) {
+func (s *Server) HidCommand(data []byte) {
 	if s.HID == nil {
 		return
 	}
@@ -1966,6 +1966,6 @@ func (s *Server) handleHIDWebSocket(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		s.hidCommand(data)
+		s.HidCommand(data)
 	}
 }

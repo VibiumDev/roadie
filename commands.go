@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/web"
 	"os"
 	"os/exec"
 	"os/user"
@@ -67,7 +68,7 @@ func tokenCommand(args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	path, err := tokenPath()
+	path, err := web.TokenPath()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -78,9 +79,9 @@ func tokenCommand(args []string) int {
 	}
 	var token string
 	if *rotate {
-		token, err = writeNewToken(path)
+		token, err = web.WriteNewToken(path)
 	} else {
-		token, err = loadOrCreateToken(path)
+		token, err = web.LoadOrCreateToken(path)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -106,7 +107,7 @@ func tlsCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, "roadie tls status: --tls-cert is required")
 		return 2
 	}
-	if err := tlsStatus(os.Stdout, *cert, *key); err != nil {
+	if err := web.TlsStatus(os.Stdout, *cert, *key); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
