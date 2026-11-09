@@ -5,6 +5,9 @@
 (function () {
   var shell = window.__roadieShell;
   if (!shell) return;
+  // A watching page changes nothing: none of the phone's buttons, no
+  // rotate or lock, no capture settings, crop or resets.
+  if (shell.watching) return;
   var dev = window.__roadieDevice || {};
   var plat = dev.platform;
   var $ = function (id) { return document.getElementById(id); };
