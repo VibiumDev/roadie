@@ -20,6 +20,7 @@ import (
 	"fiatjaf.com/nostr"
 
 	"github.com/VibiumDev/roadie/internal/audio"
+	"github.com/VibiumDev/roadie/internal/capture"
 	"github.com/VibiumDev/roadie/internal/gadget"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
@@ -154,12 +155,12 @@ func main() {
 	}
 
 	if *listDevices {
-		if err := InitObserver(); err != nil {
+		if err := capture.InitObserver(); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: device observer failed: %v\n", err)
 		}
 
 		fmt.Println("Video devices:")
-		for _, d := range ListDevices() {
+		for _, d := range capture.ListDevices() {
 			fmt.Printf("  - %s\n", d)
 		}
 		fmt.Println()
@@ -182,7 +183,7 @@ func main() {
 			fmt.Println(desc)
 			fmt.Println()
 		}
-		suggestCommand(os.Stdout, CaptureCandidates(), relays)
+		suggestCommand(os.Stdout, capture.CaptureCandidates(), relays)
 		return
 	}
 
@@ -203,26 +204,26 @@ func main() {
 		log.Fatal(err)
 	}
 
-	buf := &FrameBuffer{}
+	buf := &capture.FrameBuffer{}
 	buf.SetQuality(*quality)
 	buf.SetFPS(*fps)
 	buf.SetWidth(*width)
 	buf.SetHeight(*height)
-	cropFile := defaultCropFile(*name)
-	if use, crops, err := loadSavedCrops(cropFile); err != nil {
+	cropFile := capture.DefaultCropFile(*name)
+	if use, crops, err := capture.LoadSavedCrops(cropFile); err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  Saved crop not used: %v\n", err)
 	} else {
 		buf.SetCropUse(use)
 		for o, c := range crops {
 			buf.SetSavedCrop(o, c)
 			fmt.Printf("✂️  Saved %s crop: %dx%d at (%d,%d)\n", o, c.Rect.Dx(), c.Rect.Dy(), c.Rect.Min.X, c.Rect.Min.Y)
-			if use == CropSaved && len(crops) == 1 {
+			if use == capture.CropSaved && len(crops) == 1 {
 				// The usual case: one crop, for the way the device is
 				// normally held. Use it from the first frame.
-				buf.presumeOrientation(o)
+				buf.PresumeOrientation(o)
 			}
 		}
-		if use != CropAuto {
+		if use != capture.CropAuto {
 			fmt.Printf("✂️  Crop: %s\n", use)
 		}
 	}
@@ -231,13 +232,13 @@ func main() {
 	var sourceType string
 	var deviceName string
 	var shutdownFunc func()
-	var cm *CaptureManager
+	var cm *capture.CaptureManager
 
 	if *source != "" {
 		// HTTP MJPEG source mode.
 		sourceType = "http"
 		deviceName = *source
-		mgr := NewHTTPSourceManager(*source, buf)
+		mgr := capture.NewHTTPSourceManager(*source, buf)
 		shutdownFunc = mgr.Shutdown
 		fmt.Printf("📡 HTTP source: %s\n", *source)
 		go mgr.Run()
@@ -280,15 +281,15 @@ func main() {
 	if *source == "" {
 		// Start the AVFoundation device observer so the driver manager stays
 		// in sync with hardware (auto-registers on plug, auto-unregisters on unplug).
-		if err := InitObserver(); err != nil {
+		if err := capture.InitObserver(); err != nil {
 			fmt.Fprintf(os.Stderr, "⚠️  Device observer failed: %v\n", err)
 		}
 
-		cm = NewCaptureManager(*device, *audioDevice, buf, captureAudio)
+		cm = capture.NewCaptureManager(*device, *audioDevice, buf, captureAudio)
 		shutdownFunc = cm.Shutdown
 
 		// Try an initial detect for the startup banner, but don't exit on failure.
-		dev, err := DetectDevice(*device)
+		dev, err := capture.DetectDevice(*device)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "")
 			fmt.Fprintln(os.Stderr, "⚠️  No capture device found — will keep trying in the background")
@@ -298,7 +299,7 @@ func main() {
 			deviceName = dev.Name
 			fmt.Printf("📺 Found %q capture device\n", dev.Name)
 			fmt.Printf("🎬 Capturing at %dx%d @ %dfps\n", *width, *height, *fps)
-			if cands := CaptureCandidates(); len(cands) > 1 && *device == "" {
+			if cands := capture.CaptureCandidates(); len(cands) > 1 && *device == "" {
 				fmt.Fprintf(os.Stderr, "\n⚠️  %d capture devices connected — use --video to pick one:\n", len(cands))
 				for _, c := range cands {
 					fmt.Fprintf(os.Stderr, "   %s\n", c)

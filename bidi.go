@@ -19,6 +19,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/VibiumDev/roadie/internal/capture"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/VibiumDev/station/rig"
@@ -170,11 +171,11 @@ func (s *Server) handleBiDi(w http.ResponseWriter, r *http.Request) {
 // session.status
 
 func (s *Server) bidiSessionStatus(conn *websocket.Conn, ctx context.Context, cmd bidiCommand) {
-	ready := s.Source.Status() == StatusConnected && s.HID != nil && s.HID.Status() == hid.HIDConnected
+	ready := s.Source.Status() == capture.StatusConnected && s.HID != nil && s.HID.Status() == hid.HIDConnected
 	msg := "ready"
 	if !ready {
 		parts := []string{}
-		if s.Source.Status() != StatusConnected {
+		if s.Source.Status() != capture.StatusConnected {
 			parts = append(parts, fmt.Sprintf("capture: %s", s.Source.Status()))
 		}
 		if s.HID == nil || s.HID.Status() != hid.HIDConnected {
@@ -290,7 +291,7 @@ func (s *Server) bidiCaptureScreenshot(conn *websocket.Conn, ctx context.Context
 	frame := s.Source.Latest()
 	// Straight after input, show the screen once it has caught up with it.
 	if h, ok := s.HID.(interface{ LastInput() time.Time }); ok && frame != nil {
-		frame = settledFrame(ctx, s.Source, h.LastInput(), realSettleClock)
+		frame = capture.SettledFrame(ctx, s.Source, h.LastInput(), capture.RealSettleClock)
 	}
 	if frame == nil {
 		writeJSON(conn, ctx, bidiErrorResp{

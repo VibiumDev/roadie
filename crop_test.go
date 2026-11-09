@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/VibiumDev/roadie/internal/capture"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"image"
 	"image/color"
@@ -24,10 +25,10 @@ var (
 
 func TestOrientationOf(t *testing.T) {
 	for r, want := range map[image.Rectangle]string{
-		tall: OrientationPortrait, tallDark: OrientationPortrait, wide: OrientationLandscape,
+		tall: capture.OrientationPortrait, tallDark: capture.OrientationPortrait, wide: capture.OrientationLandscape,
 		image.Rect(0, 0, 100, 110): "", {}: "",
 	} {
-		if got := orientationOf(r); got != want {
+		if got := capture.OrientationOf(r); got != want {
 			t.Errorf("orientationOf(%v) = %q, want %q", r, got, want)
 		}
 	}
@@ -36,7 +37,7 @@ func TestOrientationOf(t *testing.T) {
 // The orientation follows the picture, but one odd detection doesn't turn
 // it, and one that can't tell keeps it.
 func TestOrientationNeedsTwoDetections(t *testing.T) {
-	fb := &FrameBuffer{}
+	fb := &capture.FrameBuffer{}
 	step := func(r image.Rectangle, want string) {
 		t.Helper()
 		fb.SetContentRect(r)
@@ -46,12 +47,12 @@ func TestOrientationNeedsTwoDetections(t *testing.T) {
 	}
 	step(wide, "") // not even the first is taken alone
 	step(tall, "")
-	step(tall, OrientationPortrait) // two in a row say
-	step(wide, OrientationPortrait) // one wide one isn't enough
-	step(tallDark, OrientationPortrait)
-	step(nearBlack, OrientationPortrait) // can't tell: keeps it
-	step(wide, OrientationPortrait)
-	step(wide, OrientationLandscape) // two in a row turn it
+	step(tall, capture.OrientationPortrait) // two in a row say
+	step(wide, capture.OrientationPortrait) // one wide one isn't enough
+	step(tallDark, capture.OrientationPortrait)
+	step(nearBlack, capture.OrientationPortrait) // can't tell: keeps it
+	step(wide, capture.OrientationPortrait)
+	step(wide, capture.OrientationLandscape) // two in a row turn it
 }
 
 // The rough picture taken of every frame says which way the target faces,
@@ -64,21 +65,20 @@ func TestPictureTurnSeenAtOnce(t *testing.T) {
 		return img
 	}
 	for r, want := range map[image.Rectangle]string{
-		tall: OrientationPortrait, tallDark: OrientationPortrait, wide: OrientationLandscape, nearBlack: "",
+		tall: capture.OrientationPortrait, tallDark: capture.OrientationPortrait, wide: capture.OrientationLandscape, nearBlack: "",
 	} {
-		if got := shapeOf(brightBox(frame(r)), hd); got != want {
+		if got := capture.ShapeOf(capture.BrightBox(frame(r)), hd); got != want {
 			t.Errorf("shape of a frame showing %v = %q, want %q", r, got, want)
 		}
 	}
 
-	var w shapeWatch
+	var w capture.ShapeWatch
 	var got []bool
-	for _, s := range []string{
-		OrientationPortrait, "", OrientationPortrait, // the first shape isn't a change
-		OrientationLandscape, OrientationLandscape, "", // turned: three frames detected
-		OrientationLandscape, OrientationLandscape, OrientationPortrait,
+	for _, s := range []string{capture.OrientationPortrait, "", capture.OrientationPortrait, // the first shape isn't a change
+		capture.OrientationLandscape, capture.OrientationLandscape, "", capture. // turned: three frames detected
+												OrientationLandscape, capture.OrientationLandscape, capture.OrientationPortrait,
 	} {
-		got = append(got, w.see(s, 3))
+		got = append(got, w.See(s, 3))
 	}
 	if want := []bool{false, false, false, true, true, true, false, false, true}; !reflect.DeepEqual(got, want) {
 		t.Errorf("detected %v, want %v", got, want)
@@ -88,8 +88,8 @@ func TestPictureTurnSeenAtOnce(t *testing.T) {
 // The saved crop for the way the device is turned is used instead of what
 // is detected, scaled to the frames being captured.
 func TestSavedCropOverridesDetection(t *testing.T) {
-	fb := &FrameBuffer{}
-	fb.setFrameSize(hd)
+	fb := &capture.FrameBuffer{}
+	fb.SetFrameSize(hd)
 	fb.SetContentRect(tall)
 	fb.SetContentRect(tall)
 	fb.SetContentRect(tallDark) // a dark app shrinks what is detected
@@ -97,13 +97,13 @@ func TestSavedCropOverridesDetection(t *testing.T) {
 		t.Fatalf("no saved crop: content %v mode %s", fb.ContentRect(), fb.CropMode())
 	}
 
-	fb.SetCropUse(CropSaved)
-	fb.SetSavedCrop(OrientationLandscape, SavedCrop{Rect: wide, Frame: hd})
-	if fb.ContentRect() != tallDark || fb.CropMode() != CropAuto {
+	fb.SetCropUse(capture.CropSaved)
+	fb.SetSavedCrop(capture.OrientationLandscape, capture.SavedCrop{Rect: wide, Frame: hd})
+	if fb.ContentRect() != tallDark || fb.CropMode() != capture.CropAuto {
 		t.Errorf("a landscape crop was used upright, or nothing saved for upright wasn't auto")
 	}
-	fb.SetSavedCrop(OrientationPortrait, SavedCrop{Rect: tall, Frame: hd})
-	if got, _ := fb.savedCropFor(image.Rectangle{Max: hd}); got != tall {
+	fb.SetSavedCrop(capture.OrientationPortrait, capture.SavedCrop{Rect: tall, Frame: hd})
+	if got, _ := fb.SavedCropFor(image.Rectangle{Max: hd}); got != tall {
 		t.Errorf("crop = %v, want the saved %v", got, tall)
 	}
 	if fb.ContentRect() != tall || fb.DetectedRect() != tallDark || fb.CropMode() != "saved" {
@@ -119,58 +119,55 @@ func TestSavedCropOverridesDetection(t *testing.T) {
 		{image.Pt(1280, 720), image.Rect(489, 36, 791, 684), image.Rect(500, 51, 779, 671)},
 		{image.Pt(720, 480), image.Rect(275, 24, 445, 456), image.Rect(281, 34, 438, 448)}, // stretched
 	} {
-		fb.setFrameSize(c.frame)
-		got, ok := fb.savedCropFor(image.Rectangle{Max: c.frame})
-		if !ok || got != c.saved || fb.ContentRect() != c.saved || fb.CropMode() != CropSaved {
+		fb.SetFrameSize(c.frame)
+		got, ok := fb.SavedCropFor(image.Rectangle{Max: c.frame})
+		if !ok || got != c.saved || fb.ContentRect() != c.saved || fb.CropMode() != capture.CropSaved {
 			t.Errorf("at %v: saved crop %v %v, content %v, mode %s; want %v", c.frame, got, ok, fb.ContentRect(), fb.CropMode(), c.saved)
 		}
 		if fb.DetectedRect() != c.detect {
 			t.Errorf("at %v: detected %v, want %v", c.frame, fb.DetectedRect(), c.detect)
 		}
 	}
-	fb.setFrameSize(hd)
+	fb.SetFrameSize(hd)
 	if fb.DetectedRect() != tallDark {
 		t.Errorf("back at 1080p, detected %v, want %v: scaling drifted", fb.DetectedRect(), tallDark)
 	}
 
 	// Auto or off chosen: the saved crops are kept, not used.
-	for _, use := range []string{CropAuto, CropOff} {
+	for _, use := range []string{capture.CropAuto, capture.CropOff} {
 		fb.SetCropUse(use)
-		if _, ok := fb.savedCropFor(image.Rectangle{Max: hd}); ok || fb.CropMode() != use || fb.ContentRect() != tallDark {
+		if _, ok := fb.SavedCropFor(image.Rectangle{Max: hd}); ok || fb.CropMode() != use || fb.ContentRect() != tallDark {
 			t.Errorf("%s chosen: mode %s, content %v", use, fb.CropMode(), fb.ContentRect())
 		}
 	}
-	fb.SetCropUse(CropSaved)
+	fb.SetCropUse(capture.CropSaved)
 
-	fb.SetSavedCrop(OrientationPortrait, SavedCrop{})
-	if _, ok := fb.savedCropFor(image.Rectangle{Max: hd}); ok || len(fb.SavedCrops()) != 1 {
+	fb.SetSavedCrop(capture.OrientationPortrait, capture.SavedCrop{})
+	if _, ok := fb.SavedCropFor(image.Rectangle{Max: hd}); ok || len(fb.SavedCrops()) != 1 {
 		t.Errorf("clearing the portrait crop: %v", fb.SavedCrops())
 	}
 }
 
 func TestSavedCropsFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "roadie", "crop-x.json")
-	if use, m, err := loadSavedCrops(path); use != CropAuto || m != nil || err != nil {
+	if use, m, err := capture.LoadSavedCrops(path); use != capture.CropAuto || m != nil || err != nil {
 		t.Fatalf("no file: %q %v, %v", use, m, err)
 	}
-	want := map[string]SavedCrop{
-		OrientationPortrait:  {Rect: tall, Frame: hd},
-		OrientationLandscape: {Rect: wide, Frame: hd},
-	}
-	if err := storeSavedCrops(path, CropOff, want); err != nil {
+	want := map[string]capture.SavedCrop{capture.OrientationPortrait: {Rect: tall, Frame: hd}, capture.OrientationLandscape: {Rect: wide, Frame: hd}}
+	if err := capture.StoreSavedCrops(path, capture.CropOff, want); err != nil {
 		t.Fatal(err)
 	}
-	use, got, err := loadSavedCrops(path)
-	if err != nil || use != CropOff || !reflect.DeepEqual(got, want) {
+	use, got, err := capture.LoadSavedCrops(path)
+	if err != nil || use != capture.CropOff || !reflect.DeepEqual(got, want) {
 		t.Fatalf("round trip: %q %v, %v", use, got, err)
 	}
-	if err := storeSavedCrops(path, CropOff, nil); err != nil {
+	if err := capture.StoreSavedCrops(path, capture.CropOff, nil); err != nil {
 		t.Fatal(err)
 	}
-	if use, _, _ := loadSavedCrops(path); use != CropOff {
+	if use, _, _ := capture.LoadSavedCrops(path); use != capture.CropOff {
 		t.Errorf("off with no crops saved wasn't kept: %q", use)
 	}
-	if err := storeSavedCrops(path, CropAuto, nil); err != nil {
+	if err := capture.StoreSavedCrops(path, capture.CropAuto, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -179,7 +176,7 @@ func TestSavedCropsFile(t *testing.T) {
 
 	// A file from before there was a choice: saved, as it was then.
 	os.WriteFile(path, []byte(`{"portrait":{"x":734,"y":54,"width":452,"height":972,"frame_width":1920,"frame_height":1080}}`), 0o644)
-	if use, m, err := loadSavedCrops(path); use != CropSaved || len(m) != 1 || err != nil {
+	if use, m, err := capture.LoadSavedCrops(path); use != capture.CropSaved || len(m) != 1 || err != nil {
 		t.Errorf("older file: %q %v, %v", use, m, err)
 	}
 
@@ -189,7 +186,7 @@ func TestSavedCropsFile(t *testing.T) {
 		"bad use":      `{"use":"sometimes"}`,
 	} {
 		os.WriteFile(path, []byte(body), 0o644)
-		if _, _, err := loadSavedCrops(path); err == nil {
+		if _, _, err := capture.LoadSavedCrops(path); err == nil {
 			t.Errorf("%s: loaded", name)
 		}
 	}
@@ -210,13 +207,13 @@ func cropCall(t *testing.T, s *Server, method, url, body string) (int, cropState
 
 func TestCropAPI(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "crop.json")
-	fb := &FrameBuffer{}
+	fb := &capture.FrameBuffer{}
 	s := &Server{Buf: fb, CropFile: path}
 
 	if code, _, _ := cropCall(t, s, "POST", "/api/crop", ""); code != http.StatusConflict {
 		t.Errorf("save before any frame: %d, want 409", code)
 	}
-	fb.setFrameSize(hd)
+	fb.SetFrameSize(hd)
 	if code, _, msg := cropCall(t, s, "POST", "/api/crop", ""); code != http.StatusConflict || !strings.Contains(msg, "bright") {
 		t.Errorf("save with nothing detected: %d %q", code, msg)
 	}
@@ -225,21 +222,21 @@ func TestCropAPI(t *testing.T) {
 	fb.SetContentRect(tall)
 	fb.SetContentRect(tall)
 	code, st, _ := cropCall(t, s, "POST", "/api/crop", "")
-	if code != http.StatusOK || st.Use != CropSaved || st.Mode != CropSaved || st.Orientation != OrientationPortrait ||
-		st.Saved.Portrait == nil || st.Saved.Portrait.savedCrop().Rect != tall || st.Saved.Landscape != nil {
+	if code != http.StatusOK || st.Use != capture.CropSaved || st.Mode != capture.CropSaved || st.Orientation != capture.OrientationPortrait ||
+		st.Saved.Portrait == nil || st.Saved.Portrait.SavedCrop().Rect != tall || st.Saved.Landscape != nil {
 		t.Fatalf("save detected: %d %+v", code, st)
 	}
-	if use, m, _ := loadSavedCrops(path); use != CropSaved || len(m) != 1 {
+	if use, m, _ := capture.LoadSavedCrops(path); use != capture.CropSaved || len(m) != 1 {
 		t.Errorf("not written to the file: %q %v", use, m)
 	}
 
 	// Choose: auto and off keep the saved crop but don't use it.
-	for _, use := range []string{CropAuto, CropOff, CropSaved} {
+	for _, use := range []string{capture.CropAuto, capture.CropOff, capture.CropSaved} {
 		code, st, _ := cropCall(t, s, "PUT", "/api/crop", `{"use":"`+use+`"}`)
 		if code != http.StatusOK || st.Use != use || st.Mode != use || st.Saved.Portrait == nil {
 			t.Errorf("choose %s: %d %+v", use, code, st)
 		}
-		if got, _, _ := loadSavedCrops(path); got != use {
+		if got, _, _ := capture.LoadSavedCrops(path); got != use {
 			t.Errorf("choose %s: the file says %q", use, got)
 		}
 	}
@@ -251,7 +248,7 @@ func TestCropAPI(t *testing.T) {
 
 	// Save a rectangle given; its shape says landscape.
 	code, st, _ = cropCall(t, s, "POST", "/api/crop", `{"x":0,"y":97,"width":1920,"height":886}`)
-	if code != http.StatusOK || st.Saved.Landscape == nil || st.Saved.Landscape.savedCrop().Rect != wide {
+	if code != http.StatusOK || st.Saved.Landscape == nil || st.Saved.Landscape.SavedCrop().Rect != wide {
 		t.Fatalf("save given: %d %+v", code, st)
 	}
 
@@ -268,12 +265,12 @@ func TestCropAPI(t *testing.T) {
 
 	// Saved chosen, upright, but only a landscape crop left: auto for now.
 	code, st, _ = cropCall(t, s, "DELETE", "/api/crop?orientation=portrait", "")
-	if code != http.StatusOK || st.Saved.Portrait != nil || st.Saved.Landscape == nil || st.Use != CropSaved || st.Mode != CropAuto {
+	if code != http.StatusOK || st.Saved.Portrait != nil || st.Saved.Landscape == nil || st.Use != capture.CropSaved || st.Mode != capture.CropAuto {
 		t.Errorf("clear portrait: %d %+v", code, st)
 	}
 	// None left: back to auto.
 	code, st, _ = cropCall(t, s, "DELETE", "/api/crop", "")
-	if code != http.StatusOK || st.Saved.Landscape != nil || st.Use != CropAuto {
+	if code != http.StatusOK || st.Saved.Landscape != nil || st.Use != capture.CropAuto {
 		t.Errorf("clear all: %d %+v", code, st)
 	}
 	if code, _, _ := cropCall(t, s, "PUT", "/api/crop", `{"use":"saved"}`); code != http.StatusConflict {
@@ -293,21 +290,21 @@ func TestCropAPI(t *testing.T) {
 // A presumed orientation applies before anything is detected, and
 // detection still turns it.
 func TestPresumedOrientation(t *testing.T) {
-	fb := &FrameBuffer{}
-	fb.setFrameSize(hd)
-	fb.SetSavedCrop(OrientationPortrait, SavedCrop{Rect: tall, Frame: hd})
-	fb.SetCropUse(CropSaved)
-	fb.presumeOrientation(OrientationPortrait)
+	fb := &capture.FrameBuffer{}
+	fb.SetFrameSize(hd)
+	fb.SetSavedCrop(capture.OrientationPortrait, capture.SavedCrop{Rect: tall, Frame: hd})
+	fb.SetCropUse(capture.CropSaved)
+	fb.PresumeOrientation(capture.OrientationPortrait)
 	if fb.CropMode() != "saved" || fb.ContentRect() != tall {
 		t.Fatalf("before any detection: mode %s, content %v", fb.CropMode(), fb.ContentRect())
 	}
 	fb.SetContentRect(wide)
 	fb.SetContentRect(wide)
-	if fb.Orientation() != OrientationLandscape || fb.CropMode() != "auto" {
+	if fb.Orientation() != capture.OrientationLandscape || fb.CropMode() != "auto" {
 		t.Errorf("turned sideways: %s, mode %s", fb.Orientation(), fb.CropMode())
 	}
-	fb.presumeOrientation(OrientationPortrait)
-	if fb.Orientation() != OrientationLandscape {
+	fb.PresumeOrientation(capture.OrientationPortrait)
+	if fb.Orientation() != capture.OrientationLandscape {
 		t.Errorf("a presumption overrode what was detected")
 	}
 }
@@ -315,7 +312,7 @@ func TestPresumedOrientation(t *testing.T) {
 // /api/settings' autocrop is the two-way form of the choice, kept with it.
 func TestSettingsAutocropChoosesTheCrop(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "crop.json")
-	s := &Server{Buf: &FrameBuffer{}, CropFile: path}
+	s := &Server{Buf: &capture.FrameBuffer{}, CropFile: path}
 	put := func(body string) {
 		t.Helper()
 		w := httptest.NewRecorder()
@@ -325,11 +322,11 @@ func TestSettingsAutocropChoosesTheCrop(t *testing.T) {
 		}
 	}
 	put(`{"autocrop":false}`)
-	if use, _, _ := loadSavedCrops(path); s.Buf.CropUse() != CropOff || use != CropOff {
+	if use, _, _ := capture.LoadSavedCrops(path); s.Buf.CropUse() != capture.CropOff || use != capture.CropOff {
 		t.Errorf("autocrop false: chosen %q, file %q", s.Buf.CropUse(), use)
 	}
 	put(`{"autocrop":true}`)
-	if s.Buf.CropUse() != CropAuto {
+	if s.Buf.CropUse() != capture.CropAuto {
 		t.Errorf("autocrop true: chosen %q", s.Buf.CropUse())
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -340,7 +337,7 @@ func TestSettingsAutocropChoosesTheCrop(t *testing.T) {
 // /api/settings shows and sets the glide switch, where the input can glide.
 func TestSettingsGlide(t *testing.T) {
 	h := hid.NewSettledHID(&pathHID{})
-	s := &Server{Buf: &FrameBuffer{}, HID: h}
+	s := &Server{Buf: &capture.FrameBuffer{}, HID: h}
 	call := func(method, body string) (int, map[string]interface{}) {
 		t.Helper()
 		w := httptest.NewRecorder()
@@ -392,18 +389,25 @@ func TestSaveTrimsEdgeLinesThatStandOut(t *testing.T) {
 	if err := jpeg.Encode(&frame, img, &jpeg.Options{Quality: 80}); err != nil {
 		t.Fatal(err)
 	}
-	fb := &FrameBuffer{}
+	fb := &capture.FrameBuffer{}
 	s := &Server{Buf: fb, CropFile: filepath.Join(t.TempDir(), "crop.json")}
-	fb.setFrameSize(hd)
+	fb.SetFrameSize(hd)
 	fb.UpdateBoth(frame.Bytes(), frame.Bytes(), image.Rectangle{Max: hd})
 	fb.SetContentRect(picture)
 
 	_, st, _ := cropCall(t, s, "POST", "/api/crop", "")
-	if got, want := st.Saved.Portrait.savedCrop().Rect, image.Rect(737, 54, 1183, 1026); got != want {
+	if got, want := st.Saved.Portrait.SavedCrop().Rect, image.Rect(737, 54, 1183, 1026); got != want {
 		t.Errorf("saved %v, want %v: the half-lit and sharpened columns trimmed, the clean edges kept", got, want)
 	}
 	_, st, _ = cropCall(t, s, "POST", "/api/crop", `{"x":735,"y":54,"width":449,"height":972}`)
-	if got := st.Saved.Portrait.savedCrop().Rect; got != picture {
+	if got := st.Saved.Portrait.SavedCrop().Rect; got != picture {
 		t.Errorf("saved %v from numbers, want them as given, %v", got, picture)
 	}
 }
+
+// Frame sizes shared with the capture package's tests, which keep their own.
+var (
+	hd   = image.Pt(1920, 1080)
+	tall = image.Rect(734, 54, 1186, 1026) // an iPhone held upright
+	wide = image.Rect(0, 97, 1920, 983)    // the iPhone turned sideways
+)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/VibiumDev/roadie/internal/audio"
+	"github.com/VibiumDev/roadie/internal/capture"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/VibiumDev/roadie/rtc"
@@ -27,8 +28,8 @@ import (
 
 // Server holds the state needed by HTTP handlers.
 type Server struct {
-	Source         FrameSource
-	Buf            *FrameBuffer
+	Source         capture.FrameSource
+	Buf            *capture.FrameBuffer
 	RelayFPS       int // frame rate cap for the MJPEG stream through a station
 	Device         string
 	AudioBroadcast *audio.AudioBroadcaster
@@ -38,7 +39,7 @@ type Server struct {
 	AudioSource func() string
 	SourceType  string // "hardware" or "http"
 	HID         hid.HIDBackend
-	Capture     *CaptureManager
+	Capture     *capture.CaptureManager
 	// RTC sends the picture over WebRTC; nil when this host has no way to
 	// encode H.264 or frames come from an HTTP source.
 	RTC *rtc.Broadcaster
@@ -583,11 +584,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	status := "ok"
 	switch s.Source.Status() {
-	case StatusDisconnected:
+	case capture.StatusDisconnected:
 		status = "disconnected"
-	case StatusConnecting:
+	case capture.StatusConnecting:
 		status = "connecting"
-	case StatusNoSignal:
+	case capture.StatusNoSignal:
 		status = "no_signal"
 	}
 

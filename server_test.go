@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/VibiumDev/roadie/internal/audio"
+	"github.com/VibiumDev/roadie/internal/capture"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"html"
@@ -21,29 +22,29 @@ type fakeSource struct {
 	frame       []byte
 	rawFrame    []byte
 	cropRect    image.Rectangle
-	status      CaptureStatus
+	status      capture.CaptureStatus
 	contentRect image.Rectangle
 }
 
-func (f *fakeSource) Latest() []byte               { return f.frame }
-func (f *fakeSource) LatestRaw() []byte            { return f.rawFrame }
-func (f *fakeSource) Status() CaptureStatus        { return f.status }
-func (f *fakeSource) CropRect() image.Rectangle    { return f.cropRect }
-func (f *fakeSource) ContentRect() image.Rectangle { return f.contentRect }
+func (f *fakeSource) Latest() []byte                { return f.frame }
+func (f *fakeSource) LatestRaw() []byte             { return f.rawFrame }
+func (f *fakeSource) Status() capture.CaptureStatus { return f.status }
+func (f *fakeSource) CropRect() image.Rectangle     { return f.cropRect }
+func (f *fakeSource) ContentRect() image.Rectangle  { return f.contentRect }
 
 func newTestServer() (*Server, http.Handler) {
-	buf := &FrameBuffer{}
+	buf := &capture.FrameBuffer{}
 	buf.SetQuality(80)
-	buf.Update(testJPEG(320, 240))
-	buf.SetStatus(StatusConnected)
+	buf.Update(capture.TestJPEG(320, 240))
+	buf.SetStatus(capture.StatusConnected)
 	buf.SetFPS(30)
 	buf.SetWidth(1920)
 	buf.SetHeight(1080)
 	s := &Server{
 		Source: &fakeSource{
-			frame:    testJPEG(320, 240),
-			rawFrame: testJPEG(1920, 1080),
-			status:   StatusConnected,
+			frame:    capture.TestJPEG(320, 240),
+			rawFrame: capture.TestJPEG(1920, 1080),
+			status:   capture.StatusConnected,
 		},
 		Buf:        buf,
 		Device:     "Test Device",
@@ -106,9 +107,9 @@ func TestSnapshotHandler(t *testing.T) {
 }
 
 func TestSnapshotNoFrame(t *testing.T) {
-	buf := &FrameBuffer{}
+	buf := &capture.FrameBuffer{}
 	buf.SetFPS(30)
-	s := &Server{Source: &fakeSource{status: StatusConnected}, Buf: buf}
+	s := &Server{Source: &fakeSource{status: capture.StatusConnected}, Buf: buf}
 	code, _, _ := get(t, NewMux(s), "/snapshot")
 	if code != http.StatusServiceUnavailable {
 		t.Errorf("expected 503, got %d", code)
@@ -142,18 +143,18 @@ func TestStreamHandler(t *testing.T) {
 func TestHealthStatus(t *testing.T) {
 	tests := []struct {
 		name       string
-		status     CaptureStatus
+		status     capture.CaptureStatus
 		wantStatus string
 		wantDevice bool
 	}{
-		{"connected", StatusConnected, "ok", true},
-		{"disconnected", StatusDisconnected, "disconnected", false},
-		{"connecting", StatusConnecting, "connecting", false},
-		{"no_signal", StatusNoSignal, "no_signal", true},
+		{"connected", capture.StatusConnected, "ok", true},
+		{"disconnected", capture.StatusDisconnected, "disconnected", false},
+		{"connecting", capture.StatusConnecting, "connecting", false},
+		{"no_signal", capture.StatusNoSignal, "no_signal", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			buf := &FrameBuffer{}
+			buf := &capture.FrameBuffer{}
 			buf.SetFPS(30)
 			buf.SetWidth(1920)
 			buf.SetHeight(1080)
@@ -219,13 +220,13 @@ func TestRawStreamHandler(t *testing.T) {
 }
 
 func TestHealthCropRect(t *testing.T) {
-	buf := &FrameBuffer{}
+	buf := &capture.FrameBuffer{}
 	buf.SetFPS(30)
 	buf.SetWidth(1920)
 	buf.SetHeight(1080)
 	s := &Server{
 		Source: &fakeSource{
-			status:   StatusConnected,
+			status:   capture.StatusConnected,
 			cropRect: image.Rect(520, 0, 1400, 1080),
 		},
 		Buf:    buf,
@@ -257,12 +258,12 @@ func TestHealthSourceType(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			buf := &FrameBuffer{}
+			buf := &capture.FrameBuffer{}
 			buf.SetFPS(30)
 			buf.SetWidth(1920)
 			buf.SetHeight(1080)
 			s := &Server{
-				Source:     &fakeSource{status: StatusConnected},
+				Source:     &fakeSource{status: capture.StatusConnected},
 				Buf:        buf,
 				Device:     "Test Device",
 				SourceType: tt.sourceType,
@@ -446,7 +447,7 @@ func TestHealthAudioSource(t *testing.T) {
 	ab := audio.NewAudioBroadcaster()
 	ab.SetParams(audio.AudioParams{SampleRate: 48000, Channels: 2, Format: "f32-interleaved"})
 	for _, src := range []string{"usb", ""} {
-		s := &Server{Source: &fakeSource{status: StatusConnected}, Buf: &FrameBuffer{},
+		s := &Server{Source: &fakeSource{status: capture.StatusConnected}, Buf: &capture.FrameBuffer{},
 			AudioBroadcast: ab, AudioSource: func() string { return src }}
 		_, _, body := get(t, NewMux(s), "/health")
 		var data struct {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"github.com/VibiumDev/roadie/internal/capture"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -32,7 +33,7 @@ func newTokenAuth(t *testing.T) (*Auth, *Server) {
 	if !strings.HasPrefix(a.token, tokenPrefix) || len(a.token) != len(tokenPrefix)+64 {
 		t.Errorf("token %q has the wrong shape", a.token)
 	}
-	return a, &Server{Auth: a, Buf: &FrameBuffer{}}
+	return a, &Server{Auth: a, Buf: &capture.FrameBuffer{}}
 }
 
 func TestTokenAuthRefuses(t *testing.T) {

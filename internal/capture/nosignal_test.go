@@ -1,4 +1,4 @@
-package main
+package capture
 
 import (
 	"image"
@@ -54,15 +54,15 @@ func TestDongleNoSignalScreen(t *testing.T) {
 		img            image.Image
 		noSignal, dark bool
 	}{
-		{"the dongle's No Signal screen", loadJPEG(t, "testdata/dongle-no-signal.jpg"), true, false},
-		{"the dark frame before it", loadJPEG(t, "testdata/dongle-dark.jpg"), false, true},
+		{"the dongle's No Signal screen", loadJPEG(t, "../../testdata/dongle-no-signal.jpg"), true, false},
+		{"the dark frame before it", loadJPEG(t, "../../testdata/dongle-dark.jpg"), false, true},
 		{"a phone with a yellow middle", phone, false, false},
 		{"a white message at the centre", white, false, false},
 	} {
 		if got := dongleNoSignal(tc.img); got != tc.noSignal {
 			t.Errorf("%s: dongleNoSignal = %v", tc.name, got)
 		}
-		if got := brightBox(tc.img).Empty(); got != tc.dark {
+		if got := BrightBox(tc.img).Empty(); got != tc.dark {
 			t.Errorf("%s: dark = %v", tc.name, got)
 		}
 	}
@@ -73,7 +73,7 @@ func TestDongleNoSignalScreen(t *testing.T) {
 // the frame does.
 func TestSmallDetectionKeepsOrientation(t *testing.T) {
 	fb := &FrameBuffer{}
-	fb.setFrameSize(hd)
+	fb.SetFrameSize(hd)
 	fb.SetContentRect(tall)
 	fb.SetContentRect(tall)
 	message := image.Rect(856, 496, 1058, 612)

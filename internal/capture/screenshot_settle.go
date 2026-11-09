@@ -1,4 +1,4 @@
-package main
+package capture
 
 import (
 	"bytes"
@@ -16,17 +16,17 @@ import (
 const (
 	reactDelay  = 300 * time.Millisecond // input can't show sooner than this
 	settleQuiet = 150 * time.Millisecond // no change for this long: settled
-	settleLimit = 2 * time.Second        // from the input; a video never settles
-	settlePoll  = 10 * time.Millisecond
+	SettleLimit = 2 * time.Second        // from the input; a video never settles
+	SettlePoll  = 10 * time.Millisecond
 )
 
 // settleClock is time for settledFrame, swapped in tests.
-type settleClock struct {
-	now   func() time.Time
-	sleep func(context.Context, time.Duration) error
+type SettleClock struct {
+	Now   func() time.Time
+	Sleep func(context.Context, time.Duration) error
 }
 
-var realSettleClock = settleClock{now: time.Now, sleep: sleepCtx}
+var RealSettleClock = SettleClock{Now: time.Now, Sleep: sleepCtx}
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)
@@ -43,39 +43,39 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // input at lastInput: no sooner than reactDelay after it, and once frames
 // have stopped changing for settleQuiet, or at settleLimit. With no input
 // that recent it returns the latest frame at once.
-func settledFrame(ctx context.Context, src FrameSource, lastInput time.Time, clk settleClock) []byte {
-	return settledFrameOr(ctx, src, lastInput, clk, nil)
+func SettledFrame(ctx context.Context, src FrameSource, lastInput time.Time, clk SettleClock) []byte {
+	return SettledFrameOr(ctx, src, lastInput, clk, nil)
 }
 
 // settledFrameOr is settledFrame, but returns sooner with the first frame
 // from reactDelay on that enough accepts, when enough isn't nil: a caller
 // that knows what it is waiting for needn't wait for an animation to end.
 // Each frame is shown to it once.
-func settledFrameOr(ctx context.Context, src FrameSource, lastInput time.Time, clk settleClock,
+func SettledFrameOr(ctx context.Context, src FrameSource, lastInput time.Time, clk SettleClock,
 	enough func(*image.Gray) bool) []byte {
-	deadline := lastInput.Add(settleLimit)
-	if !clk.now().Before(deadline) {
+	deadline := lastInput.Add(SettleLimit)
+	if !clk.Now().Before(deadline) {
 		return src.Latest()
 	}
-	if wait := lastInput.Add(reactDelay).Sub(clk.now()); wait > 0 {
-		if clk.sleep(ctx, wait) != nil {
+	if wait := lastInput.Add(reactDelay).Sub(clk.Now()); wait > 0 {
+		if clk.Sleep(ctx, wait) != nil {
 			return src.Latest()
 		}
 	}
 	// Each frame is compared with the one the quiet stretch started on, not
 	// the one before it, so a slow fade adds up to a change.
 	latest := src.Latest()
-	ref := decodeGray(latest)
+	ref := DecodeGray(latest)
 	if enough != nil && enough(ref) {
 		return latest
 	}
-	quietSince := clk.now()
+	quietSince := clk.Now()
 	for {
-		now := clk.now()
+		now := clk.Now()
 		if !now.Before(deadline) || now.Sub(quietSince) >= settleQuiet {
 			return latest
 		}
-		if clk.sleep(ctx, settlePoll) != nil {
+		if clk.Sleep(ctx, SettlePoll) != nil {
 			return latest
 		}
 		cur := src.Latest()
@@ -83,17 +83,17 @@ func settledFrameOr(ctx context.Context, src FrameSource, lastInput time.Time, c
 			continue
 		}
 		latest = cur
-		img := decodeGray(cur)
+		img := DecodeGray(cur)
 		if enough != nil && enough(img) {
 			return latest
 		}
 		if framesDiffer(ref, img) {
-			ref, quietSince = img, clk.now()
+			ref, quietSince = img, clk.Now()
 		}
 	}
 }
 
-func decodeGray(frame []byte) *image.Gray {
+func DecodeGray(frame []byte) *image.Gray {
 	img, err := jpeg.Decode(bytes.NewReader(frame))
 	if err != nil {
 		return nil

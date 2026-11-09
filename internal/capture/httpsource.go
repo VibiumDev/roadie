@@ -1,4 +1,4 @@
-package main
+package capture
 
 import (
 	"bytes"
@@ -158,7 +158,7 @@ func (h *HTTPSourceManager) stream() error {
 		transitioned := black != prevBlack
 		prevBlack = black
 		fullBounds := img.Bounds()
-		h.Buf.setFrameSize(fullBounds.Size())
+		h.Buf.SetFrameSize(fullBounds.Size())
 		if frameCount == 1 || transitioned || frameCount%httpCropInterval == 0 {
 			rect := detectContentRect(img, cropThreshold)
 			if rect != (image.Rectangle{}) && !black { // a black frame says nothing
@@ -168,7 +168,7 @@ func (h *HTTPSourceManager) stream() error {
 				activeCrop = rect
 			}
 		}
-		if saved, ok := h.Buf.savedCropFor(fullBounds); ok {
+		if saved, ok := h.Buf.SavedCropFor(fullBounds); ok {
 			activeCrop, usingSaved = saved, true
 		} else if usingSaved {
 			// The saved crop was just cleared: detect afresh.

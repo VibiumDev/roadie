@@ -1,4 +1,4 @@
-package main
+package capture
 
 import (
 	"bytes"
@@ -29,7 +29,7 @@ func serveMJPEG(w http.ResponseWriter, frames [][]byte) {
 }
 
 func TestHTTPSourceParseFrames(t *testing.T) {
-	frame := testJPEG(320, 240)
+	frame := TestJPEG(320, 240)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Serve frames with a small delay so the poll loop can observe them
@@ -95,7 +95,7 @@ func TestHTTPSourceReconnect(t *testing.T) {
 		n := callCount
 		mu.Unlock()
 
-		frames := [][]byte{testJPEG(320, 240)}
+		frames := [][]byte{TestJPEG(320, 240)}
 		if n == 1 {
 			// First connection: serve one frame then close.
 			serveMJPEG(w, frames)

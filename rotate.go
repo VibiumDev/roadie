@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/VibiumDev/roadie/internal/capture"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"image"
@@ -58,7 +59,7 @@ const menuPark = hid.HIDCoordMax / 50
 var (
 	// rotateClock paces the looks: each waits for the screen to settle
 	// after the click before it.
-	rotateClock = realSettleClock
+	rotateClock = capture.RealSettleClock
 	// rotateShows is how long an app gets to turn with the phone and
 	// Roadie's reading of the picture to see it: the picture changes shape
 	// half a second after the click, and is seen to in a frame or two (see
@@ -102,7 +103,7 @@ func (s *Server) orientation() string {
 // turn (the home screen, Settings) stays upright, and there every tap lands
 // a quarter turn away until the phone is turned upright again.
 func (s *Server) pointerTurned() bool {
-	return s.turn.landscape.Load() && s.orientation() == OrientationPortrait
+	return s.turn.landscape.Load() && s.orientation() == capture.OrientationPortrait
 }
 
 // handleRotate turns the target's screen: POST {"to": "portrait"} or
@@ -116,7 +117,7 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request) {
 		To string `json:"to"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil ||
-		(body.To != OrientationPortrait && body.To != OrientationLandscape) {
+		(body.To != capture.OrientationPortrait && body.To != capture.OrientationLandscape) {
 		http.Error(w, `"to" must be "portrait" or "landscape"`, http.StatusBadRequest)
 		return
 	}
@@ -156,10 +157,10 @@ func (s *Server) rotate(to string) error {
 	defer s.turn.busy.Unlock()
 	s.turn.rotating.Store(true)
 	defer s.turn.rotating.Store(false)
-	if decodeGray(s.Source.Latest()) == nil {
+	if capture.DecodeGray(s.Source.Latest()) == nil {
 		return errNoPicture
 	}
-	land := to == OrientationLandscape
+	land := to == capture.OrientationLandscape
 	way := menuPortrait
 	if land {
 		way = menuLeft
@@ -186,7 +187,7 @@ func (s *Server) rotate(to string) error {
 			// the phone reads the pointer another way than Roadie took it
 			// to, as after a restart while it took itself to be on its
 			// side. On an upright screen, try the other way once.
-			if flipped || s.orientation() != OrientationPortrait {
+			if flipped || s.orientation() != capture.OrientationPortrait {
 				if flipped {
 					s.turn.landscape.Store(!s.turn.landscape.Load())
 				}
@@ -271,7 +272,7 @@ func (s *Server) closeMenu(open func(menuSeen) bool) bool {
 // turned follows a turn chosen in the menu: it waits for the picture, notes
 // how the phone takes itself to be held, and closes the menu.
 func (s *Server) turned(to string) error {
-	land := to == OrientationLandscape
+	land := to == capture.OrientationLandscape
 	// The pointer is read the new way from now on, and an app that turns
 	// takes a moment to: until the picture shows it, Roadie takes the phone
 	// to be held the way the picture faces.
@@ -339,7 +340,7 @@ func (s *Server) lookAtMenu(want func(menuSeen) bool) menuSeen {
 	if early {
 		return last
 	}
-	return findMenu(decodeGray(frame))
+	return findMenu(capture.DecodeGray(frame))
 }
 
 // settled waits for the screen to catch up with the last input, and returns
@@ -349,7 +350,7 @@ func (s *Server) settled(enough func(*image.Gray) bool) []byte {
 	if h, ok := s.HID.(interface{ LastInput() time.Time }); ok {
 		last = h.LastInput()
 	}
-	return settledFrameOr(context.Background(), s.Source, last, rotateClock, enough)
+	return capture.SettledFrameOr(context.Background(), s.Source, last, rotateClock, enough)
 }
 
 // waitOrientation waits up to d for the picture to face that way.

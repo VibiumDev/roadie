@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/VibiumDev/roadie/internal/audio"
+	"github.com/VibiumDev/roadie/internal/capture"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,10 +12,10 @@ import (
 // broadcaster's own tests live with it in internal/audio.
 
 func TestAudioHandlerNoAudio(t *testing.T) {
-	buf := &FrameBuffer{}
+	buf := &capture.FrameBuffer{}
 	buf.SetFPS(30)
 	s := &Server{
-		Source:         &fakeSource{status: StatusConnected},
+		Source:         &fakeSource{status: capture.StatusConnected},
 		Buf:            buf,
 		AudioBroadcast: nil, // no audio
 	}
@@ -26,11 +27,11 @@ func TestAudioHandlerNoAudio(t *testing.T) {
 }
 
 func TestAudioHandlerInactive(t *testing.T) {
-	buf := &FrameBuffer{}
+	buf := &capture.FrameBuffer{}
 	buf.SetFPS(30)
 	ab := audio.NewAudioBroadcaster()
 	s := &Server{
-		Source:         &fakeSource{status: StatusConnected},
+		Source:         &fakeSource{status: capture.StatusConnected},
 		Buf:            buf,
 		AudioBroadcast: ab, // present but inactive
 	}

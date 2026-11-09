@@ -19,6 +19,7 @@ import (
 
 	"fiatjaf.com/nostr"
 
+	"github.com/VibiumDev/roadie/internal/capture"
 	"github.com/VibiumDev/station/rig"
 )
 
@@ -48,7 +49,7 @@ type holdSource func() (entry *rig.StationEntry, deviceID, holdID string, key no
 
 // recorder keeps the hold recordings in the making.
 type recorder struct {
-	source  FrameSource
+	source  capture.FrameSource
 	current holdSource
 	dir     string // finished zips wait here until uploaded
 	// upload sends a finished zip; the default is rig.Upload.
@@ -88,7 +89,7 @@ type recordStep struct {
 	start  time.Time
 }
 
-func newRecorder(source FrameSource, current holdSource, dir string) *recorder {
+func newRecorder(source capture.FrameSource, current holdSource, dir string) *recorder {
 	return &recorder{source: source, current: current, dir: dir, upload: rig.Upload, logf: log.Printf, now: time.Now,
 		settle: recordSettle, burst: recordBurst, active: map[string]*holdRecording{}}
 }

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VibiumDev/roadie/internal/capture"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/coder/websocket"
@@ -104,10 +105,10 @@ func (h *menuPhone) MouseClick(b int) error {
 		h.clicks, h.page = append(h.clicks, "Rotate Screen"), pageRotate
 	case h.page == pageRotate && near(menuLeft):
 		h.clicks = append(h.clicks, "Left")
-		h.turn(OrientationLandscape)
+		h.turn(capture.OrientationLandscape)
 	case h.page == pageRotate && near(menuPortrait):
 		h.clicks = append(h.clicks, "Portrait")
-		h.turn(OrientationPortrait)
+		h.turn(capture.OrientationPortrait)
 	case h.page == "":
 		h.clicks = append(h.clicks, "app")
 		h.onApp++
@@ -122,7 +123,7 @@ func (h *menuPhone) MouseClick(b int) error {
 func (h *menuPhone) turn(o string) {
 	h.turnedTo = o
 	if !h.appTurns {
-		h.leftways = o == OrientationLandscape
+		h.leftways = o == capture.OrientationLandscape
 		return
 	}
 	face(h.s, o)
@@ -132,7 +133,7 @@ func (h *menuPhone) turn(o string) {
 }
 
 func screenFacing(o string) image.Rectangle {
-	if o == OrientationLandscape {
+	if o == capture.OrientationLandscape {
 		return image.Rect(0, 0, 400, 184)
 	}
 	return image.Rect(0, 0, 184, 400)
@@ -201,10 +202,10 @@ func (m *menuScreen) Latest() []byte {
 	}
 	return m.frame
 }
-func (m *menuScreen) LatestRaw() []byte            { return m.frame }
-func (m *menuScreen) Status() CaptureStatus        { return StatusConnected }
-func (m *menuScreen) CropRect() image.Rectangle    { return m.contentRect }
-func (m *menuScreen) ContentRect() image.Rectangle { return m.contentRect }
+func (m *menuScreen) LatestRaw() []byte             { return m.frame }
+func (m *menuScreen) Status() capture.CaptureStatus { return capture.StatusConnected }
+func (m *menuScreen) CropRect() image.Rectangle     { return m.contentRect }
+func (m *menuScreen) ContentRect() image.Rectangle  { return m.contentRect }
 
 const grayWhite = 250
 
@@ -213,7 +214,7 @@ const grayWhite = 250
 func newMenuPhone(t *testing.T, o string) (*Server, http.Handler, *menuPhone) {
 	t.Helper()
 	clock, shows, sleep := rotateClock, rotateShows, rotateSleep
-	rotateClock = settleClock{now: func() time.Time { return time.Now().Add(time.Hour) }, sleep: realSettleClock.sleep}
+	rotateClock = capture.SettleClock{Now: func() time.Time { return time.Now().Add(time.Hour) }, Sleep: capture.RealSettleClock.Sleep}
 	rotateShows, rotateSleep = 30*time.Millisecond, func(time.Duration) {}
 	t.Cleanup(func() { rotateClock, rotateShows, rotateSleep = clock, shows, sleep })
 
@@ -229,11 +230,7 @@ func newMenuPhone(t *testing.T, o string) (*Server, http.Handler, *menuPhone) {
 }
 
 // face makes the picture face o.
-func face(s *Server, o string) {
-	s.Buf.mu.Lock()
-	s.Buf.orientation = o
-	s.Buf.mu.Unlock()
-}
+func face(s *Server, o string) { s.Buf.SetOrientation(o) } // the setter takes the lock itself
 
 func postRotate(t *testing.T, mux http.Handler, body string) (int, string) {
 	t.Helper()
@@ -244,14 +241,14 @@ func postRotate(t *testing.T, mux http.Handler, body string) (int, string) {
 
 // The pages Roadie reads are the ones it was shown, where they were shown.
 func TestMenuPagesRead(t *testing.T) {
-	_, _, h := newMenuPhone(t, OrientationPortrait)
+	_, _, h := newMenuPhone(t, capture.OrientationPortrait)
 	middle := h.mid
 	for _, shift := range []image.Point{{}, {-12, 0}, {6, -9}} {
 		h.mid = middle.Add(shift)
 		for _, page := range []string{"", pageTop, pageDevice, pageRotate} {
 			h.page = page
 			h.draw()
-			seen := findMenu(decodeGray(h.src.frame))
+			seen := findMenu(capture.DecodeGray(h.src.frame))
 			if seen.page != page {
 				t.Errorf("showing %q at %v, read %q", page, h.mid, seen.page)
 			}
@@ -272,7 +269,7 @@ func TestMenuPagesRead(t *testing.T) {
 // On its side an iPhone opened the menu off the middle: Roadie finds it
 // there and clicks its items where they are.
 func TestRotateWithTheMenuOffTheMiddle(t *testing.T) {
-	_, mux, h := newMenuPhone(t, OrientationLandscape)
+	_, mux, h := newMenuPhone(t, capture.OrientationLandscape)
 	h.shift = image.Pt(-15, 0)
 	if code, body := postRotate(t, mux, `{"to":"portrait"}`); code != 200 {
 		t.Fatalf("status %d: %s", code, body)
@@ -285,14 +282,14 @@ func TestRotateWithTheMenuOffTheMiddle(t *testing.T) {
 // Turning to landscape opens the menu with button 5, clicks Device, Rotate
 // Screen and Left, each once its page shows, and closes the menu.
 func TestRotateToLandscape(t *testing.T) {
-	s, mux, h := newMenuPhone(t, OrientationPortrait)
+	s, mux, h := newMenuPhone(t, capture.OrientationPortrait)
 	code, body := postRotate(t, mux, `{"to":"landscape"}`)
 	if code != 200 {
 		t.Fatalf("status %d: %s", code, body)
 	}
 	var resp struct{ Orientation string }
 	json.Unmarshal([]byte(body), &resp)
-	if resp.Orientation != OrientationLandscape {
+	if resp.Orientation != capture.OrientationLandscape {
 		t.Errorf("answer = %s", body)
 	}
 	if want := []string{"5", "Device", "Rotate Screen", "Left", "5"}; !reflect.DeepEqual(h.clicks, want) {
@@ -308,7 +305,7 @@ func TestRotateToLandscape(t *testing.T) {
 
 // Back upright from a wide screen: the menu's items are found on it too.
 func TestRotateToPortrait(t *testing.T) {
-	s, mux, h := newMenuPhone(t, OrientationLandscape)
+	s, mux, h := newMenuPhone(t, capture.OrientationLandscape)
 	s.turn.landscape.Store(true)
 	if code, body := postRotate(t, mux, `{"to":"portrait"}`); code != 200 || !strings.Contains(body, `"portrait"`) {
 		t.Fatalf("status %d: %s", code, body)
@@ -334,7 +331,7 @@ func TestRotateFromAnyMenu(t *testing.T) {
 		{"elsewhere", []string{"5", "5", "Device", "Rotate Screen", "Left", "5"}},
 	} {
 		t.Run(tc.page, func(t *testing.T) {
-			_, mux, h := newMenuPhone(t, OrientationPortrait)
+			_, mux, h := newMenuPhone(t, capture.OrientationPortrait)
 			h.page = tc.page
 			h.draw()
 			if code, body := postRotate(t, mux, `{"to":"landscape"}`); code != 200 {
@@ -350,7 +347,7 @@ func TestRotateFromAnyMenu(t *testing.T) {
 // When button 5 doesn't open the menu, nothing else is clicked: it would
 // land on the app.
 func TestRotateWithoutTheMenu(t *testing.T) {
-	s, mux, h := newMenuPhone(t, OrientationPortrait)
+	s, mux, h := newMenuPhone(t, capture.OrientationPortrait)
 	h.opens = false
 	code, body := postRotate(t, mux, `{"to":"landscape"}`)
 	if code != http.StatusUnprocessableEntity || !strings.Contains(body, "button 5") {
@@ -367,12 +364,12 @@ func TestRotateWithoutTheMenu(t *testing.T) {
 // The home screen doesn't turn: the phone is on its side all the same, and
 // the pointer is turned to match.
 func TestRotateAnAppThatDoesNotTurn(t *testing.T) {
-	s, mux, h := newMenuPhone(t, OrientationPortrait)
+	s, mux, h := newMenuPhone(t, capture.OrientationPortrait)
 	h.appTurns = false
 	if code, body := postRotate(t, mux, `{"to":"landscape"}`); code != 200 || !strings.Contains(body, `"portrait"`) {
 		t.Fatalf("status %d: %s", code, body)
 	}
-	if h.turnedTo != OrientationLandscape || !s.pointerTurned() {
+	if h.turnedTo != capture.OrientationLandscape || !s.pointerTurned() {
 		t.Errorf("turned to %q, pointer turned %v", h.turnedTo, s.pointerTurned())
 	}
 }
@@ -382,7 +379,7 @@ func TestRotateAnAppThatDoesNotTurn(t *testing.T) {
 // menu misses and closes it; Roadie then takes the phone to be on its side,
 // and the rest land.
 func TestRotateWhenRoadieForgotThePhoneIsOnItsSide(t *testing.T) {
-	s, mux, h := newMenuPhone(t, OrientationPortrait)
+	s, mux, h := newMenuPhone(t, capture.OrientationPortrait)
 	h.appTurns, h.leftways = false, true
 	settled := hid.NewSettledHID(h)
 	settled.Sleep = func(time.Duration) {}
@@ -404,7 +401,7 @@ func TestRotateWhenRoadieForgotThePhoneIsOnItsSide(t *testing.T) {
 // The picture shows a click a look late: Roadie waits for it rather than
 // taking the click to have missed.
 func TestRotateWhileThePictureLags(t *testing.T) {
-	s, mux, h := newMenuPhone(t, OrientationPortrait)
+	s, mux, h := newMenuPhone(t, capture.OrientationPortrait)
 	h.src.lag = 1
 	if code, body := postRotate(t, mux, `{"to":"landscape"}`); code != 200 {
 		t.Fatalf("status %d: %s", code, body)
@@ -419,7 +416,7 @@ func TestRotateWhileThePictureLags(t *testing.T) {
 
 // A click that doesn't take is made again.
 func TestRotateClicksAgain(t *testing.T) {
-	_, mux, h := newMenuPhone(t, OrientationPortrait)
+	_, mux, h := newMenuPhone(t, capture.OrientationPortrait)
 	dropped := false
 	h.drop = func(click string) bool {
 		if click == "Device" && !dropped {
@@ -439,7 +436,7 @@ func TestRotateClicksAgain(t *testing.T) {
 // Button 5 may take the menu back to its main page rather than close it:
 // Roadie presses again until it's gone.
 func TestRotateClosesTheMenuFromAnyPage(t *testing.T) {
-	_, mux, h := newMenuPhone(t, OrientationPortrait)
+	_, mux, h := newMenuPhone(t, capture.OrientationPortrait)
 	h.backToTop = true
 	if code, body := postRotate(t, mux, `{"to":"landscape"}`); code != 200 {
 		t.Fatalf("status %d: %s", code, body)
@@ -451,7 +448,7 @@ func TestRotateClosesTheMenuFromAnyPage(t *testing.T) {
 
 // When Roadie stops, it leaves no menu open.
 func TestRotateGivesUpWithTheMenuClosed(t *testing.T) {
-	_, mux, h := newMenuPhone(t, OrientationLandscape)
+	_, mux, h := newMenuPhone(t, capture.OrientationLandscape)
 	h.leftways = true // the picture is wide, so this can't be put right
 	if code, body := postRotate(t, mux, `{"to":"portrait"}`); code != http.StatusUnprocessableEntity {
 		t.Fatalf("status %d: %s", code, body)
@@ -463,7 +460,7 @@ func TestRotateGivesUpWithTheMenuClosed(t *testing.T) {
 
 // While a turn is under way /health says so, for viewers to hold back.
 func TestHealthSaysRotating(t *testing.T) {
-	s, mux, h := newMenuPhone(t, OrientationPortrait)
+	s, mux, h := newMenuPhone(t, capture.OrientationPortrait)
 	var during []string
 	h.drop = func(string) bool {
 		_, _, body := get(t, mux, "/health")
@@ -485,7 +482,7 @@ func TestHealthSaysRotating(t *testing.T) {
 // While a turn is under way, a viewer's input is held back but for
 // releases, which go through so that nothing stays held.
 func TestViewerInputHeldBackWhileRotating(t *testing.T) {
-	s, mux, _ := newMenuPhone(t, OrientationPortrait)
+	s, mux, _ := newMenuPhone(t, capture.OrientationPortrait)
 	in := &inputLog{}
 	s.HID = in
 	ts := httptest.NewServer(mux)
@@ -555,7 +552,7 @@ func (l *inputLog) waitFor(t *testing.T, n int) {
 
 // One turn at a time.
 func TestRotateBusy(t *testing.T) {
-	s, mux, _ := newMenuPhone(t, OrientationPortrait)
+	s, mux, _ := newMenuPhone(t, capture.OrientationPortrait)
 	s.turn.busy.Lock()
 	defer s.turn.busy.Unlock()
 	if code, body := postRotate(t, mux, `{"to":"landscape"}`); code != http.StatusConflict {
@@ -564,7 +561,7 @@ func TestRotateBusy(t *testing.T) {
 }
 
 func TestRotateRequests(t *testing.T) {
-	s, mux, _ := newMenuPhone(t, OrientationPortrait)
+	s, mux, _ := newMenuPhone(t, capture.OrientationPortrait)
 	if code, _ := postRotate(t, mux, `{"to":"sideways"}`); code != http.StatusBadRequest {
 		t.Errorf("bad way: status %d", code)
 	}
@@ -620,12 +617,12 @@ func (h *inputAt) LastInput() time.Time { return h.at }
 // for the screen to settle.
 func TestMenuLookTakesThePageItWaitsFor(t *testing.T) {
 	start := time.Unix(1000, 0)
-	r := screenFacing(OrientationPortrait)
+	r := screenFacing(capture.OrientationPortrait)
 	mid := r.Min.Add(image.Pt(r.Dx()/2, r.Dy()/2))
-	frames := []timedFrame{{0, menuFrame(t, r, "", mid, 40)}}
+	frames := []capture.TimedFrame{{At: 0, Frame: menuFrame(t, r, "", mid, 40)}}
 	for i := range 90 { // the page from 350 ms, beside something that never stops changing
 		at := 350*time.Millisecond + time.Duration(i)*33*time.Millisecond
-		frames = append(frames, timedFrame{at, menuFrame(t, r, pageDevice, mid, uint8(40+i%2*160))})
+		frames = append(frames, capture.TimedFrame{At: at, Frame: menuFrame(t, r, pageDevice, mid, uint8(40+i%2*160))})
 	}
 	for _, tc := range []struct {
 		name string
@@ -633,20 +630,20 @@ func TestMenuLookTakesThePageItWaitsFor(t *testing.T) {
 		took time.Duration
 	}{
 		{"waiting for the page", showing(pageDevice), 383 * time.Millisecond},
-		{"waiting for nothing", nil, settleLimit},
+		{"waiting for nothing", nil, capture.SettleLimit},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			clock := start
 			saved := rotateClock
-			rotateClock = fakeSettleClock(&clock)
+			rotateClock = capture.FakeSettleClock(&clock)
 			t.Cleanup(func() { rotateClock = saved })
 			s, _ := newTestServer()
-			s.Source = &timedSource{clock: &clock, start: start, frames: frames}
+			s.Source = &capture.TimedSource{Clock: &clock, Start: start, Frames: frames}
 			s.HID = &inputAt{at: start}
 			if seen := s.lookAtMenu(tc.want); seen.page != pageDevice {
 				t.Errorf("saw %s, want the device page", seen)
 			}
-			if took := clock.Sub(start); took < tc.took || took > tc.took+settlePoll {
+			if took := clock.Sub(start); took < tc.took || took > tc.took+capture.SettlePoll {
 				t.Errorf("took %v, want %v", took, tc.took)
 			}
 		})

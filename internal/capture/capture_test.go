@@ -1,4 +1,4 @@
-package main
+package capture
 
 import (
 	"bytes"
@@ -73,8 +73,8 @@ func TestDetectContentRectAllBlack(t *testing.T) {
 
 func TestFrameBufferDualStorage(t *testing.T) {
 	fb := &FrameBuffer{}
-	cropped := testJPEG(880, 1080)
-	raw := testJPEG(1920, 1080)
+	cropped := TestJPEG(880, 1080)
+	raw := TestJPEG(1920, 1080)
 	rect := image.Rect(520, 0, 1400, 1080)
 
 	fb.UpdateBoth(cropped, raw, rect)
@@ -92,15 +92,15 @@ func TestFrameBufferDualStorage(t *testing.T) {
 
 func TestFrameBufferUpdateCropped(t *testing.T) {
 	fb := &FrameBuffer{}
-	raw := testJPEG(1920, 1080)
-	cropped1 := testJPEG(880, 1080)
+	raw := TestJPEG(1920, 1080)
+	cropped1 := TestJPEG(880, 1080)
 	rect := image.Rect(520, 0, 1400, 1080)
 
 	// Set initial state with both.
 	fb.UpdateBoth(cropped1, raw, rect)
 
 	// Update only cropped.
-	cropped2 := testJPEG(600, 1080)
+	cropped2 := TestJPEG(600, 1080)
 	rect2 := image.Rect(660, 0, 1260, 1080)
 	fb.UpdateCropped(cropped2, rect2)
 
@@ -124,7 +124,7 @@ func TestFrameBufferLatestNil(t *testing.T) {
 
 func TestFrameBufferStoreAndRetrieve(t *testing.T) {
 	fb := &FrameBuffer{}
-	frame := testJPEG(320, 240)
+	frame := TestJPEG(320, 240)
 	fb.Update(frame)
 
 	if got := fb.Latest(); !bytes.Equal(got, frame) {
@@ -134,9 +134,9 @@ func TestFrameBufferStoreAndRetrieve(t *testing.T) {
 
 func TestFrameBufferOverwrite(t *testing.T) {
 	fb := &FrameBuffer{}
-	fb.Update(testJPEG(320, 240))
+	fb.Update(TestJPEG(320, 240))
 
-	frame2 := testJPEG(640, 480)
+	frame2 := TestJPEG(640, 480)
 	fb.Update(frame2)
 
 	if got := fb.Latest(); !bytes.Equal(got, frame2) {
@@ -146,7 +146,7 @@ func TestFrameBufferOverwrite(t *testing.T) {
 
 func TestFrameBufferConcurrent(t *testing.T) {
 	fb := &FrameBuffer{}
-	frame := testJPEG(320, 240)
+	frame := TestJPEG(320, 240)
 
 	var wg sync.WaitGroup
 	wg.Add(5)
@@ -182,7 +182,7 @@ func TestFrameBufferStatus(t *testing.T) {
 
 func TestFrameBufferClear(t *testing.T) {
 	fb := &FrameBuffer{}
-	fb.Update(testJPEG(320, 240))
+	fb.Update(TestJPEG(320, 240))
 	fb.SetStatus(StatusConnected)
 
 	fb.Clear()

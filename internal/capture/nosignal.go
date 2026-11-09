@@ -1,4 +1,4 @@
-package main
+package capture
 
 import "image"
 
@@ -17,7 +17,7 @@ import "image"
 // say nothing about where the picture is or which way it is turned. The
 // dongle's own black is not 0 but about 16, so isBlackFrame alone misses
 // them.
-func brightBox(img image.Image) image.Rectangle {
+func BrightBox(img image.Image) image.Rectangle {
 	b := img.Bounds()
 	stepX, stepY := max(b.Dx()/64, 1), max(b.Dy()/36, 1)
 	var box image.Rectangle

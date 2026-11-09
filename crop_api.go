@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/capture"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -22,10 +23,10 @@ type cropState struct {
 	// turned.
 	Mode string `json:"mode"`
 	// Orientation is which way the target's picture is turned, as detected.
-	Orientation string         `json:"orientation"`
-	Saved       savedCropsJSON `json:"saved"`
+	Orientation string                 `json:"orientation"`
+	Saved       capture.SavedCropsJSON `json:"saved"`
 	// Detected is the picture's edges as last detected: what POST saves.
-	Detected *cropJSON `json:"detected"`
+	Detected *capture.CropJSON `json:"detected"`
 }
 
 func (s *Server) cropState() cropState {
@@ -33,10 +34,10 @@ func (s *Server) cropState() cropState {
 		Use:         s.Buf.CropUse(),
 		Mode:        s.Buf.CropMode(),
 		Orientation: s.Buf.Orientation(),
-		Saved:       savedCropsJSONOf(s.Buf.SavedCrops()),
+		Saved:       capture.SavedCropsJSONOf(s.Buf.SavedCrops()),
 	}
 	if r := s.Buf.DetectedRect(); !r.Empty() {
-		st.Detected = cropJSONOf(SavedCrop{Rect: r, Frame: s.Buf.FrameSize()})
+		st.Detected = capture.CropJSONOf(capture.SavedCrop{Rect: r, Frame: s.Buf.FrameSize()})
 	}
 	return st
 }
@@ -79,12 +80,12 @@ func (s *Server) chooseCrop(r *http.Request) (int, error) {
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		return http.StatusBadRequest, fmt.Errorf("bad request: %v", err)
 	}
-	if !validCropUse(body.Use) {
+	if !capture.ValidCropUse(body.Use) {
 		return http.StatusBadRequest, errors.New(`use must be "auto", "off" or "saved"`)
 	}
 	s.cropMu.Lock()
 	defer s.cropMu.Unlock()
-	if body.Use == CropSaved && len(s.Buf.SavedCrops()) == 0 {
+	if body.Use == capture.CropSaved && len(s.Buf.SavedCrops()) == 0 {
 		return http.StatusConflict, errors.New("no crop saved yet: save one first")
 	}
 	s.Buf.SetCropUse(body.Use)
@@ -122,16 +123,16 @@ func (s *Server) saveCrop(r *http.Request) (int, error) {
 	}
 	o := body.Orientation
 	if o == "" {
-		o = orientationOf(rect)
+		o = capture.OrientationOf(rect)
 	}
-	if o != OrientationPortrait && o != OrientationLandscape {
+	if o != capture.OrientationPortrait && o != capture.OrientationLandscape {
 		return http.StatusBadRequest, errors.New(`orientation must be "portrait" or "landscape"`)
 	}
 
 	s.cropMu.Lock()
 	defer s.cropMu.Unlock()
-	s.Buf.SetSavedCrop(o, SavedCrop{Rect: rect, Frame: frame})
-	s.Buf.SetCropUse(CropSaved)
+	s.Buf.SetSavedCrop(o, capture.SavedCrop{Rect: rect, Frame: frame})
+	s.Buf.SetCropUse(capture.CropSaved)
 	log.Printf("crop: saved the %s crop, %dx%d at (%d,%d) of a %dx%d frame, and using it",
 		o, rect.Dx(), rect.Dy(), rect.Min.X, rect.Min.Y, frame.X, frame.Y)
 	return s.storeCrops()
@@ -179,10 +180,10 @@ func trimEdgeLines(frame []byte, r image.Rectangle) image.Rectangle {
 }
 
 func (s *Server) clearCrop(o string) (int, error) {
-	orientations := []string{OrientationPortrait, OrientationLandscape}
+	orientations := []string{capture.OrientationPortrait, capture.OrientationLandscape}
 	switch o {
 	case "":
-	case OrientationPortrait, OrientationLandscape:
+	case capture.OrientationPortrait, capture.OrientationLandscape:
 		orientations = []string{o}
 	default:
 		return http.StatusBadRequest, errors.New(`orientation must be "portrait" or "landscape"`)
@@ -190,11 +191,11 @@ func (s *Server) clearCrop(o string) (int, error) {
 	s.cropMu.Lock()
 	defer s.cropMu.Unlock()
 	for _, o := range orientations {
-		s.Buf.SetSavedCrop(o, SavedCrop{})
+		s.Buf.SetSavedCrop(o, capture.SavedCrop{})
 	}
 	msg := ""
-	if len(s.Buf.SavedCrops()) == 0 && s.Buf.CropUse() == CropSaved {
-		s.Buf.SetCropUse(CropAuto)
+	if len(s.Buf.SavedCrops()) == 0 && s.Buf.CropUse() == capture.CropSaved {
+		s.Buf.SetCropUse(capture.CropAuto)
 		msg = ", back to auto"
 	}
 	log.Printf("crop: cleared the saved %v crop%s", orientations, msg)
@@ -207,7 +208,7 @@ func (s *Server) storeCrops() (int, error) {
 	if s.CropFile == "" {
 		return 0, nil
 	}
-	if err := storeSavedCrops(s.CropFile, s.Buf.CropUse(), s.Buf.SavedCrops()); err != nil {
+	if err := capture.StoreSavedCrops(s.CropFile, s.Buf.CropUse(), s.Buf.SavedCrops()); err != nil {
 		return http.StatusInternalServerError, fmt.Errorf("in use, but not saved for next time: %v", err)
 	}
 	return 0, nil

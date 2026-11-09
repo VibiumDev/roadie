@@ -1,6 +1,6 @@
 //go:build linux && (arm64 || amd64)
 
-package main
+package capture
 
 import (
 	"errors"

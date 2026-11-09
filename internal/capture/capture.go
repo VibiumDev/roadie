@@ -1,4 +1,4 @@
-package main
+package capture
 
 import (
 	"bytes"
@@ -52,7 +52,7 @@ type FrameSource interface {
 // the capture loop while someone is streaming, and otherwise only when
 // asked for (a snapshot, a screenshot), so an idle Roadie encodes nothing.
 type FrameBuffer struct {
-	mu       sync.RWMutex
+	Mu       sync.RWMutex
 	current  []byte // the cropped JPEG
 	rawJPEG  []byte // the uncropped JPEG
 	cropRect image.Rectangle
@@ -159,15 +159,15 @@ func (fb *FrameBuffer) Autocrop() bool { return fb.CropUse() == CropAuto }
 
 // SetCropUse chooses the crop: CropAuto, CropOff or CropSaved.
 func (fb *FrameBuffer) SetCropUse(use string) {
-	fb.mu.Lock()
+	fb.Mu.Lock()
 	fb.cropUse = use
-	fb.mu.Unlock()
+	fb.Mu.Unlock()
 }
 
 // CropUse returns the crop chosen.
 func (fb *FrameBuffer) CropUse() string {
-	fb.mu.RLock()
-	defer fb.mu.RUnlock()
+	fb.Mu.RLock()
+	defer fb.Mu.RUnlock()
 	if fb.cropUse == "" {
 		return CropAuto
 	}
@@ -211,7 +211,7 @@ var captureEpoch = time.Now()
 // UpdateRaw keeps the latest picture and its crop and lets go of the one
 // before. The JPEGs are now out of date until they are remade.
 func (fb *FrameBuffer) UpdateRaw(img image.Image, release func(), crop image.Rectangle) {
-	fb.mu.Lock()
+	fb.Mu.Lock()
 	prev := fb.raw
 	fb.rawSeq++
 	fb.raw = &rawFrame{img: img, release: release, crop: crop, seq: fb.rawSeq}
@@ -221,7 +221,7 @@ func (fb *FrameBuffer) UpdateRaw(img image.Image, release func(), crop image.Rec
 		prev.stale = true
 		done = prev.pins == 0
 	}
-	fb.mu.Unlock()
+	fb.Mu.Unlock()
 	if done && prev.release != nil {
 		prev.release()
 	}
@@ -229,20 +229,20 @@ func (fb *FrameBuffer) UpdateRaw(img image.Image, release func(), crop image.Rec
 
 // pin holds the latest picture for an encode; unpin lets it go.
 func (fb *FrameBuffer) pin() *rawFrame {
-	fb.mu.Lock()
+	fb.Mu.Lock()
 	f := fb.raw
 	if f != nil {
 		f.pins++
 	}
-	fb.mu.Unlock()
+	fb.Mu.Unlock()
 	return f
 }
 
 func (fb *FrameBuffer) unpin(f *rawFrame) {
-	fb.mu.Lock()
+	fb.Mu.Lock()
 	f.pins--
 	done := f.stale && f.pins == 0
-	fb.mu.Unlock()
+	fb.Mu.Unlock()
 	if done && f.release != nil {
 		f.release()
 	}
@@ -252,9 +252,9 @@ func (fb *FrameBuffer) unpin(f *rawFrame) {
 // capture driver's buffer, and waits for anyone encoding it, so the driver
 // can take its memory back. Called when capture stops.
 func (fb *FrameBuffer) Detach() {
-	fb.mu.Lock()
+	fb.Mu.Lock()
 	f := fb.raw
-	fb.mu.Unlock()
+	fb.Mu.Unlock()
 	if f == nil {
 		return
 	}
@@ -264,22 +264,22 @@ func (fb *FrameBuffer) Detach() {
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		fb.mu.Lock()
+		fb.Mu.Lock()
 		if fb.raw != f {
-			fb.mu.Unlock()
+			fb.Mu.Unlock()
 			return
 		}
 		if f.pins == 0 {
 			img, release := cp.Copy(), f.release
 			fb.raw = &rawFrame{img: img, crop: f.crop, seq: f.seq}
 			f.stale = true
-			fb.mu.Unlock()
+			fb.Mu.Unlock()
 			if release != nil {
 				release()
 			}
 			return
 		}
-		fb.mu.Unlock()
+		fb.Mu.Unlock()
 		if time.Now().After(deadline) {
 			return
 		}
@@ -320,39 +320,39 @@ func (fb *FrameBuffer) deliver(img image.Image, crop image.Rectangle, ts time.Du
 // Update replaces the current frame with a JPEG from elsewhere (an HTTP
 // source), cropped and uncropped alike.
 func (fb *FrameBuffer) Update(frame []byte) {
-	fb.mu.Lock()
+	fb.Mu.Lock()
 	fb.current = frame
 	fb.rawJPEG = frame
 	fb.currentSeq, fb.rawJPEGSeq = fb.rawSeq, fb.rawSeq
-	fb.mu.Unlock()
+	fb.Mu.Unlock()
 }
 
 // UpdateBoth replaces both cropped and raw JPEGs, made from the latest
 // picture.
 func (fb *FrameBuffer) UpdateBoth(cropped, raw []byte, rect image.Rectangle) {
-	fb.mu.Lock()
+	fb.Mu.Lock()
 	fb.current = cropped
 	fb.rawJPEG = raw
 	fb.cropRect = rect
 	fb.currentSeq, fb.rawJPEGSeq = fb.rawSeq, fb.rawSeq
-	fb.mu.Unlock()
+	fb.Mu.Unlock()
 }
 
 // UpdateCropped replaces only the cropped JPEG, leaving raw untouched.
 func (fb *FrameBuffer) UpdateCropped(cropped []byte, rect image.Rectangle) {
-	fb.mu.Lock()
+	fb.Mu.Lock()
 	fb.current = cropped
 	fb.cropRect = rect
 	fb.currentSeq = fb.rawSeq
-	fb.mu.Unlock()
+	fb.Mu.Unlock()
 }
 
 // Latest returns the cropped JPEG of the most recent frame, or nil if none
 // yet, making it now if the capture loop did not.
 func (fb *FrameBuffer) Latest() []byte {
-	fb.mu.RLock()
+	fb.Mu.RLock()
 	frame, seq, raw := fb.current, fb.currentSeq, fb.raw
-	fb.mu.RUnlock()
+	fb.Mu.RUnlock()
 	if raw == nil || (frame != nil && seq == raw.seq) {
 		return frame
 	}
@@ -362,9 +362,9 @@ func (fb *FrameBuffer) Latest() []byte {
 // LatestRaw returns the uncropped JPEG of the most recent frame, or nil if
 // none yet, making it now if the capture loop did not.
 func (fb *FrameBuffer) LatestRaw() []byte {
-	fb.mu.RLock()
+	fb.Mu.RLock()
 	frame, seq, raw := fb.rawJPEG, fb.rawJPEGSeq, fb.raw
-	fb.mu.RUnlock()
+	fb.Mu.RUnlock()
 	if raw == nil || (frame != nil && seq == raw.seq) {
 		return frame
 	}
@@ -398,30 +398,30 @@ func (fb *FrameBuffer) encodeLatest(whole bool) []byte {
 	}
 	defer fb.unpin(f)
 	// Another caller, or the loop, may have made it meanwhile.
-	fb.mu.RLock()
+	fb.Mu.RLock()
 	if whole && fb.rawJPEGSeq == f.seq && fb.rawJPEG != nil {
 		frame := fb.rawJPEG
-		fb.mu.RUnlock()
+		fb.Mu.RUnlock()
 		return frame
 	}
 	if !whole && fb.currentSeq == f.seq && fb.current != nil {
 		frame := fb.current
-		fb.mu.RUnlock()
+		fb.Mu.RUnlock()
 		return frame
 	}
-	fb.mu.RUnlock()
+	fb.Mu.RUnlock()
 	rect := f.img.Bounds()
 	if !whole && !f.crop.Empty() {
 		rect = f.crop
 	}
 	data := encodeJPEG(f.img, rect, fb.Quality())
-	fb.mu.Lock()
+	fb.Mu.Lock()
 	if whole {
 		fb.rawJPEG, fb.rawJPEGSeq = data, f.seq
 	} else {
 		fb.current, fb.currentSeq = data, f.seq
 	}
-	fb.mu.Unlock()
+	fb.Mu.Unlock()
 	return data
 }
 
@@ -465,21 +465,21 @@ func subImage(img image.Image, r image.Rectangle) image.Image {
 // SetContentRect records where the picture sits in the captured frame, and
 // from its shape which way the target is turned.
 func (fb *FrameBuffer) SetContentRect(rect image.Rectangle) {
-	fb.mu.Lock()
+	fb.Mu.Lock()
 	fb.contentRect, fb.contentFrame = rect, fb.frameSize
-	fb.trackOrientation(shapeOf(rect, fb.frameSize))
-	fb.mu.Unlock()
+	fb.trackOrientation(ShapeOf(rect, fb.frameSize))
+	fb.Mu.Unlock()
 }
 
 // shapeOf names which way a picture is turned, from where it sits in a frame
 // of that size. A target's screen spans at least half the frame one way or
 // the other: anything smaller (a dark app's one bright corner, a dongle's
 // own message) says nothing.
-func shapeOf(r image.Rectangle, frame image.Point) string {
+func ShapeOf(r image.Rectangle, frame image.Point) string {
 	if frame.X > 0 && r.Dx()*2 < frame.X && r.Dy()*2 < frame.Y {
 		return ""
 	}
-	return orientationOf(r)
+	return OrientationOf(r)
 }
 
 // shapeWatch says when to detect the picture's edges at once, rather than
@@ -489,13 +489,13 @@ func shapeOf(r image.Rectangle, frame image.Point) string {
 // settles. An iPhone's picture changes shape half a second after it is
 // told to turn, then turns inside it for half a second more. The shape it
 // watches is brightBox's, cheap enough to take of every frame.
-type shapeWatch struct {
+type ShapeWatch struct {
 	last string // the shape last seen
 	left int    // frames still to detect
 }
 
 // see takes a frame's shape, and reports whether to detect its edges.
-func (w *shapeWatch) see(shape string, frames int) bool {
+func (w *ShapeWatch) See(shape string, frames int) bool {
 	if shape != "" && shape != w.last {
 		if w.last != "" {
 			w.left = frames
@@ -532,7 +532,7 @@ func (fb *FrameBuffer) trackOrientation(o string) {
 // orientationOf names a picture's shape. A dark app can shrink what is
 // detected, but not turn a tall picture wide; a square-ish one says
 // nothing.
-func orientationOf(r image.Rectangle) string {
+func OrientationOf(r image.Rectangle) string {
 	switch w, h := r.Dx(), r.Dy(); {
 	case w*5 > h*6:
 		return OrientationLandscape
@@ -550,27 +550,35 @@ const (
 // presumeOrientation starts out turned that way before anything is
 // detected, so a saved crop applies from the first frame after a restart.
 // Detection still turns it, as usual.
-func (fb *FrameBuffer) presumeOrientation(o string) {
-	fb.mu.Lock()
+func (fb *FrameBuffer) PresumeOrientation(o string) {
+	fb.Mu.Lock()
 	if fb.orientation == "" {
 		fb.orientation = o
 	}
-	fb.mu.Unlock()
+	fb.Mu.Unlock()
 }
 
 // Orientation is which way the target's picture is turned, as last
 // detected; empty before anything was.
 func (fb *FrameBuffer) Orientation() string {
-	fb.mu.RLock()
-	defer fb.mu.RUnlock()
+	fb.Mu.RLock()
+	defer fb.Mu.RUnlock()
 	return fb.orientation
+}
+
+// SetOrientation says which way the picture is turned, as a detection
+// would have; for tests that stand in for one.
+func (fb *FrameBuffer) SetOrientation(o string) {
+	fb.Mu.Lock()
+	defer fb.Mu.Unlock()
+	fb.orientation = o
 }
 
 // ContentRect returns where the picture sits in the captured frame: the
 // saved crop when it is in use, otherwise what was last detected.
 func (fb *FrameBuffer) ContentRect() image.Rectangle {
-	fb.mu.RLock()
-	defer fb.mu.RUnlock()
+	fb.Mu.RLock()
+	defer fb.Mu.RUnlock()
 	if r, ok := fb.savedInUse(fb.frameSize); ok {
 		return r
 	}
@@ -590,8 +598,8 @@ func (fb *FrameBuffer) savedInUse(frame image.Point) (image.Rectangle, bool) {
 // DetectedRect returns the picture's edges as last detected, ignoring any
 // saved crop: what saving a crop now would save.
 func (fb *FrameBuffer) DetectedRect() image.Rectangle {
-	fb.mu.RLock()
-	defer fb.mu.RUnlock()
+	fb.Mu.RLock()
+	defer fb.Mu.RUnlock()
 	return fb.detected()
 }
 
@@ -635,8 +643,8 @@ func scaleRect(r image.Rectangle, from, to image.Point) image.Rectangle {
 // SetSavedCrop sets the crop to use, instead of detection, while the
 // target is turned that way; the zero SavedCrop clears it.
 func (fb *FrameBuffer) SetSavedCrop(orientation string, c SavedCrop) {
-	fb.mu.Lock()
-	defer fb.mu.Unlock()
+	fb.Mu.Lock()
+	defer fb.Mu.Unlock()
 	if c.Rect.Empty() {
 		delete(fb.savedCrops, orientation)
 		return
@@ -649,8 +657,8 @@ func (fb *FrameBuffer) SetSavedCrop(orientation string, c SavedCrop) {
 
 // SavedCrops returns the saved crops by orientation.
 func (fb *FrameBuffer) SavedCrops() map[string]SavedCrop {
-	fb.mu.RLock()
-	defer fb.mu.RUnlock()
+	fb.Mu.RLock()
+	defer fb.Mu.RUnlock()
 	out := make(map[string]SavedCrop, len(fb.savedCrops))
 	for o, c := range fb.savedCrops {
 		out[o] = c
@@ -659,9 +667,9 @@ func (fb *FrameBuffer) SavedCrops() map[string]SavedCrop {
 }
 
 // savedCropFor returns the saved crop if it is in use for frames of bounds.
-func (fb *FrameBuffer) savedCropFor(bounds image.Rectangle) (image.Rectangle, bool) {
-	fb.mu.RLock()
-	defer fb.mu.RUnlock()
+func (fb *FrameBuffer) SavedCropFor(bounds image.Rectangle) (image.Rectangle, bool) {
+	fb.Mu.RLock()
+	defer fb.Mu.RUnlock()
 	return fb.savedInUse(bounds.Size())
 }
 
@@ -672,17 +680,17 @@ func (fb *FrameBuffer) autocropping() bool {
 }
 
 // setFrameSize records the size of the frames being captured.
-func (fb *FrameBuffer) setFrameSize(p image.Point) {
-	fb.mu.Lock()
+func (fb *FrameBuffer) SetFrameSize(p image.Point) {
+	fb.Mu.Lock()
 	fb.frameSize = p
-	fb.mu.Unlock()
+	fb.Mu.Unlock()
 }
 
 // FrameSize returns the size of the frames being captured, zero before the
 // first one.
 func (fb *FrameBuffer) FrameSize() image.Point {
-	fb.mu.RLock()
-	defer fb.mu.RUnlock()
+	fb.Mu.RLock()
+	defer fb.Mu.RUnlock()
 	return fb.frameSize
 }
 
@@ -690,8 +698,8 @@ func (fb *FrameBuffer) FrameSize() image.Point {
 // It is the crop chosen, except that the saved crop chosen with none for
 // the way the target is turned (or for this frame size) means auto.
 func (fb *FrameBuffer) CropMode() string {
-	fb.mu.RLock()
-	defer fb.mu.RUnlock()
+	fb.Mu.RLock()
+	defer fb.Mu.RUnlock()
 	if _, ok := fb.savedInUse(fb.frameSize); ok {
 		return CropSaved
 	}
@@ -703,30 +711,30 @@ func (fb *FrameBuffer) CropMode() string {
 
 // CropRect returns the current crop rectangle.
 func (fb *FrameBuffer) CropRect() image.Rectangle {
-	fb.mu.RLock()
+	fb.Mu.RLock()
 	r := fb.cropRect
-	fb.mu.RUnlock()
+	fb.Mu.RUnlock()
 	return r
 }
 
 // SetStatus updates the capture status.
 func (fb *FrameBuffer) SetStatus(s CaptureStatus) {
-	fb.mu.Lock()
+	fb.Mu.Lock()
 	fb.status = s
-	fb.mu.Unlock()
+	fb.Mu.Unlock()
 }
 
 // Status returns the current capture status.
 func (fb *FrameBuffer) Status() CaptureStatus {
-	fb.mu.RLock()
+	fb.Mu.RLock()
 	s := fb.status
-	fb.mu.RUnlock()
+	fb.Mu.RUnlock()
 	return s
 }
 
 // Clear nils the frame and sets status to disconnected atomically.
 func (fb *FrameBuffer) Clear() {
-	fb.mu.Lock()
+	fb.Mu.Lock()
 	if f := fb.raw; f != nil {
 		f.stale = true
 		if f.pins == 0 && f.release != nil {
@@ -738,7 +746,7 @@ func (fb *FrameBuffer) Clear() {
 	fb.rawJPEG = nil
 	fb.cropRect = image.Rectangle{}
 	fb.status = StatusDisconnected
-	fb.mu.Unlock()
+	fb.Mu.Unlock()
 }
 
 // DetectDevice enumerates video devices and returns the best capture device
@@ -1264,7 +1272,7 @@ func runCapture(ctx context.Context, dev devices.DeviceInfo, reader frameReader,
 		var prevFingerprint uint64
 		var noSignalFP uint64 // the dongle's own No Signal screen, once recognised
 		var blank blankFrame
-		var shapes shapeWatch
+		var shapes ShapeWatch
 		started := time.Now()
 		var detectedOnce bool
 		jpegOpts := &jpeg.Options{}
@@ -1325,19 +1333,19 @@ func runCapture(ctx context.Context, dev devices.DeviceInfo, reader frameReader,
 			// transitions, and when the picture changes shape.
 			// Nor does a frame with nothing bright on it: the dongle's black
 			// is about 16, not 0, which isBlackFrame does not count.
-			box := brightBox(img)
+			box := BrightBox(img)
 			dark := black || box.Empty()
 			transitioned := dark != prevBlack
 			prevBlack = dark
 			fullBounds := img.Bounds()
-			buf.setFrameSize(fullBounds.Size())
+			buf.SetFrameSize(fullBounds.Size())
 			// A black frame says nothing about where the picture is or which
 			// way it is turned (the dongle sends them for seconds after it
 			// starts): keep what the last real one said. Nor do the first
 			// seconds of frames: the dongle can send the picture torn
 			// sideways for a few seconds after it starts, which reads as an
 			// upright phone turned on its side.
-			turned := shapes.see(shapeOf(box, fullBounds.Size()), fps)
+			turned := shapes.See(ShapeOf(box, fullBounds.Size()), fps)
 			detectNow := !dark && time.Since(started) >= captureWarmup &&
 				(!detectedOnce || transitioned || turned || frameCount%fps == 0)
 			if detectNow {
@@ -1347,7 +1355,7 @@ func runCapture(ctx context.Context, dev devices.DeviceInfo, reader frameReader,
 				}
 				detectedOnce = true
 			}
-			if saved, ok := buf.savedCropFor(fullBounds); ok {
+			if saved, ok := buf.SavedCropFor(fullBounds); ok {
 				activeCrop, usingSaved = saved, true
 				pendingCrop, pendingCropSeen = image.Rectangle{}, 0
 			} else if usingSaved {

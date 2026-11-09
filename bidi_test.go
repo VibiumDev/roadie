@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VibiumDev/roadie/internal/capture"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/coder/websocket"
@@ -281,17 +282,17 @@ func TestBiDiGetViewport(t *testing.T) {
 func TestBiDiGetViewportWithCrop(t *testing.T) {
 	resetBidiState()
 
-	buf := &FrameBuffer{}
+	buf := &capture.FrameBuffer{}
 	buf.SetQuality(80)
-	buf.Update(testJPEG(320, 240))
-	buf.SetStatus(StatusConnected)
+	buf.Update(capture.TestJPEG(320, 240))
+	buf.SetStatus(capture.StatusConnected)
 	buf.SetWidth(1920)
 	buf.SetHeight(1080)
 	s := &Server{
 		Source: &fakeSource{
-			frame:    testJPEG(320, 240),
-			rawFrame: testJPEG(1920, 1080),
-			status:   StatusConnected,
+			frame:    capture.TestJPEG(320, 240),
+			rawFrame: capture.TestJPEG(1920, 1080),
+			status:   capture.StatusConnected,
 			cropRect: image.Rect(240, 0, 1680, 1080),
 		},
 		Buf:        buf,
@@ -343,7 +344,7 @@ func TestBiDiUnknownMethod(t *testing.T) {
 func TestBiDiCoordinateTranslation(t *testing.T) {
 	resetBidiState()
 
-	buf := &FrameBuffer{}
+	buf := &capture.FrameBuffer{}
 	buf.SetWidth(1920)
 	buf.SetHeight(1080)
 
@@ -409,7 +410,7 @@ func TestBiDiCoordinateTranslation(t *testing.T) {
 // An iPhone's absolute pointer spans its own screen, so a BiDi pixel maps
 // within the phone's picture, not across the whole frame around it.
 func TestBiDiToHIDScreenPointerSpace(t *testing.T) {
-	buf := &FrameBuffer{}
+	buf := &capture.FrameBuffer{}
 	buf.SetWidth(1920)
 	buf.SetHeight(1080)
 	phone := image.Rect(735, 54, 1184, 1027) // a 449x973 iPhone in the frame
@@ -546,7 +547,7 @@ func TestBiDiScroll(t *testing.T) {
 	inner := &wheelHID{}
 	h := hid.NewSettledHID(inner)
 	h.Sleep = func(time.Duration) {}
-	s := &Server{HID: h, Source: &timedSource{clock: new(time.Time)}, Buf: &FrameBuffer{}}
+	s := &Server{HID: h, Source: &capture.TimedSource{Clock: new(time.Time)}, Buf: &capture.FrameBuffer{}}
 	h.MouseMove(100, 200)
 	inner.log = nil
 	scroll := func(src string, a bidiAction) error {

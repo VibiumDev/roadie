@@ -1,4 +1,4 @@
-package main
+package capture
 
 import (
 	"bytes"
@@ -34,21 +34,21 @@ func TestSettledFrame(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		input    time.Duration // when the last input was, relative to start
-		frames   []timedFrame
+		frames   []TimedFrame
 		enough   func(*image.Gray) bool
 		want     []byte
 		returnAt time.Duration // when settledFrame should return
 	}{{
 		name:     "no recent input: the latest frame at once",
 		input:    -5 * time.Second,
-		frames:   []timedFrame{{0, before}},
+		frames:   []TimedFrame{{0, before}},
 		want:     before,
 		returnAt: 0,
 	}, {
 		// A click that shows 200 ms later and changes again at 400 ms.
 		name:  "waits for the screen to show the input and stop changing",
 		input: 0,
-		frames: []timedFrame{{0, before}, {200 * time.Millisecond, during},
+		frames: []TimedFrame{{0, before}, {200 * time.Millisecond, during},
 			{400 * time.Millisecond, after}},
 		want:     after,
 		returnAt: 550 * time.Millisecond,
@@ -58,10 +58,10 @@ func TestSettledFrame(t *testing.T) {
 		// to count, but it hasn't settled until 700 ms.
 		name:  "a slow fade isn't settled until it ends",
 		input: 0,
-		frames: func() []timedFrame {
-			f := []timedFrame{{0, before}}
+		frames: func() []TimedFrame {
+			f := []TimedFrame{{0, before}}
 			for i := 0; i <= 15; i++ {
-				f = append(f, timedFrame{200*time.Millisecond + time.Duration(i)*33*time.Millisecond, grayJPEG(t, uint8(60+8*i))})
+				f = append(f, TimedFrame{200*time.Millisecond + time.Duration(i)*33*time.Millisecond, grayJPEG(t, uint8(60+8*i))})
 			}
 			return f
 		}(),
@@ -70,7 +70,7 @@ func TestSettledFrame(t *testing.T) {
 	}, {
 		name:  "returns with the frame the caller waits for, still changing",
 		input: 0,
-		frames: []timedFrame{{0, before}, {350 * time.Millisecond, during},
+		frames: []TimedFrame{{0, before}, {350 * time.Millisecond, during},
 			{400 * time.Millisecond, after}},
 		enough:   func(g *image.Gray) bool { return g != nil && g.Pix[0] > 100 && g.Pix[0] < 140 },
 		want:     during,
@@ -78,36 +78,36 @@ func TestSettledFrame(t *testing.T) {
 	}, {
 		name:     "input that changes nothing costs only the reaction time",
 		input:    0,
-		frames:   []timedFrame{{0, before}},
+		frames:   []TimedFrame{{0, before}},
 		want:     before,
 		returnAt: reactDelay + settleQuiet,
 	}, {
 		name:  "compression noise isn't a change",
 		input: 0,
-		frames: []timedFrame{{0, before}, {320 * time.Millisecond, noisy(22)},
+		frames: []TimedFrame{{0, before}, {320 * time.Millisecond, noisy(22)},
 			{360 * time.Millisecond, noisy(19)}},
 		want:     noisy(19),
 		returnAt: reactDelay + settleQuiet,
 	}, {
 		name:  "a screen that never settles returns at the limit",
 		input: 0,
-		frames: func() []timedFrame {
-			var f []timedFrame
+		frames: func() []TimedFrame {
+			var f []TimedFrame
 			for i := 0; i < 100; i++ {
-				f = append(f, timedFrame{time.Duration(i) * 33 * time.Millisecond, grayJPEG(t, uint8(i%2*200))})
+				f = append(f, TimedFrame{time.Duration(i) * 33 * time.Millisecond, grayJPEG(t, uint8(i%2*200))})
 			}
 			return f
 		}(),
-		returnAt: settleLimit,
+		returnAt: SettleLimit,
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
 			clock := start
-			src := &timedSource{clock: &clock, start: start, frames: tc.frames}
-			got := settledFrameOr(context.Background(), src, start.Add(tc.input), fakeSettleClock(&clock), tc.enough)
+			src := &TimedSource{Clock: &clock, Start: start, Frames: tc.frames}
+			got := SettledFrameOr(context.Background(), src, start.Add(tc.input), FakeSettleClock(&clock), tc.enough)
 			if tc.want != nil && !bytes.Equal(got, tc.want) {
 				t.Errorf("returned the wrong frame")
 			}
-			if took := clock.Sub(start); took < tc.returnAt || took > tc.returnAt+settlePoll {
+			if took := clock.Sub(start); took < tc.returnAt || took > tc.returnAt+SettlePoll {
 				t.Errorf("returned at %v, want %v", took, tc.returnAt)
 			}
 		})
@@ -115,11 +115,11 @@ func TestSettledFrame(t *testing.T) {
 }
 
 func TestFramesDiffer(t *testing.T) {
-	a := decodeGray(grayJPEG(t, 100))
-	if framesDiffer(a, decodeGray(grayJPEG(t, 104))) {
+	a := DecodeGray(grayJPEG(t, 100))
+	if framesDiffer(a, DecodeGray(grayJPEG(t, 104))) {
 		t.Error("a small level change counted as a different screen")
 	}
-	if !framesDiffer(a, decodeGray(grayJPEG(t, 200))) {
+	if !framesDiffer(a, DecodeGray(grayJPEG(t, 200))) {
 		t.Error("a different screen didn't count")
 	}
 	small := image.NewGray(image.Rect(0, 0, 10, 10))

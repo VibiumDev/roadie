@@ -18,6 +18,7 @@ import (
 
 	"fiatjaf.com/nostr"
 
+	"github.com/VibiumDev/roadie/internal/capture"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/station/rig"
 )
@@ -40,11 +41,11 @@ func newFakeFrames(t *testing.T) *fakeFrames {
 	return &fakeFrames{jpg: buf.Bytes()}
 }
 
-func (f *fakeFrames) Latest() []byte               { return f.jpg }
-func (f *fakeFrames) LatestRaw() []byte            { return f.jpg }
-func (f *fakeFrames) Status() CaptureStatus        { return StatusConnected }
-func (f *fakeFrames) CropRect() image.Rectangle    { return image.Rect(0, 0, 8, 6) }
-func (f *fakeFrames) ContentRect() image.Rectangle { return image.Rect(0, 0, 8, 6) }
+func (f *fakeFrames) Latest() []byte                { return f.jpg }
+func (f *fakeFrames) LatestRaw() []byte             { return f.jpg }
+func (f *fakeFrames) Status() capture.CaptureStatus { return capture.StatusConnected }
+func (f *fakeFrames) CropRect() image.Rectangle     { return image.Rect(0, 0, 8, 6) }
+func (f *fakeFrames) ContentRect() image.Rectangle  { return image.Rect(0, 0, 8, 6) }
 
 type uploaded struct {
 	mu   sync.Mutex
