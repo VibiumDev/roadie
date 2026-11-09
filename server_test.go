@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/VibiumDev/roadie/internal/platform"
 	"html"
 	"image"
 	"io"
@@ -394,20 +395,20 @@ func TestViewPlatform(t *testing.T) {
 	// the host's business now: the viewer sends picture positions.
 	tests := []struct {
 		name          string
-		platform      Platform
+		platform      platform.Platform
 		inputMode     string
 		wantSpace     bool   // expect the screen-space global
 		wantInputMode string // "" means no input global
 	}{
 		{name: "unspecified", wantSpace: false, wantInputMode: ""},
-		{name: "ios", platform: PlatformIOS, wantSpace: true, wantInputMode: "'mouse'"},
-		{name: "android", platform: PlatformAndroid, wantSpace: false, wantInputMode: "'touch'"},
-		{name: "mac", platform: PlatformMac, wantSpace: false, wantInputMode: "'mouse'"},
+		{name: "ios", platform: platform.PlatformIOS, wantSpace: true, wantInputMode: "'mouse'"},
+		{name: "android", platform: platform.PlatformAndroid, wantSpace: false, wantInputMode: "'touch'"},
+		{name: "mac", platform: platform.PlatformMac, wantSpace: false, wantInputMode: "'mouse'"},
 		{
 			// iOS now defaults to mouse, so override with touch -- asking
 			// for mouse here would pass whether or not the flag is honoured.
 			name:          "explicit --input beats the platform default",
-			platform:      PlatformIOS,
+			platform:      platform.PlatformIOS,
 			inputMode:     "touch",
 			wantSpace:     true, // pointer space still follows the platform
 			wantInputMode: "'touch'",
@@ -535,12 +536,12 @@ func TestUSBReset(t *testing.T) {
 // naming screenshots; with no --platform, it isn't told anything.
 func TestViewPlatformFlag(t *testing.T) {
 	for _, tc := range []struct {
-		platform Platform
+		platform platform.Platform
 		want     string
 	}{
-		{PlatformIOS, "ios"},
-		{PlatformAndroid, "android"},
-		{PlatformMac, "mac"},
+		{platform.PlatformIOS, "ios"},
+		{platform.PlatformAndroid, "android"},
+		{platform.PlatformMac, "mac"},
 		{"", ""},
 	} {
 		s, mux := newTestServer()

@@ -14,6 +14,7 @@ import (
 
 	"fiatjaf.com/nostr"
 
+	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/VibiumDev/station"
 	"github.com/VibiumDev/station/enroll"
 	"github.com/VibiumDev/station/rig"
@@ -86,15 +87,15 @@ func checkDeviceName(name string) error {
 // can do with it, the pointer mode viewers should start in (--input, else
 // the platform's), and the toolbar buttons the shared viewer should show,
 // as the keyboard shortcuts the target takes.
-func deviceOffer(name string, platform Platform, hasHID, hasAudio bool, input string, label, model, osVersion string) enroll.Offer {
+func deviceOffer(name string, plat platform.Platform, hasHID, hasAudio bool, input string, label, model, osVersion string) enroll.Offer {
 	if name == "" {
 		name = defaultDeviceName
 	}
 	o := enroll.Offer{Name: name, Kind: "phone", Caps: []string{station.CapVideo, station.CapBidi, station.CapMJPEG}, Input: input, Extras: "/viewer/extras.js",
 		Label: strings.TrimSpace(label), Model: strings.TrimSpace(model), OSVersion: strings.TrimSpace(osVersion)}
-	switch platform {
-	case PlatformIOS, PlatformAndroid, PlatformMac, PlatformWindows, PlatformLinux:
-		o.Platform = string(platform)
+	switch plat {
+	case platform.PlatformIOS, platform.PlatformAndroid, platform.PlatformMac, platform.PlatformWindows, platform.PlatformLinux:
+		o.Platform = string(plat)
 	}
 	if hasAudio {
 		o.Caps = append(o.Caps, station.CapAudio)
@@ -102,10 +103,10 @@ func deviceOffer(name string, platform Platform, hasHID, hasAudio bool, input st
 	if hasHID {
 		o.Caps = append(o.Caps, station.CapHID)
 	}
-	switch platform {
-	case PlatformIOS:
+	switch plat {
+	case platform.PlatformIOS:
 		o.Shortcuts = []station.Shortcut{{Label: "Home", Keys: "GUI+h"}, {Label: "Lock", Keys: "Ctrl+GUI+q"}, {Label: "Wake", Keys: "Shift"}}
-	case PlatformAndroid:
+	case platform.PlatformAndroid:
 		o.Shortcuts = []station.Shortcut{{Label: "Home", Keys: "GUI+h"}, {Label: "Back", Keys: "Escape"}, {Label: "Recents", Keys: "Alt+Tab"},
 			{Label: "Vol +", Keys: "128"}, {Label: "Vol -", Keys: "129"}, {Label: "Power", Keys: "102"}}
 	default:
@@ -244,7 +245,7 @@ func enrollCommand(args []string) int {
 	if *name == "" {
 		*name, _ = os.Hostname()
 	}
-	platform, err := ParsePlatform(*platformFlag)
+	plat, err := platform.ParsePlatform(*platformFlag)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
@@ -273,7 +274,7 @@ func enrollCommand(args []string) int {
 	}
 	entry, err := rig.Enroll(context.Background(), rig.EnrollOptions{
 		URL: url, Code: *code, Name: *name, Key: key, Admin: *admin,
-		Devices: []enroll.Offer{deviceOffer(*deviceName, platform, true, true, platform.DefaultInputMode(), "", *model, *osVersion)},
+		Devices: []enroll.Offer{deviceOffer(*deviceName, plat, true, true, plat.DefaultInputMode(), "", *model, *osVersion)},
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "roadie enroll:", err)

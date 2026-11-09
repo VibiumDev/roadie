@@ -19,6 +19,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/VibiumDev/station/rig"
 )
 
@@ -727,7 +728,7 @@ func (s *Server) bidiNotches(dy, h float64) int {
 		return 0
 	}
 	var n int
-	if s.Platform == PlatformIOS {
+	if s.Platform == platform.PlatformIOS {
 		n = max(int(math.Round((math.Abs(dy)/h+iosRunStart)/iosNotch)), iosFewest)
 	} else {
 		n = max(int(math.Round(math.Abs(dy)*bidiNotchShare/h)), 1)

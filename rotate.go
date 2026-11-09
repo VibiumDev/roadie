@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/VibiumDev/roadie/internal/platform"
 	"image"
 	"log"
 	"net/http"
@@ -118,7 +119,7 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `"to" must be "portrait" or "landscape"`, http.StatusBadRequest)
 		return
 	}
-	if s.Platform != PlatformIOS {
+	if s.Platform != platform.PlatformIOS {
 		http.Error(w, "turning the screen works on an iPhone (--platform ios), through AssistiveTouch's menu",
 			http.StatusNotImplemented)
 		return

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/coder/websocket"
 )
 
@@ -429,7 +430,7 @@ func TestBiDiToHIDScreenPointerSpace(t *testing.T) {
 			s := &Server{
 				Source:   &fakeSource{cropRect: tt.crop, contentRect: phone},
 				Buf:      buf,
-				Platform: PlatformIOS,
+				Platform: platform.PlatformIOS,
 			}
 			gotX, gotY := s.bidiToHID(tt.pixelX, tt.pixelY)
 			if abs(gotX-tt.wantX) > 1 || abs(gotY-tt.wantY) > 1 {
@@ -589,7 +590,7 @@ func TestBiDiScroll(t *testing.T) {
 
 	// On an iPhone, notches enough for about the distance asked, and never
 	// fewer than move it at all.
-	ios := &Server{Platform: PlatformIOS}
+	ios := &Server{Platform: platform.PlatformIOS}
 	for dy, want := range map[float64]int{540: 9, -100: -4, 10: 3, 0: 0} {
 		if got := ios.bidiNotches(dy, 1080); got != want {
 			t.Errorf("iPhone, %v px of 1080: %d notches, want %d", dy, got, want)
@@ -679,7 +680,7 @@ func TestBiDiRefusesTwoFingersBeforeRunning(t *testing.T) {
 	}
 	mouse := bidiActionSource{Type: "pointer", ID: "mouse", Actions: []bidiAction{{Type: "pointerDown"}}}
 
-	ios := &Server{Platform: PlatformIOS}
+	ios := &Server{Platform: platform.PlatformIOS}
 	if err := ios.checkBiDiActions([]bidiActionSource{touch("f0", true), touch("f1", true)}); err != errOneFinger {
 		t.Errorf("two fingers on iOS: %v, want errOneFinger", err)
 	}
@@ -692,7 +693,7 @@ func TestBiDiRefusesTwoFingersBeforeRunning(t *testing.T) {
 			t.Errorf("%s on iOS: %v", name, err)
 		}
 	}
-	android := &Server{Platform: PlatformAndroid}
+	android := &Server{Platform: platform.PlatformAndroid}
 	if err := android.checkBiDiActions([]bidiActionSource{touch("f0", true), touch("f1", true)}); err != nil {
 		t.Errorf("two fingers on Android: %v", err)
 	}

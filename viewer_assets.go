@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/VibiumDev/station/viewer"
 
 	_ "embed"
@@ -38,7 +39,7 @@ func (s *Server) handleViewerAsset(w http.ResponseWriter, r *http.Request) {
 func (s *Server) viewerInfo() map[string]any {
 	info := map[string]any{}
 	switch s.Platform {
-	case PlatformIOS, PlatformAndroid, PlatformMac, PlatformWindows, PlatformLinux:
+	case platform.PlatformIOS, platform.PlatformAndroid, platform.PlatformMac, platform.PlatformWindows, platform.PlatformLinux:
 		info["platform"] = string(s.Platform)
 	}
 	if s.HID != nil && s.HID.Backend() == BackendLinuxGadget {

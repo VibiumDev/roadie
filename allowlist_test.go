@@ -20,8 +20,8 @@ func TestRigAllowlistScopes(t *testing.T) {
 		"/api/hid/type": station.ScopeInput, "/api/hid/key": station.ScopeInput, "/api/hid/mouse/move": station.ScopeInput,
 		"/api/hid/mouse/click": station.ScopeInput, "/api/hid/mouse/scroll": station.ScopeInput, "/api/hid/touch": station.ScopeInput,
 		"/api/hid/release": station.ScopeInput,
-		"/session": station.ScopeBidi,
-		"/api/settings": station.ScopeAdmin, "/api/crop": station.ScopeAdmin, "/api/capture/reset": station.ScopeAdmin,
+		"/session":         station.ScopeBidi,
+		"/api/settings":    station.ScopeAdmin, "/api/crop": station.ScopeAdmin, "/api/capture/reset": station.ScopeAdmin,
 		"/api/usb/reset": station.ScopeAdmin, "/api/relay/reset": station.ScopeAdmin,
 	}
 	for path, scope := range want {

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/coder/websocket"
 )
 
@@ -216,7 +217,7 @@ func newMenuPhone(t *testing.T, o string) (*Server, http.Handler, *menuPhone) {
 	t.Cleanup(func() { rotateClock, rotateShows, rotateSleep = clock, shows, sleep })
 
 	s, _ := newTestServer()
-	s.Platform = PlatformIOS
+	s.Platform = platform.PlatformIOS
 	src := &menuScreen{contentRect: screenFacing(o)}
 	h := &menuPhone{t: t, s: s, src: src, opens: true, appTurns: true}
 	h.mid = src.contentRect.Min.Add(image.Pt(src.contentRect.Dx()/2, src.contentRect.Dy()/2))
@@ -569,7 +570,7 @@ func TestRotateRequests(t *testing.T) {
 	if code, _, _ := get(t, mux, "/api/rotate"); code != http.StatusMethodNotAllowed {
 		t.Errorf("GET: status %d", code)
 	}
-	s.Platform = PlatformAndroid
+	s.Platform = platform.PlatformAndroid
 	if code, _ := postRotate(t, mux, `{"to":"landscape"}`); code != http.StatusNotImplemented {
 		t.Errorf("Android: status %d", code)
 	}

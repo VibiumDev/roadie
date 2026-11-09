@@ -19,6 +19,7 @@ import (
 
 	"fiatjaf.com/nostr"
 
+	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/VibiumDev/roadie/rtc"
 	"github.com/VibiumDev/station/rig"
 	"github.com/VibiumDev/station/sdnotify"
@@ -194,7 +195,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "⚠️  --relay is ignored with --hid-backend linux-gadget")
 	}
 
-	platform, err := ParsePlatform(*platformName)
+	plat, err := platform.ParsePlatform(*platformName)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -368,8 +369,8 @@ func main() {
 		}
 	}
 	settled := newSettledHID(hid)
-	settled.touchAsPointer = platform.TouchAsPointer()
-	settled.wheelIOS = platform == PlatformIOS
+	settled.touchAsPointer = plat.TouchAsPointer()
+	settled.wheelIOS = plat == platform.PlatformIOS
 	settled.SetGlide(*glide)
 	hid = settled
 	go hid.Run()
@@ -426,7 +427,7 @@ func main() {
 		HID:            hid,
 		Capture:        cm,
 		InputMode:      *inputMode,
-		Platform:       platform,
+		Platform:       plat,
 		Name:           *name,
 		Label:          *label,
 		Model:          *model,
@@ -470,7 +471,7 @@ func main() {
 		}
 		recorder.end(holdID)
 	}
-	rigRun, err = startRig(handler, deviceOffer(*deviceNameFlag, platform, hid != nil, ab != nil, srv.effectiveInputMode(), *label, *model, *osVersion), onHoldEnd)
+	rigRun, err = startRig(handler, deviceOffer(*deviceNameFlag, plat, hid != nil, ab != nil, srv.effectiveInputMode(), *label, *model, *osVersion), onHoldEnd)
 	if err != nil {
 		log.Fatalf("station: %v", err)
 	}

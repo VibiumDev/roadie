@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/VibiumDev/roadie/rtc"
 	"html/template"
 	"image"
@@ -53,7 +54,7 @@ type Server struct {
 	// Platform is the target's OS, which decides how it reads absolute
 	// pointer coordinates and what input mode suits it. Empty means
 	// unspecified.
-	Platform Platform
+	Platform platform.Platform
 
 	// Name is this instance's --name. It labels the browser tab so that
 	// several targets open at once stay tellable apart.
