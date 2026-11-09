@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	fiatjaf.com/nostr v0.0.0-20261026145325-252a038facda
-	github.com/VibiumDev/station v0.0.0-20261109192324-ed167edd2326
+	github.com/VibiumDev/station v0.0.0-20261109220620-35e3791a8e6f
 	github.com/coder/websocket v1.8.15
 	github.com/hashicorp/mdns v1.0.7
 	github.com/pion/ice/v4 v4.0.13
