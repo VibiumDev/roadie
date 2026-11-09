@@ -18,10 +18,7 @@ import (
 )
 
 var (
-	hd        = image.Pt(1920, 1080)
-	tall      = image.Rect(734, 54, 1186, 1026) // an iPhone held upright
 	tallDark  = image.Rect(750, 76, 1168, 1007) // the same, in a dark app
-	wide      = image.Rect(0, 97, 1920, 983)    // the iPhone turned sideways
 	nearBlack = image.Rect(900, 500, 980, 580)  // a dark screen's lone bright patch
 )
 

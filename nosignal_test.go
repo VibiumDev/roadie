@@ -89,3 +89,10 @@ func TestSmallDetectionKeepsOrientation(t *testing.T) {
 		t.Errorf("after the phone turned: %s, want landscape", fb.Orientation())
 	}
 }
+
+// Frame sizes shared with the crop tests.
+var (
+	hd   = image.Pt(1920, 1080)
+	tall = image.Rect(734, 54, 1186, 1026) // an iPhone held upright
+	wide = image.Rect(0, 97, 1920, 983)    // the iPhone turned sideways
+)

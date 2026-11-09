@@ -2,16 +2,14 @@ package main
 
 import (
 	"bytes"
-	"image"
-	"image/color"
-	"image/jpeg"
-	"reflect"
-	"sync"
-	"testing"
-
 	"github.com/VibiumDev/roadie/internal/devices"
 	"github.com/pion/mediadevices/pkg/driver"
 	"github.com/pion/mediadevices/pkg/prop"
+	"image"
+	"image/color"
+	"reflect"
+	"sync"
+	"testing"
 )
 
 // makeImage creates a w×h RGBA image filled with fillColor, then draws a
@@ -90,18 +88,6 @@ func TestFrameBufferDualStorage(t *testing.T) {
 	if got := fb.CropRect(); got != rect {
 		t.Errorf("CropRect() = %v, want %v", got, rect)
 	}
-}
-
-func testJPEG(w, h int) []byte {
-	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			img.Set(x, y, color.RGBA{R: 100, G: 149, B: 237, A: 255})
-		}
-	}
-	var buf bytes.Buffer
-	jpeg.Encode(&buf, img, &jpeg.Options{Quality: 80})
-	return buf.Bytes()
 }
 
 func TestFrameBufferUpdateCropped(t *testing.T) {

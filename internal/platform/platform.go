@@ -92,3 +92,13 @@ func (p Platform) DefaultInputMode() string {
 	}
 	return ""
 }
+
+// MDNSHostname returns the hostname advertised for a service name.
+//
+// The responder matches queried names exactly, while browsers lowercase
+// hostnames before resolving them — so a mixed-case name would advertise a
+// host that the browser then fails to look up. Lowercasing here means any
+// capitalization works: --name Android is reachable at android.local.
+func MDNSHostname(name string) string {
+	return strings.ToLower(name)
+}

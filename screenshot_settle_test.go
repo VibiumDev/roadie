@@ -25,40 +25,6 @@ func grayJPEG(t *testing.T, level uint8) []byte {
 
 // timedSource serves whichever frame its timeline says is on screen at the
 // fake clock's time.
-type timedSource struct {
-	clock  *time.Time
-	start  time.Time
-	frames []timedFrame // in order of at
-}
-
-type timedFrame struct {
-	at    time.Duration
-	frame []byte
-}
-
-func (s *timedSource) Latest() []byte {
-	var f []byte
-	for _, tf := range s.frames {
-		if s.clock.Sub(s.start) >= tf.at {
-			f = tf.frame
-		}
-	}
-	return f
-}
-func (s *timedSource) LatestRaw() []byte            { return s.Latest() }
-func (s *timedSource) Status() CaptureStatus        { return StatusConnected }
-func (s *timedSource) CropRect() image.Rectangle    { return image.Rectangle{} }
-func (s *timedSource) ContentRect() image.Rectangle { return image.Rectangle{} }
-
-func fakeSettleClock(clock *time.Time) settleClock {
-	return settleClock{
-		now: func() time.Time { return *clock },
-		sleep: func(_ context.Context, d time.Duration) error {
-			*clock = clock.Add(d)
-			return nil
-		},
-	}
-}
 
 func TestSettledFrame(t *testing.T) {
 	before, during, after := grayJPEG(t, 20), grayJPEG(t, 120), grayJPEG(t, 220)

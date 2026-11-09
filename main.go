@@ -397,7 +397,7 @@ func main() {
 		if ip := getLANIP(); ip != "" {
 			fmt.Printf("🌐 %s://%s:%d\n", scheme, ip, listenPort)
 		}
-		fmt.Printf("🌐 %s://%s.local:%d\n", scheme, MDNSHostname(*name), listenPort)
+		fmt.Printf("🌐 %s://%s.local:%d\n", scheme, platform.MDNSHostname(*name), listenPort)
 	}
 	switch auth.Mode {
 	case AuthUnset:

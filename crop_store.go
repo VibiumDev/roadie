@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/platform"
 	"image"
 	"io/fs"
 	"os"
@@ -18,7 +19,7 @@ func defaultCropFile(name string) string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(dir, "roadie", "crop-"+MDNSHostname(name)+".json")
+	return filepath.Join(dir, "roadie", "crop-"+platform.MDNSHostname(name)+".json")
 }
 
 // cropJSON is one saved crop as the API and the file show it.

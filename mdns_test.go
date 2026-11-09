@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"github.com/VibiumDev/roadie/internal/platform"
+	"testing"
+)
 
 func TestMDNSHostname(t *testing.T) {
 	tests := []struct {
@@ -17,8 +20,8 @@ func TestMDNSHostname(t *testing.T) {
 		// Browsers lowercase hostnames before resolving, and the responder
 		// matches the queried name exactly, so whatever capitalization the
 		// user passes must advertise as lowercase to be reachable.
-		if got := MDNSHostname(tt.name); got != tt.want {
-			t.Errorf("MDNSHostname(%q) = %q, want %q", tt.name, got, tt.want)
+		if got := platform.MDNSHostname(tt.name); got != tt.want {
+			t.Errorf("platform.MDNSHostname(%q) = %q, want %q", tt.name, got, tt.want)
 		}
 	}
 }

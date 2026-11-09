@@ -1,21 +1,10 @@
 package main
 
 import (
-	"net"
-	"strings"
-
+	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/hashicorp/mdns"
+	"net"
 )
-
-// MDNSHostname returns the hostname advertised for a service name.
-//
-// The responder matches queried names exactly, while browsers lowercase
-// hostnames before resolving them — so a mixed-case name would advertise a
-// host that the browser then fails to look up. Lowercasing here means any
-// capitalization works: --name Android is reachable at android.local.
-func MDNSHostname(name string) string {
-	return strings.ToLower(name)
-}
 
 // RegisterMDNS advertises the Roadie service via Bonjour/mDNS and responds
 // to A record queries for <name>.local so browsers can reach us by name.
@@ -29,7 +18,7 @@ func RegisterMDNS(name string, port int, resolution string) (shutdown func(), er
 		name,
 		"_roadie._tcp",
 		"",
-		MDNSHostname(name)+".local.",
+		platform.MDNSHostname(name)+".local.",
 		port,
 		ips,
 		[]string{"version=0.1", "resolution=" + resolution},
