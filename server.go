@@ -59,6 +59,10 @@ type Server struct {
 	// several targets open at once stay tellable apart.
 	Name string
 
+	// Label is the device's name for people on a station, --label; empty
+	// leaves the station to show the device by its kind.
+	Label string
+
 	// CropFile is where saved crops are kept between runs; empty keeps
 	// them only until roadie stops.
 	CropFile string
@@ -136,7 +140,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	host, _ := os.Hostname()
-	data := map[string]any{"Title": s.pageTitle(), "Name": s.Name, "Host": host, "Platform": "", "Input": s.effectiveInputMode(), "Stations": []map[string]any(nil)}
+	data := map[string]any{"Title": s.pageTitle(), "Name": s.Name, "Host": host, "Platform": "", "Label": s.Label, "Input": s.effectiveInputMode(), "Stations": []map[string]any(nil)}
 	if s.Platform != "" {
 		data["Platform"] = string(s.Platform)
 	}
@@ -177,6 +181,7 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 <h2 class="h2">This host</h2>
 <div class="tablewrap"><table class="kv">
 <tr><th>Host</th><td>{{.Host}}{{if and .Name (ne .Name "roadie")}} <span class="muted">{{.Name}}</span>{{end}}</td></tr>
+<tr><th>Device</th><td>{{if .Label}}{{.Label}} <span class="muted">phone</span>{{else}}phone <span class="muted">no label (--label)</span>{{end}}</td></tr>
 <tr><th>Platform</th><td>{{if .Platform}}{{.Platform}}{{else}}<span class="muted">not set (--platform)</span>{{end}}</td></tr>
 <tr><th>Pointer</th><td>{{if .Input}}{{.Input}}{{else}}<span class="muted">the viewer decides</span>{{end}}</td></tr>
 <tr><th>Stations</th><td>{{if .Stations}}{{range .Stations}}<div>{{.name}} <span class="muted mono">{{.rig}}</span> {{if .online}}<span class="ok">online</span>{{else}}<span class="muted">offline</span>{{end}}</div>{{end}}{{else}}<span class="muted">none: <code>roadie enroll https://&lt;station&gt; --code …</code></span>{{end}}</td></tr>

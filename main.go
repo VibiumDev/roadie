@@ -421,6 +421,7 @@ func main() {
 		InputMode:      *inputMode,
 		Platform:       platform,
 		Name:           *name,
+		Label:          *label,
 		CropFile:       cropFile,
 		RTC:            broadcaster,
 		Auth:           auth,
