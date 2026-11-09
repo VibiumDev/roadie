@@ -84,6 +84,8 @@ func main() {
 	platformName := flag.String("platform", "", "target OS: android, ios, mac, windows, linux (tunes pointer mapping and input mode)")
 	label := flag.String("label", "", "the device's name for people on a station, such as \"Dev iPhone 15\" (default: shown by its kind, \"phone\")")
 	deviceNameFlag := flag.String("device-name", defaultDeviceName, "the device's name in its station address, rig/<name>: a lowercase word of letters, digits, _ or -, such as iphone_1")
+	model := flag.String("model", "", "the device's model name, such as \"iPhone 15 Pro Max\", shown on a station and told to agents")
+	osVersion := flag.String("os-version", "", "the version of what the device runs, such as \"26.6\", shown on a station and told to agents")
 	glide := flag.Bool("glide", false, "glide the pointer to each new spot along an arc, as a hand would, instead of jumping (a switch in /settings too)")
 	hidBackendName := flag.String("hid-backend", BackendRP2040, "input hardware: rp2040 (relay and HID boards) or linux-gadget (this machine's USB device port, set up by gadget/roadie-gadget)")
 	encoderSpec := flag.String("encoder", "auto", "H.264 encoder for WebRTC: auto, v4l2m2m (Pi 4 hardware), ffmpeg, ffmpeg:<codec>, or none")
@@ -427,6 +429,8 @@ func main() {
 		Platform:       platform,
 		Name:           *name,
 		Label:          *label,
+		Model:          *model,
+		OSVersion:      *osVersion,
 		CropFile:       cropFile,
 		RTC:            broadcaster,
 		Auth:           auth,
@@ -466,7 +470,7 @@ func main() {
 		}
 		recorder.end(holdID)
 	}
-	rigRun, err = startRig(handler, deviceOffer(*deviceNameFlag, platform, hid != nil, ab != nil, srv.effectiveInputMode(), *label), onHoldEnd)
+	rigRun, err = startRig(handler, deviceOffer(*deviceNameFlag, platform, hid != nil, ab != nil, srv.effectiveInputMode(), *label, *model, *osVersion), onHoldEnd)
 	if err != nil {
 		log.Fatalf("station: %v", err)
 	}

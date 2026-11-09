@@ -86,12 +86,12 @@ func checkDeviceName(name string) error {
 // can do with it, the pointer mode viewers should start in (--input, else
 // the platform's), and the toolbar buttons the shared viewer should show,
 // as the keyboard shortcuts the target takes.
-func deviceOffer(name string, platform Platform, hasHID, hasAudio bool, input string, label string) enroll.Offer {
+func deviceOffer(name string, platform Platform, hasHID, hasAudio bool, input string, label, model, osVersion string) enroll.Offer {
 	if name == "" {
 		name = defaultDeviceName
 	}
 	o := enroll.Offer{Name: name, Kind: "phone", Caps: []string{station.CapVideo, station.CapBidi, station.CapMJPEG}, Input: input, Extras: "/viewer/extras.js",
-		Label: strings.TrimSpace(label)}
+		Label: strings.TrimSpace(label), Model: strings.TrimSpace(model), OSVersion: strings.TrimSpace(osVersion)}
 	switch platform {
 	case PlatformIOS, PlatformAndroid, PlatformMac, PlatformWindows, PlatformLinux:
 		o.Platform = string(platform)
@@ -214,10 +214,12 @@ func enrollCommand(args []string) int {
 	name := fs.String("name", "", "this rig's name (default: the host name)")
 	platformFlag := fs.String("platform", "", "the target's platform, as for the server: ios, android, mac, windows, linux")
 	deviceName := fs.String("device-name", defaultDeviceName, "the device's name in its station address, as for the server")
+	model := fs.String("model", "", "the device's model name, as for the server")
+	osVersion := fs.String("os-version", "", "the version of what the device runs, as for the server")
 	admin := fs.Bool("admin", false, "accept admin grants from this station (settings, resets)")
 	record := fs.Bool("record", false, "record every hold from this station (a screenshot after each burst of input) and upload it to the station's Record Store")
 	fs.Usage = func() {
-		fmt.Println("usage: roadie enroll [https://station[:port]] --code ABCD-1234-7F3A [--name NAME] [--platform P] [--device-name N] [--admin] [--record]\n" +
+		fmt.Println("usage: roadie enroll [https://station[:port]] --code ABCD-1234-7F3A [--name NAME] [--platform P] [--device-name N] [--model M] [--os-version V] [--admin] [--record]\n" +
 			"Without a URL the station is found on this network over mDNS.")
 		fs.PrintDefaults()
 	}
@@ -271,7 +273,7 @@ func enrollCommand(args []string) int {
 	}
 	entry, err := rig.Enroll(context.Background(), rig.EnrollOptions{
 		URL: url, Code: *code, Name: *name, Key: key, Admin: *admin,
-		Devices: []enroll.Offer{deviceOffer(*deviceName, platform, true, true, platform.DefaultInputMode(), "")},
+		Devices: []enroll.Offer{deviceOffer(*deviceName, platform, true, true, platform.DefaultInputMode(), "", *model, *osVersion)},
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "roadie enroll:", err)

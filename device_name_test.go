@@ -15,11 +15,11 @@ func TestDeviceName(t *testing.T) {
 			t.Errorf("%q accepted", bad)
 		}
 	}
-	o := deviceOffer("iphone_1", PlatformIOS, true, true, "mouse", " iPhone 15 Pro Max ")
-	if o.Name != "iphone_1" || o.Kind != "phone" || o.Label != "iPhone 15 Pro Max" || o.Platform != "ios" {
+	o := deviceOffer("iphone_1", PlatformIOS, true, true, "mouse", " iPhone 15 Pro Max ", "iPhone 15 Pro Max", " 26.6 ")
+	if o.Name != "iphone_1" || o.Kind != "phone" || o.Label != "iPhone 15 Pro Max" || o.Platform != "ios" || o.Model != "iPhone 15 Pro Max" || o.OSVersion != "26.6" {
 		t.Errorf("offer: %+v", o)
 	}
-	if o := deviceOffer("", PlatformAndroid, false, false, "", ""); o.Name != defaultDeviceName {
-		t.Errorf("default name: %q", o.Name)
+	if o := deviceOffer("", PlatformAndroid, false, false, "", "", "", ""); o.Name != defaultDeviceName || o.Model != "" {
+		t.Errorf("default name: %+v", o)
 	}
 }
