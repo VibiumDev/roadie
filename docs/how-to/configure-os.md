@@ -99,7 +99,7 @@ roadie-gadget check            # --gadget: everything green
 sudo -u roadie roadie token    # the token /login asks for
 ```
 
-Then open `http://roadie-01.local:8080/view`. To start, stop or restart
+Then open `http://roadie-01.local:8080/drive`. To start, stop or restart
 Roadie, read its log, or change its flags, see
 [How to Run Roadie](run-roadie.md).
 

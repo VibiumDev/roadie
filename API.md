@@ -11,7 +11,7 @@ Service discovery: `dns-sd -B _roadie._tcp` (mDNS/Bonjour)
 ### `GET /`
 Index page with links to all endpoints.
 
-### `GET /view`
+### `GET /drive`
 Live video feed with full HID control. The browser tab is titled
 `Roadie — <name>` when `--name` is set, so several targets open at once stay
 tellable apart. Click/touch the stream to send mouse or touch events to the target. Keyboard events are captured automatically (except when interacting with the toolbar). Includes audio toggle, microphone toggle (voice input to the target; needs https or localhost), quality/FPS/resolution settings, and mouse/touch input mode toggle. On a touchscreen in mouse mode, two fingers moving together turn the wheel, and two fingers moving apart or towards each other become Apple Maps' one-finger zoom, since a device whose pointer stands in for touch never sees two fingers. That zoom is a double tap at their centre with the second tap held and dragged, up to zoom in and down to zoom out (Google Maps zooms the same way; other apps get a double tap and a drag). In touch mode two fingers go to the target as two contacts. A Screenshot button saves the picture as it is, sending nothing to the target.
@@ -49,6 +49,14 @@ Neither `?input=` nor `--input` is written to the browser's stored preference,
 so the toolbar toggle still works and still holds for the rest of the session —
 a reload returns to the configured mode.
 
+### `GET /view`
+
+The same viewer as `/drive`, looking only: the picture and the sound,
+with no input socket, so nothing the person does reaches the target. For
+a second pair of eyes beside whoever is driving, or for a screen on a
+wall. Takes the same parameters as `/drive`; a wheel in its toolbar leads
+to `/drive`, and `/drive`'s eye leads here.
+
 ### `GET /login`, `POST /login`, `GET /logout`
 With `--auth token`, the one-field login page. The form posts `token` and
 `next` (a path on this site); a right token sets an `HttpOnly`,
@@ -81,7 +89,7 @@ point-to-point from each capture host to the browser.
 Targets must be reachable from the **browser**, not from the server — use LAN
 hostnames or IPs rather than `localhost` when viewing from another machine.
 Only the scheme and host of each target are used; the iframe path is always
-`/view?minimal=1` plus any `input` mode. Returns `400` with usage help if `targets` is missing or invalid.
+`/drive?minimal=1` plus any `input` mode. Returns `400` with usage help if `targets` is missing or invalid.
 
 ### `GET /settings`
 Shows the capture settings (JPEG quality, frames per second, capture size), the [crop](#get-put-post-delete-apicrop), this browser's viewer choices (zoom, with Fit, and the toolbar) and the device's details in the front page's look. Each section has a "?" that explains it and its settings.
@@ -89,7 +97,7 @@ Shows the capture settings (JPEG quality, frames per second, capture size), the 
 ### `GET /soundcheck`
 
 A microphone check page. Opens the browser's microphone, converts it to
-16 kHz mono PCM, and streams it to `/api/mic` — the same path `/view`'s mic
+16 kHz mono PCM, and streams it to `/api/mic` — the same path `/drive`'s mic
 button uses, with a level meter and a status line.
 
 Served by roadie so that it is same-origin with `/api/mic`, which refuses
@@ -100,7 +108,7 @@ Optional `?report=<url>` makes the page GET that URL once it is streaming,
 which is how the test knows audio is actually flowing before it listens.
 
 ### `GET /test`
-Interactive HID test page with mouse/touch trackpad, keyboard input, and key combo controls. Supports Mouse mode (pointer + scroll wheel) and Touch mode (multi-touch digitizer with pinch-to-zoom). Trackpad overlays the auto-cropped MJPEG stream and auto-adjusts aspect ratio to match the target's video signal. Coordinates are remapped to account for crop offset so touches align with visible content. Input mode persists via `localStorage` (shared with `/view`). Communicates with the target via WebSocket (`/api/hid/ws`).
+Interactive HID test page with mouse/touch trackpad, keyboard input, and key combo controls. Supports Mouse mode (pointer + scroll wheel) and Touch mode (multi-touch digitizer with pinch-to-zoom). Trackpad overlays the auto-cropped MJPEG stream and auto-adjusts aspect ratio to match the target's video signal. Coordinates are remapped to account for crop offset so touches align with visible content. Input mode persists via `localStorage` (shared with `/drive`). Communicates with the target via WebSocket (`/api/hid/ws`).
 
 ---
 
@@ -291,10 +299,10 @@ Service status and device info.
 | `hid_board` | `not_answering` when the far end is not taking input: the HID board is silent (RP2040), or no phone has enumerated the gadget (linux-gadget) |
 | `platform` | Present only when `--platform` is set |
 | `pointer_space` | `screen` or `frame` — which space the target reads absolute coordinates in (see `--platform`) |
-| `rotating` | `true` while [`/api/rotate`](#post-apirotate) is turning the screen, and absent otherwise. `/view` holds back its input meanwhile |
+| `rotating` | `true` while [`/api/rotate`](#post-apirotate) is turning the screen, and absent otherwise. `/drive` holds back its input meanwhile |
 | `input_mode` | The mode viewers start in: `--input`, else the platform default |
 | `host` | The machine Roadie runs on: Roadie's own CPU use (`cpu_percent`, 100 is one core), the 1-minute load average, the CPU temperature in °C, total memory in MB, and the percentage of memory in use (not available to new programs). Whatever the machine doesn't tell is left out |
-| `webrtc` | Present when the host can encode H.264 (see `--encoder`): the encoder in use or available, how many viewers are connected over WebRTC, the target bitrate in bits per second, and while encoding the picture's size, the frames encoded in the last second and the frames skipped (`dropped`); `audio` (`G722`) and `audio_kbps` while the phone's sound is being sent, `mic` and `mic_kbps` while a viewer's microphone is coming in. Absent means `/view?transport=webrtc` falls back to MJPEG |
+| `webrtc` | Present when the host can encode H.264 (see `--encoder`): the encoder in use or available, how many viewers are connected over WebRTC, the target bitrate in bits per second, and while encoding the picture's size, the frames encoded in the last second and the frames skipped (`dropped`); `audio` (`G722`) and `audio_kbps` while the phone's sound is being sent, `mic` and `mic_kbps` while a viewer's microphone is coming in. Absent means `/drive?transport=webrtc` falls back to MJPEG |
 
 ---
 
@@ -373,7 +381,7 @@ after a restart of Roadie while the phone took itself to be on its side),
 Roadie tries the other way once.
 
 While a turn is under way, [`/health`](#get-health) says `"rotating": true`:
-the pointer moving under Roadie's clicks would spoil them. `/view` greys the
+the pointer moving under Roadie's clicks would spoil them. `/drive` greys the
 picture, says "Rotating the screen…", and holds back the viewer's mouse,
 touch and keys, letting go of anything held first. Roadie also drops input
 arriving over [`WS /api/hid/ws`](#ws-apihidws) meanwhile, all but releases.
@@ -610,7 +618,7 @@ unless they only let go of something (`key_release`, `mouse_release`, a
 ---
 
 ### `WS /api/webrtc/signal`
-WebRTC signaling for `/view?transport=webrtc` (and for headless clients).
+WebRTC signaling for `/drive?transport=webrtc` (and for headless clients).
 The client sends `{"type":"hello"}` first; Roadie answers with
 `{"type":"offer","sdp":"..."}` and then `{"type":"candidate","candidate":{...}}`
 messages as it finds its addresses; the client sends
@@ -644,7 +652,7 @@ station relays later.
 ### `GET /viewer/…`
 The viewer's files: `shell.js`, `shell.css` and `webrtc.js` are the shared shell from the [Station viewer package](https://github.com/VibiumDev/station), the same page a station serves for a device, while `extras.js` is Roadie's own addition to it. It adds the phone's buttons (Home, Lock and Wake, Rotate, Android's Back, Recents and volume), the capture settings, the crop and the resets, and is served with what it needs to know about this host (`window.__roadieDevice`: platform, HID backend, USB devices) in front. A station relays `extras.js` to its own page, so the two viewers are one code path with one look.
 
-`/view` renders the shell with its endpoints at the root and these parameters:
+`/drive` renders the shell with its endpoints at the root and these parameters:
 
 - `?minimal=1` hides the toolbar (for a frame).
 - `?input=mouse|touch` and `?transport=webrtc|mjpeg` set the pointer mode and the picture's transport for that page load.

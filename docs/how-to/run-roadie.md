@@ -17,7 +17,7 @@ sudo systemctl restart roadie
 
 A restart doesn't disturb the phone: with the [Pi as the phone's USB
 devices](linux-gadget.md), the phone keeps its keyboard, audio and network,
-and a page open on `/view` brings its picture back by itself within a second
+and a page open on `/drive` brings its picture back by itself within a second
 or two of Roadie answering again.
 
 To check that it's serving:
@@ -82,7 +82,7 @@ Run as yourself, `roadie token` stops with that reminder rather than make a
 second token in your own home. A build run by hand, with no service, keeps
 its token in your own `~/.config/roadie`.
 
-A browser that opens `/view` is sent to `/login`, where the token goes in
+A browser that opens `/drive` is sent to `/login`, where the token goes in
 once. From a script:
 
 ```bash
@@ -117,7 +117,7 @@ sudo systemctl restart roadie
 sudo tailscale serve --bg 8080
 ```
 
-The viewer is then at `https://<machine>.<tailnet>.ts.net/view` for everyone
+The viewer is then at `https://<machine>.<tailnet>.ts.net/drive` for everyone
 on the tailnet, or only the logins and tags in `--allow you@example.com`.
 Agents and scripts on the tailnet use the same address and need no token.
 `--bg` keeps the rule across reboots; `tailscale serve status` shows it and
@@ -198,7 +198,7 @@ removes it on their Settings page, after which its key is refused.
 
 Everything changed through [`/api/settings`](../../API.md#put-apisettings),
 such as quality, frame rate and resolution, goes back to the flags. A browser
-that opens `/view` puts back the quality, frame rate and size it last chose
+that opens `/drive` puts back the quality, frame rate and size it last chose
 there.
 
 ## Run it by hand

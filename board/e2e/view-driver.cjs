@@ -1,6 +1,6 @@
-// Drives roadie's /view in a headless browser, through Vibium, for
+// Drives roadie's /drive in a headless browser, through Vibium, for
 // test_e2e.py --via view: the e2e checks' input goes in as a person's
-// mouse, keys and wheel on /view's picture, and /view sends it to roadie.
+// mouse, keys and wheel on /drive's picture, and /drive sends it to roadie.
 //
 // Usage: node view-driver.cjs <path to the vibium package> <view URL>
 //
@@ -11,7 +11,7 @@
 //   {"op": "wheel", "dy": 25, "count": 10, "gap": 30}
 //                                           count turns of dy pixels, gap ms apart
 //   {"op": "type", "text": "abc"}
-//   {"op": "mode", "mode": "touch"}         /view's Mouse/Touch switch
+//   {"op": "mode", "mode": "touch"}         /drive's Mouse/Touch switch
 //   {"op": "eval", "expr": "..."}           an expression's value, for debugging
 //   {"op": "quit"}
 // Answers are {"ok": true, ...} or {"ok": false, "error": "..."}.
@@ -29,7 +29,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // Tall enough for a phone's picture at its own size.
   await page.setViewport({ width: 1000, height: 1600 });
   await page.go(viewURL);
-  // The picture, then a moment for /view's input socket, which it opens
+  // The picture, then a moment for /drive's input socket, which it opens
   // as it starts and keeps to itself.
   for (let i = 0; i < 100; i++) {
     const ready = await page.evaluate(

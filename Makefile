@@ -191,7 +191,7 @@ test-audio-browser:  ## Voice input from a real browser's microphone
 # CLI, attached to a browser the test launches) and clicks it with the
 # real USB mouse, so the whole operator path is under test at once.
 
-test-view:  ## Voice input through roadie's own /view page, clicked for real
+test-view:  ## Voice input through roadie's own /drive page, clicked for real
 	@board/e2e/ensure-display.sh python3 board/test_view.py
 
 # One look at everything roadie talks to: boards, the input it can drive,
@@ -250,8 +250,8 @@ test-multitouch:  ## Two contacts and gestures, checked at /dev/input
 test-e2e-android:  ## The whole stack into Chrome on an Android phone (opens it by keyboard)
 	python3 board/test_e2e.py --target android
 
-test-e2e-iphone:  ## The whole stack into Safari on an iPhone: API, BiDi and /view
-	@# Every way in: /api/hid, WebDriver BiDi's /session, and /view in a
+test-e2e-iphone:  ## The whole stack into Safari on an iPhone: API, BiDi and /drive
+	@# Every way in: /api/hid, WebDriver BiDi's /session, and /drive in a
 	@# headless browser. The last two skip the soundcheck, which tests
 	@# audio, not the way input arrives.
 	@rc=0; \

@@ -14,7 +14,7 @@ Design and decisions: [linux-gadget-plan.md](../linux-gadget-plan.md).
 | Raspberry Pi 4 Model B, Raspberry Pi OS (Debian 13 trixie), 64-bit, kernel 6.18 | Built and tested here (Rev 1.4, `6.18.50+rpt-rpi-v8`) |
 | Other Pis with a DWC2 USB-C/OTG port (Zero 2 W, CM4) | Untested; endpoint budget may differ |
 | Android phone with USB-C DisplayPort alt mode | Validate with the [checklist](#hardware-validation-checklist) |
-| iPhone (USB-C) | Mouse and phone audio to `/view` work; audio switches to USB by itself on plugging in. Keyboard, microphone and Ethernet not yet checked; touch never works (iOS limitation) |
+| iPhone (USB-C) | Mouse and phone audio to `/drive` work; audio switches to USB by itself on plugging in. Keyboard, microphone and Ethernet not yet checked; touch never works (iOS limitation) |
 
 ## Wiring and power
 
@@ -65,7 +65,7 @@ The relay and HID board can stay on the Pi's USB-A ports; gadget mode
 ignores them. Power on.
 
 Nothing needs starting after boot: the gadget, the phone's network and
-roadie come up by themselves. Open `http://<pi>.local:8080/view`, and check:
+roadie come up by themselves. Open `http://<pi>.local:8080/drive`, and check:
 
 ```bash
 roadie-mode           # mode gadget, gadget up, phone attached
@@ -327,27 +327,27 @@ Record pass/fail and notes for each.
 3. **Keyboard.** In a text field:
    `curl -X POST localhost:8080/api/hid/type -d '{"text":"Hello, Roadie 123!"}'`
    types exactly that.
-4. **Mouse.** `/view?input=mouse`: pointer follows clicks, click opens an
+4. **Mouse.** `/drive?input=mouse`: pointer follows clicks, click opens an
    app, wheel scrolls.
-5. **Touch.** `/view?input=touch`: taps land under the cursor, swipes
+5. **Touch.** `/drive?input=touch`: taps land under the cursor, swipes
    scroll, two-finger pinch zooms Maps. `make test-e2e-android` passes.
-6. **No stuck input.** Start a drag in `/view`, then
+6. **No stuck input.** Start a drag in `/drive`, then
    `sudo systemctl kill -s KILL roadie`; the drag ends within 5 s of roadie
    restarting.
 7. **Microphone recognized.**
    `adb shell dumpsys audio | grep -iE 'usb.*(device|headset)'` shows a USB
    input.
 8. **Microphone injection.** Voice recorder on the phone; speak through
-   `/view`'s mic button for 30 s with pauses. Playback: speech clear, pauses
+   `/drive`'s mic button for 30 s with pauses. Playback: speech clear, pauses
    silent (no buzz, no repeats). Repeat with `AUDIO=uac1` if it fails.
-9. **Headset capture.** Play a video on the phone; unmute `/view`: it is
+9. **Headset capture.** Play a video on the phone; unmute `/drive`: it is
    heard. `/health` shows `audio` 48000 Hz, 2 channels.
 10. **Internet.** Phone Wi-Fi and mobile data off. Settings shows
     Ethernet connected; `adb shell ip addr show eth0` → `192.168.42.2`;
     a website loads. `sudo roadie-phone-net status phone0` shows the lease.
 11. **Isolation.** From the phone's browser, `http://192.168.42.1:8080`,
     `http://<Pi LAN IP>:8080` and the LAN router's page all fail.
-12. **Video.** `/view` shows the phone over HDMI throughout 3–11.
+12. **Video.** `/drive` shows the phone over HDMI throughout 3–11.
 13. **Roadie restarts.** `for i in $(seq 10); do sudo systemctl restart roadie; sleep 5; done`
     while the phone streams a video: Ethernet stays up, no input devices are
     removed (`adb shell getevent` shows none), and `usb state` stays

@@ -100,7 +100,7 @@ make                # build
 ./roadie            # run
 ```
 
-Open `http://localhost:8080/view` to see and control the target's screen.
+Open `http://localhost:8080/drive` to see and control the target's screen.
 Without `--auth`, Roadie listens on localhost only; to reach it from other
 machines, run it with `--auth token` and sign in at `/login` with the token
 `roadie token` prints (see [Run Roadie](docs/how-to/run-roadie.md#who-may-connect)).
@@ -111,7 +111,7 @@ To drive more than one device from the same host, see
 ## Features
 
 - **HID control**: absolute mouse, multi-touch digitizer, and keyboard input via USB, controllable over HTTP/WebSocket
-- **Interactive viewer**: `/view` page with live feed and full HID control (mouse, touch, keyboard) directly on the stream
+- **Interactive viewer**: `/drive` page with live feed and full HID control (mouse, touch, keyboard) directly on the stream
 - **WebRTC**: the viewer's default where the host can encode H.264 (the Pi 4's hardware encoder, or VideoToolbox, VAAPI, NVENC or libx264 through ffmpeg elsewhere). One peer connection carries the picture, the phone's sound as G.722, your microphone back, and input, at a fraction of MJPEG's bandwidth and CPU, and the viewer falls back to MJPEG and the WebSockets by itself
 - **Vibium Station**: `roadie enroll` joins a [station](https://github.com/VibiumDev/station) that brokers access from anywhere over an outbound tunnel, with signed holds the Pi checks itself. The station's viewer is this same shared shell, with Roadie's extras loaded through the relay. `--label "Dev iPhone 15"` names the device on the station's pages, `--device-name iphone_1` sets the name in its station address (`rig/<name>`, `phone` by default), `--model "iPhone 15 Pro Max"` and `--os-version 26.6` say what the device is and runs, and `--platform` tells it what the device runs With `--record`, every hold is recorded on the Pi and kept in the station's Record Store.
 - **Local login**: `--auth token` (a local admin token, a one-field `/login` page, `Authorization: Bearer` for agents) or `--auth tailscale` (whoever your tailnet says); without `--auth`, Roadie listens on localhost only

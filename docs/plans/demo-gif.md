@@ -4,7 +4,7 @@ Hero image/gif for the README to show Roadie working at a glance.
 
 ## What to capture
 
-A short screen recording of the `/view` page in a browser, with the physical phone visible next to the screen. The browser shows the phone's display mirrored, and the user interacts with it — moving the cursor, tapping, maybe swiping — and the phone responds in real time.
+A short screen recording of the `/drive` page in a browser, with the physical phone visible next to the screen. The browser shows the phone's display mirrored, and the user interacts with it — moving the cursor, tapping, maybe swiping — and the phone responds in real time.
 
 ## The "oh, I get it" moment
 
@@ -14,7 +14,7 @@ The phone screen and the browser showing the **same thing**, with input going th
 
 ### Option A: Photo (simplest)
 
-- Browser window with `/view` open, showing the phone's screen
+- Browser window with `/drive` open, showing the phone's screen
 - Phone physically next to the computer, plugged in via USB-C dongle, showing the same screen
 - The two QT Py boards and HDMI capture dongle visible in the cable run (if it doesn't look cluttered)
 - Slightly overhead/angled so you can see phone, cables, boards, and browser in one frame

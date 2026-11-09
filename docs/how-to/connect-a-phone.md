@@ -70,7 +70,7 @@ and once left a touch that never ended. If moving the pointer drags, see
 ### Turning the screen
 
 An iPhone has no key for which way its screen faces, but AssistiveTouch's
-menu turns it: Device → Rotate Screen. The Rotate button in `/view`, or
+menu turns it: Device → Rotate Screen. The Rotate button in `/drive`, or
 [`POST /api/rotate`](../../API.md#post-apirotate), opens the menu with mouse
 button 5 and clicks through it, in a few seconds. To set the phone up once:
 

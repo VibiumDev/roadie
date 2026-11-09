@@ -212,7 +212,7 @@ API reference describes under The Record Store.
 
 ## Driving the viewer
 
-Vibium can also launch a browser of its own, open Roadie's `/view` page
+Vibium can also launch a browser of its own, open Roadie's `/drive` page
 and work it like any web page, with the viewer passing the mouse and
 keyboard on to the phone and screenshots showing the page. This is the
 way to reach several phones from one script or to test the viewer
@@ -227,7 +227,7 @@ import { browser } from 'vibium'
 const bro = await browser.start()                      // launches a browser
 const page = await bro.page()
 await page.setViewport({ width: 1000, height: 1100 })  // room for the whole picture
-await page.go('http://roadie.local:8080/view')
+await page.go('http://roadie.local:8080/drive')
 
 // AC 1 + 2 = on the Calculator, already open
 for (const [x, y] of [[174, 454], [70, 756], [380, 756], [174, 756], [380, 860]]) {
@@ -241,7 +241,7 @@ click, the way a screenshot over the direct connection does.
 
 To drive several phones from one script, open the
 [grid](../how-to/multiple-targets.md#automating-several-targets) instead
-of `/view`: the mouse and keyboard reach whichever phone is under the
+of `/drive`: the mouse and keyboard reach whichever phone is under the
 pointer.
 
 ## When something is off

@@ -60,7 +60,7 @@ drive keeps them straightforward to tell apart once there are several.
 http://android.local:8080/grid?targets=android.local:8080,iphone.local:8081&labels=Android,iPhone
 ```
 
-Any instance can serve the page — it just embeds each target's `/view`, so the
+Any instance can serve the page — it just embeds each target's `/drive`, so the
 panels stay fully interactive (touch, keyboard, audio, settings). Video is never
 relayed through the grid: each panel streams point-to-point from its own Roadie
 to the browser.

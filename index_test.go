@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -22,7 +24,41 @@ func TestIndexShowsDeviceLabel(t *testing.T) {
 	if html := render(""); !strings.Contains(html, "<th>Device</th><td>iPhone 15 Pro Max <span class=\"muted\">phone</span></td>") {
 		t.Error("without a label the model names the device")
 	}
+	if html := render(""); !strings.Contains(html, `<a href="/drive">Drive</a><a href="/view">View</a>`) || !strings.Contains(html, `<a href="/drive">/drive</a> <span>drive the target`) || !strings.Contains(html, `<a href="/view">/view</a> <span>watch the target`) {
+		t.Error("the index should offer /drive and /view")
+	}
 	if html := render("iPhone 15 Pro Max"); strings.Contains(html, "iPhone 15 Pro Max · phone") {
 		t.Error("a label equal to the model should not repeat it")
+	}
+}
+
+// /drive drives and /view only watches: the config says so, and each
+// page's toolbar leads to the other with the same query.
+func TestDriveAndViewPages(t *testing.T) {
+	s := &Server{Name: "roadie"}
+	for _, c := range []struct {
+		path  string
+		watch bool
+		link  string
+	}{
+		{"/drive?input=touch", false, `id="watchLink" class="tbtn" href="/view?input=touch"`},
+		{"/view?input=touch", true, `id="driveLink" class="tbtn" href="/drive?input=touch"`},
+		{"/view", true, `id="driveLink" class="tbtn" href="/drive"`},
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, c.path, nil)
+		if c.watch {
+			s.handleView(rec, req)
+		} else {
+			s.handleDrive(rec, req)
+		}
+		html := rec.Body.String()
+		hasWatch := strings.Contains(html, `watch&#34;:true`) || strings.Contains(html, `"watch":true`)
+		if hasWatch != c.watch || !strings.Contains(html, c.link) {
+			t.Errorf("%s: watch %v, link present %v", c.path, hasWatch, strings.Contains(html, c.link))
+		}
+		if c.watch && !strings.HasPrefix(html, "<!DOCTYPE") && !strings.Contains(html, "<title>Watching") {
+			t.Errorf("%s: title should say Watching", c.path)
+		}
 	}
 }

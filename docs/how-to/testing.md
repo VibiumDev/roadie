@@ -8,7 +8,7 @@ the boards accepted a command.
 | `make test-hid` | keyboard, mouse, click, scroll, touch — read back from `/dev/input` |
 | `make test-e2e-pi` | the same, driven through roadie's HTTP API into a real browser |
 | `make test-audio` | voice input, all three layers below |
-| `make test-view` | voice input through roadie's own `/view` page, clicked with the real mouse |
+| `make test-view` | voice input through roadie's own `/drive` page, clicked with the real mouse |
 | `make test-multitouch` | two contacts and a pinch (Linux hosts; see [Multi-touch](#multi-touch)) |
 
 `make test` runs the Go unit tests, then all of the above when the boards are
@@ -151,7 +151,7 @@ The same five notes are sent three ways, so a failure says which layer broke:
 Each writes its own capture (`/tmp/roadie_audio_serial.wav` and so on), so
 they can be compared rather than overwriting each other.
 
-The browser layer uses roadie's own `/soundcheck` page, shown above: it opens the microphone, converts to PCM, and streams to `/api/mic` exactly as `/view` does. It is served by roadie rather than by the test, so it is same-origin with `/api/mic` — which refuses connections from anywhere else. Open it in a browser any time to check a microphone by hand.
+The browser layer uses roadie's own `/soundcheck` page, shown above: it opens the microphone, converts to PCM, and streams to `/api/mic` exactly as `/drive` does. It is served by roadie rather than by the test, so it is same-origin with `/api/mic` — which refuses connections from anywhere else. Open it in a browser any time to check a microphone by hand.
 
 All three end the same way: recorded back off the HID board's USB microphone
 and checked note by note. The browser one feeds Chromium a wav file in place
@@ -165,7 +165,7 @@ The three audio tests above each supply their own page. `make test-view`
 drives roadie's real one, the way an operator does:
 
 1. It launches Chromium itself, with a wav file standing in for the
-   microphone, and opens `/view`.
+   microphone, and opens `/drive`.
 2. It attaches the [vibium](https://github.com/VibiumDev/vibium) CLI to that
    browser over WebDriver BiDi, and asks the page where its microphone
    button is.
@@ -173,7 +173,7 @@ drives roadie's real one, the way an operator does:
 4. It records off the HID board's microphone and checks the five notes
    arrived, then clicks again and checks voice input stopped.
 
-Two things are covered that nothing else reaches: that `/view`'s button
+Two things are covered that nothing else reaches: that `/drive`'s button
 really starts voice input *when clicked* — as opposed to when a script calls
 `startTalk()`, which is a different claim — and that a hardware click lands
 on the right pixel.
@@ -239,7 +239,7 @@ and the iOS settings:
 
 ```bash
 make test-e2e-android    # opens the page with the keyboard, then tests it
-make test-e2e-iphone     # the same, through Spotlight and Safari: API, BiDi, /view
+make test-e2e-iphone     # the same, through Spotlight and Safari: API, BiDi, /drive
 make test-e2e-pc         # prints a URL for another computer
 ```
 
@@ -247,13 +247,13 @@ Input goes through roadie's HTTP API (`/api/hid/...`). With `--via bidi` the
 same checks send it through WebDriver BiDi instead, opening a session on
 `/session` and using `input.performActions` for the pointer, keys, touch and
 wheel, placed in the viewport's pixels. With `--via view` they go in as a
-person gives them to `/view`: a headless Chromium, driven through Vibium
-(`board/e2e/view-driver.cjs`, needing node), moves the mouse over `/view`'s
+person gives them to `/drive`: a headless Chromium, driven through Vibium
+(`board/e2e/view-driver.cjs`, needing node), moves the mouse over `/drive`'s
 picture, clicks, types and turns the wheel, and drags in its Touch mode for
 touch. `make test-e2e-iphone` runs all three.
 
 The phone targets start roadie with `--platform android` or `--platform ios`,
-so the viewer maps pointers the way that device expects if you open `/view`
+so the viewer maps pointers the way that device expects if you open `/drive`
 during the run.
 
 On iPhone the touch check runs through the pointer, since iOS takes no
@@ -314,7 +314,7 @@ iPhone: a text field still focused on the page Safari comes back to keeps
 `--hud` runs the same checks under a sci-fi heads-up display, paced to be
 watched. It opens with a boot sequence, draws a target lock where the pointer
 presses, materialises keys as they are typed, traces the Vibium mark in neon,
-and ends with a verdict. Record the phone's screen, or `/view` from another
+and ends with a verdict. Record the phone's screen, or `/drive` from another
 machine:
 
 ```bash
@@ -353,7 +353,7 @@ ROADIE_E2E_RESOLUTION=1920x1080 make test-e2e-pi    # bigger virtual screen
 | clicks do nothing, but the pointer still moves | input is stuck — run `make unstick` |
 | a menu on the desktop will not close | the same; `make unstick` |
 | `make test-audio` finds no signal | the HID board needs a physical re-plug after flashing |
-| `make test-view` says the mic button is unavailable | `/view` was reached over the network, not `localhost`; `getUserMedia` needs a secure context |
+| `make test-view` says the mic button is unavailable | `/drive` was reached over the network, not `localhost`; `getUserMedia` needs a secure context |
 | viewer shows black | the run finished and tore the display down |
 
 For board-level problems see [Troubleshooting](troubleshooting.md), and

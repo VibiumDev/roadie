@@ -226,8 +226,8 @@ page — but the server never sees a connection.
 
 **The microphone button is greyed out**
 `getUserMedia` needs a secure context, which plain HTTP over the network is
-not. Reaching the viewer at `http://localhost:8080/view` works; reaching it at
-`http://<pi>:8080/view` does not.
+not. Reaching the viewer at `http://localhost:8080/drive` works; reaching it at
+`http://<pi>:8080/drive` does not.
 
 To use it over the network anyway, tell the browser to trust that origin. In
 Chrome, go to `chrome://flags` and search for **Insecure origins treated as
@@ -254,10 +254,10 @@ real HTTPS.
 Plug in an HDMI-to-USB capture dongle. Roadie will detect it automatically in the background.
 
 **Stream shows black screen**
-The target device may not be outputting video: its screen is off or locked, it is powered off, or the HDMI cable is out. The `/health` endpoint shows `"status": "no_signal"` then, and `/view` says so over the picture. A capture dongle with nothing on its input sends a screen of its own (the UGREEN 15389's says "无信号 No Signal"); Roadie sends a dark frame in its place, in the saved crop's outline, and keeps the crop and the way the target is turned as they were.
+The target device may not be outputting video: its screen is off or locked, it is powered off, or the HDMI cable is out. The `/health` endpoint shows `"status": "no_signal"` then, and `/drive` says so over the picture. A capture dongle with nothing on its input sends a screen of its own (the UGREEN 15389's says "无信号 No Signal"); Roadie sends a dark frame in its place, in the saved crop's outline, and keeps the crop and the way the target is turned as they were.
 
 **Stream shows wrong resolution or stretched image**
-Adjust the capture resolution via the settings panel in `/view`, or use CLI flags:
+Adjust the capture resolution via the settings panel in `/drive`, or use CLI flags:
 ```bash
 ./roadie --width 1280 --height 720
 ```
@@ -267,7 +267,7 @@ Auto-crop trims whatever is black at the frame's edges, so a dark app (or a
 restart while one is open) makes the picture look smaller than the screen.
 Show something bright to the screen's edges, such as
 `https://soundcheck.vibium.dev/white` or a light wallpaper, then press **Save**
-under **Crop** in `/view`'s settings panel (or **Save current crop** on
+under **Crop** in `/drive`'s settings panel (or **Save current crop** on
 `/settings`). That chooses **Saved**, and the crop is used from then on,
 across restarts; turn the device sideways and save again for landscape.
 **Auto** and **Off** keep the saved crops without using them; **Clear**

@@ -84,7 +84,7 @@ of one at 1080p30.
 
 ### WebRTC
 
-`/view?transport=webrtc` gets the picture as H.264 over a peer connection
+`/drive?transport=webrtc` gets the picture as H.264 over a peer connection
 instead of MJPEG. The capture loop hands each picture's crop to the
 `rtc.Broadcaster`, which runs only while a viewer is connected: it converts
 the crop to NV12 and feeds an `encoder.Encoder`, and writes the access units
@@ -191,7 +191,7 @@ encode pipeline independently. The trade-off is that nothing is shared — each
 instance has its own frame buffer, its own BiDi session, and its own mDNS name.
 
 Aggregation belongs above the servers, not inside them. A page that embeds each
-instance's `/view` in an iframe gets a combined display with full interactivity:
+instance's `/drive` in an iframe gets a combined display with full interactivity:
 each iframe is same-origin with its own server, so streams, the HID WebSocket, and
 audio all work untouched. Because the viewer normalizes pointer coordinates
 against the displayed image (see [Coordinate Remapping](#coordinate-remapping))
@@ -212,7 +212,7 @@ The HID board's multi-touch digitizer enables native touch interaction, so the p
 | File | Description |
 |------|-------------|
 | `main.go` | Startup, flag parsing, component wiring |
-| `server.go` | HTTP handlers, the `/view`, `/test` and `/soundcheck` pages, HID API |
+| `server.go` | HTTP handlers, the `/drive`, `/test` and `/soundcheck` pages, HID API |
 | `backend.go` | `HIDBackend`, the interface both input backends implement; `--hid-backend` |
 | `hid.go` | Relay board discovery and selection, serial connection, command methods |
 | `gadget_hid.go`, `gadget_report.go`, `gadget_linux.go` | linux-gadget backend: device mapping from configfs, HID report encoding, state, recovery |

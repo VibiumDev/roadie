@@ -100,6 +100,7 @@ func (s *Server) effectiveInputMode() string {
 func NewMux(s *Server) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
+	mux.HandleFunc("/drive", s.handleDrive)
 	mux.HandleFunc("/view", s.handleView)
 	mux.HandleFunc("/grid", s.handleGrid)
 	mux.HandleFunc("/stream", s.handleStream)
@@ -167,14 +168,15 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 <body>
 {{end}}
 {{define "header"}}<header class="top"><div class="wrap"><a class="brand" href="/"><img class="logo square" src="/favicon.png" alt=""><span class="wordmark">Roadie</span></a>
-<nav class="pages"><a href="/view">View</a><a href="/settings">Settings</a><a href="/test">Test</a></nav><button id="themeBtn" class="iconbtn" type="button" aria-label="Theme"></button><span class="break"></span></div></header>
+<nav class="pages"><a href="/drive">Drive</a><a href="/view">View</a><a href="/settings">Settings</a><a href="/test">Test</a></nav><button id="themeBtn" class="iconbtn" type="button" aria-label="Theme"></button><span class="break"></span></div></header>
 {{end}}
 {{define "foot"}}</body></html>{{end}}
 {{define "help"}}<button class="qhelp" type="button" aria-expanded="false" aria-controls="help-{{.}}" aria-label="What this is">?</button>{{end}}
 
 {{define "index"}}{{template "head" .}}{{template "header" .}}<main class="wrap"><p class="lead">The target wired to this machine, live in the browser.</p>
 <ul class="links">
-<li><a href="/view">/view</a> <span>watch and drive the target: picture, sound, touch and keyboard</span></li>
+<li><a href="/drive">/drive</a> <span>drive the target: picture, sound, touch and keyboard</span></li>
+<li><a href="/view">/view</a> <span>watch the target: picture and sound, with no input</span></li>
 <li><a href="/stream">/stream</a> <span>the MJPEG stream, cropped to the target's screen</span></li>
 <li><a href="/snapshot">/snapshot</a> <span>one frame as a JPEG, cropped the same way</span></li>
 <li><a href="/raw-stream">/raw-stream</a> <span>the capture device's whole frame, uncropped</span></li>
@@ -221,7 +223,7 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 
 <h2 class="h2">Viewer, in this browser {{template "help" "viewer"}}</h2>
 <div class="helptext" id="help-viewer" hidden>
-<p>Choices this browser keeps for /view, the same ones as the viewer's own menu, kept here and not on the host.</p>
+<p>Choices this browser keeps for /drive and /view, the same ones as the viewer's own menu, kept here and not on the host.</p>
 <p><b>Zoom.</b> Fit scales the picture to the room it has, up or down, as the viewer's Fit does, and is the default on a phone or tablet. Otherwise the picture is shown at this share of its own size, 100% on a desktop.</p>
 <p><b>Toolbar.</b> Show keeps the toolbar beside the picture. Auto-hide tucks it off its edge and leaves a grip; the grip, a tap at the edge or the mouse at the edge brings it back. Off hides it, and <code>?toolbar=show</code> in the address brings it back.</p>
 </div>
@@ -397,7 +399,13 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 </script>
 {{template "foot" .}}{{end}}`))
 
-func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
+// handleDrive is /drive: the viewer with the picture, sound, touch and
+// keyboard. handleView is /view: the same viewer looking only, with no
+// input socket, for a second pair of eyes beside whoever is driving.
+func (s *Server) handleDrive(w http.ResponseWriter, r *http.Request) { s.viewerPage(w, r, false) }
+func (s *Server) handleView(w http.ResponseWriter, r *http.Request)  { s.viewerPage(w, r, true) }
+
+func (s *Server) viewerPage(w http.ResponseWriter, r *http.Request, watch bool) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	q := r.URL.Query()
 	// Pointer mode: ?input= for this page load, otherwise the target's own
@@ -406,7 +414,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	if mode != "touch" && mode != "mouse" {
 		mode = s.effectiveInputMode()
 	}
-	cfg := viewer.Config{Mode: "local", Name: s.pageTitle(), API: viewer.Local(), InputMode: mode,
+	cfg := viewer.Config{Mode: "local", Watch: watch, Name: s.pageTitle(), API: viewer.Local(), InputMode: mode,
 		WebRTC: s.RTC != nil && s.RTC.Available(), Extras: "/viewer/extras.js", Info: s.viewerInfo()}
 	// ?transport=webrtc or mjpeg sets the picture's transport for this
 	// page load; the page remembers the menu's choice otherwise.
@@ -415,7 +423,18 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	}
 	// minimal=1 hides the toolbar so the page embeds cleanly in a frame
 	// (see /grid); the controls stay in the DOM.
-	viewer.Render(w, viewer.Page{Title: s.pageTitle(), Minimal: q.Get("minimal") == "1", Home: "/", HomeTitle: "Roadie", Config: cfg})
+	page := viewer.Page{Title: s.pageTitle(), Minimal: q.Get("minimal") == "1", Home: "/", HomeTitle: "Roadie", Config: cfg}
+	other := "" // the same picture, driving or watching, with the page's own choices
+	if r.URL.RawQuery != "" {
+		other = "?" + r.URL.RawQuery
+	}
+	if watch {
+		page.Title = "Watching " + page.Title
+		page.Drive = "/drive" + other
+	} else {
+		page.Watch = "/view" + other
+	}
+	viewer.Render(w, page)
 }
 
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
@@ -1037,7 +1056,7 @@ a { color: #6af; }
 </head>
 <body>
 <h1>HID Test</h1>
-<nav><a href="/">/</a> <a href="/view">/view</a> <a href="/settings">/settings</a></nav>
+<nav><a href="/">/</a> <a href="/drive">/drive</a> <a href="/settings">/settings</a></nav>
 <p><span class="status" id="statusdot"></span><span id="statustext">connecting...</span></p>
 
 <div class="section">

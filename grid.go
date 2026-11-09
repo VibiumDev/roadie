@@ -98,7 +98,7 @@ func parseGridTargets(targets, labels, inputs string) ([]gridTarget, error) {
 		viewURL := url.URL{
 			Scheme:   u.Scheme,
 			Host:     u.Host,
-			Path:     "/view",
+			Path:     "/drive",
 			RawQuery: q.Encode(),
 		}
 		snapURL := url.URL{Scheme: u.Scheme, Host: u.Host, Path: "/snapshot"}
