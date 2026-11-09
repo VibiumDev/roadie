@@ -180,3 +180,14 @@ watch over VNC — or makes its own display if it doesn't.
 
 See [Flash Boards](docs/how-to/flash-boards.md) for re-flashing and syncing
 board code, and [Testing](docs/how-to/testing.md) for what each test covers.
+
+The code is one binary from `main.go` and `commands.go`, with the work in
+packages under `internal/`: `capture` (the dongle, crops, settling, the
+no-signal frame), `hid` (input backends, settling, glide, HID reports),
+`gadget` (the USB gadget's HID and audio functions), `alsa` (PCM streams,
+the resampler, the dongle's audio), `audio` (the broadcaster and the mux),
+`devices` (device info, sysfs reads, USB resets), `platform` (platform
+names and rules), `web` (the HTTP server, pages, local auth, BiDi,
+recording, rotation) and `remote` (the rig's link to its stations).
+`encoder`, `v4l2`, `rtc` and `audio/*` are the codec and transport
+packages they build on.
