@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/VibiumDev/roadie/internal/devices"
 	"github.com/VibiumDev/roadie/v4l2"
 )
 
@@ -21,7 +22,7 @@ import (
 // until released, so FrameBuffer copies the last one when capture stops.
 
 // openNativeCapture starts YUYV capture on the device's V4L2 node.
-func openNativeCapture(dev deviceInfo, width, height, fps int) (frameReader, error) {
+func openNativeCapture(dev devices.DeviceInfo, width, height, fps int) (frameReader, error) {
 	node := dev.VideoNode()
 	if node == "" {
 		return nil, errNoNativeCapture

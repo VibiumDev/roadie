@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/devices"
 	"log"
 	"math"
 	"math/bits"
@@ -93,7 +94,7 @@ func readGadgetAudioConfig(paths gadgetPaths) (gadgetAudioConfig, error) {
 			continue
 		}
 		num := func(attr string) int {
-			s, _ := readTrim(filepath.Join(dir, attr))
+			s, _ := devices.ReadTrim(filepath.Join(dir, attr))
 			n, _ := strconv.Atoi(s)
 			return n
 		}

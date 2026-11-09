@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/VibiumDev/roadie/internal/devices"
 	"go.bug.st/serial"
 )
 
@@ -202,7 +203,7 @@ func (hc *HIDController) Run() {
 						}
 					case 2:
 						log.Printf("HID relay still not answering; re-enumerating it over USB")
-						if err := resetRelayUSB(path); err != nil {
+						if err := devices.ResetRelayUSB(path); err != nil {
 							log.Printf("HID relay USB reset failed: %v", err)
 						}
 					default:

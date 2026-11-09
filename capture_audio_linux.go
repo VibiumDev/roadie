@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/devices"
 	"log"
 	"os"
 	"path/filepath"
@@ -62,12 +63,12 @@ func dongleSoundCard(sys, videoNode, filter string) (int, string, error) {
 		if err != nil {
 			continue
 		}
-		id, _ := readTrim(filepath.Join(c, "id"))
+		id, _ := devices.ReadTrim(filepath.Join(c, "id"))
 		parent, err := usbParent(c)
 		if err != nil {
 			continue
 		}
-		product, _ := readTrim(filepath.Join(parent, "product"))
+		product, _ := devices.ReadTrim(filepath.Join(parent, "product"))
 		name := id
 		if product != "" {
 			name = product
@@ -105,7 +106,7 @@ func openDongleCapture(card int) (pcmStream, error) {
 
 // startDongleAudio streams the dongle's audio into ab until ctx ends,
 // reopening it after an error. The returned channel closes on exit.
-func startDongleAudio(ctx context.Context, dev deviceInfo, filter string, ab *AudioBroadcaster) (<-chan struct{}, string, error) {
+func startDongleAudio(ctx context.Context, dev devices.DeviceInfo, filter string, ab *AudioBroadcaster) (<-chan struct{}, string, error) {
 	card, name, err := dongleSoundCard("/sys", dev.VideoNode(), filter)
 	if err != nil {
 		return nil, "", err

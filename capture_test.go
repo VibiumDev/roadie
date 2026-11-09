@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/VibiumDev/roadie/internal/devices"
 	"github.com/pion/mediadevices/pkg/driver"
 	"github.com/pion/mediadevices/pkg/prop"
 )
@@ -306,7 +307,7 @@ func TestDeviceInfoVideoNode(t *testing.T) {
 		{"usb-something-with-no-node;notanode", ""},
 	}
 	for _, tt := range tests {
-		if got := (deviceInfo{Label: tt.label}).VideoNode(); got != tt.want {
+		if got := (devices.DeviceInfo{Label: tt.label}).VideoNode(); got != tt.want {
 			t.Errorf("deviceInfo{Label: %q}.VideoNode() = %q, want %q", tt.label, got, tt.want)
 		}
 	}
@@ -393,32 +394,32 @@ func TestCropsAgree(t *testing.T) {
 }
 
 var (
-	ispDev    = deviceInfo{Name: "bcm2835-isp;platform:bcm2835-isp"}
-	codecDev  = deviceInfo{Name: "bcm2835-codec-decode;platform:bcm2835-codec"}
-	dongleDev = deviceInfo{Name: "UGREEN 15389: UGREEN 15389;usb-0000:01:00.0-1"}
-	webcamDev = deviceInfo{Name: "FaceTime HD Camera"}
-	otherDev  = deviceInfo{Name: "Some Camera"}
+	ispDev    = devices.DeviceInfo{Name: "bcm2835-isp;platform:bcm2835-isp"}
+	codecDev  = devices.DeviceInfo{Name: "bcm2835-codec-decode;platform:bcm2835-codec"}
+	dongleDev = devices.DeviceInfo{Name: "UGREEN 15389: UGREEN 15389;usb-0000:01:00.0-1"}
+	webcamDev = devices.DeviceInfo{Name: "FaceTime HD Camera"}
+	otherDev  = devices.DeviceInfo{Name: "Some Camera"}
 )
 
 func TestChooseDevice(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
-		devices []deviceInfo
+		devices []devices.DeviceInfo
 		filter  string
-		want    deviceInfo // zero: an error
+		want    devices.DeviceInfo // zero: an error
 	}{
-		{"the dongle, not the Pi's ISP listed first", []deviceInfo{ispDev, codecDev, dongleDev}, "", dongleDev},
+		{"the dongle, not the Pi's ISP listed first", []devices.DeviceInfo{ispDev, codecDev, dongleDev}, "", dongleDev},
 		// A USB reset takes the dongle off the bus for a moment: then there
 		// is nothing to capture, not the ISP.
-		{"only on-chip blocks: none", []deviceInfo{ispDev, codecDev}, "", deviceInfo{}},
-		{"a filter never picks an on-chip block", []deviceInfo{ispDev, dongleDev}, "bcm2835", deviceInfo{}},
-		{"a filter picks its match", []deviceInfo{ispDev, otherDev, dongleDev}, "ugreen", dongleDev},
-		{"built-in cameras are skipped", []deviceInfo{webcamDev, dongleDev}, "", dongleDev},
-		{"falls back to any external device", []deviceInfo{ispDev, webcamDev, otherDev}, "", otherDev},
-		{"nothing", nil, "", deviceInfo{}},
+		{"only on-chip blocks: none", []devices.DeviceInfo{ispDev, codecDev}, "", devices.DeviceInfo{}},
+		{"a filter never picks an on-chip block", []devices.DeviceInfo{ispDev, dongleDev}, "bcm2835", devices.DeviceInfo{}},
+		{"a filter picks its match", []devices.DeviceInfo{ispDev, otherDev, dongleDev}, "ugreen", dongleDev},
+		{"built-in cameras are skipped", []devices.DeviceInfo{webcamDev, dongleDev}, "", dongleDev},
+		{"falls back to any external device", []devices.DeviceInfo{ispDev, webcamDev, otherDev}, "", otherDev},
+		{"nothing", nil, "", devices.DeviceInfo{}},
 	} {
 		got, err := chooseDevice(tc.devices, tc.filter)
-		if tc.want == (deviceInfo{}) {
+		if tc.want == (devices.DeviceInfo{}) {
 			if err == nil {
 				t.Errorf("%s: chose %q, want none", tc.name, got.Name)
 			}
@@ -459,7 +460,7 @@ func TestCaptureNodesTriesTheWholeDevice(t *testing.T) {
 	}
 
 	for _, list := range [][]driver.Driver{{meta, other, video, mic}, {video, mic, meta, other}} {
-		chose := deviceInfo{Name: name, Label: meta.Info().Label} // the metadata node
+		chose := devices.DeviceInfo{Name: name, Label: meta.Info().Label} // the metadata node
 		got := labels(captureNodes(list, chose))
 		want := labels([]driver.Driver{meta, video})
 		if !reflect.DeepEqual(got, want) {

@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package devices
 
 import (
 	"fmt"
@@ -15,7 +15,7 @@ import (
 // videoNode names the V4L2 node to reset (e.g. "video0"); it must be set
 // whenever more than one capture dongle is attached, or the reset would
 // yank a dongle belonging to another roadie instance.
-func resetCaptureUSB(videoNode string) error {
+func ResetCaptureUSB(videoNode string) error {
 	usbPath, err := findCaptureUSBDevice(videoNode)
 	if err != nil {
 		return fmt.Errorf("find USB device: %w", err)
@@ -131,7 +131,7 @@ func parentUSBDevice(ifacePath string) string {
 //
 // ttyPath is the serial device roadie is bound to, e.g. a
 // /dev/serial/by-id/... symlink.
-func resetRelayUSB(ttyPath string) error {
+func ResetRelayUSB(ttyPath string) error {
 	resolved, err := filepath.EvalSymlinks(ttyPath)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", ttyPath, err)

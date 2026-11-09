@@ -4,6 +4,6 @@ package main
 
 import "github.com/VibiumDev/roadie/internal/devices"
 
-func openNativeCapture(dev deviceInfo, width, height, fps int) (frameReader, error) {
+func openNativeCapture(dev devices.DeviceInfo, width, height, fps int) (frameReader, error) {
 	return nil, errNoNativeCapture
 }

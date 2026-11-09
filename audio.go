@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/VibiumDev/roadie/internal/devices"
 	"github.com/pion/mediadevices/pkg/driver"
 	"github.com/pion/mediadevices/pkg/io/audio"
 	"github.com/pion/mediadevices/pkg/prop"
@@ -136,20 +137,20 @@ func (ab *AudioBroadcaster) IsActive() bool {
 // DetectAudioDevice queries microphone drivers and returns the best candidate.
 // Uses the same skip/prefer heuristics as video detection.
 // Returns (info, false) if no suitable device is found (audio is optional).
-func DetectAudioDevice(filter string) (deviceInfo, bool) {
+func DetectAudioDevice(filter string) (devices.DeviceInfo, bool) {
 	drivers := driver.GetManager().Query(func(d driver.Driver) bool {
 		return d.Info().DeviceType == driver.Microphone
 	})
 
 	if len(drivers) == 0 {
-		return deviceInfo{}, false
+		return devices.DeviceInfo{}, false
 	}
 
 	skipKeywords := []string{"facetime", "iphone", "macbook", "imac", "integrated"}
 	preferKeywords := []string{"usb", "hdmi", "capture", "video"}
 
 	type candidate struct {
-		info deviceInfo
+		info devices.DeviceInfo
 	}
 	var candidates []candidate
 	for _, d := range drivers {
@@ -159,7 +160,7 @@ func DetectAudioDevice(filter string) (deviceInfo, bool) {
 			name = info.Label
 		}
 		candidates = append(candidates, candidate{
-			info: deviceInfo{Name: name, Label: info.Label},
+			info: devices.DeviceInfo{Name: name, Label: info.Label},
 		})
 	}
 
@@ -170,7 +171,7 @@ func DetectAudioDevice(filter string) (deviceInfo, bool) {
 				return c.info, true
 			}
 		}
-		return deviceInfo{}, false
+		return devices.DeviceInfo{}, false
 	}
 
 	// Auto-detect: skip built-in, prefer external capture devices.
@@ -208,7 +209,7 @@ func DetectAudioDevice(filter string) (deviceInfo, bool) {
 		}
 	}
 
-	return deviceInfo{}, false
+	return devices.DeviceInfo{}, false
 }
 
 // ListAudioDevices returns a list of all audio device names for diagnostic output.
@@ -229,7 +230,7 @@ func ListAudioDevices() []string {
 
 // StartAudioCapture opens the microphone device and streams PCM audio to the broadcaster.
 // Returns a channel that closes when capture stops (device error or context cancellation).
-func StartAudioCapture(ctx context.Context, dev deviceInfo, ab *AudioBroadcaster) (<-chan struct{}, error) {
+func StartAudioCapture(ctx context.Context, dev devices.DeviceInfo, ab *AudioBroadcaster) (<-chan struct{}, error) {
 	drivers := driver.GetManager().Query(func(d driver.Driver) bool {
 		return d.Info().DeviceType == driver.Microphone && d.Info().Label == dev.Label
 	})

@@ -1,4 +1,4 @@
-package main
+package devices
 
 import (
 	"os"
@@ -10,7 +10,7 @@ import (
 // the USB code shares.
 
 // deviceInfo holds both the friendly name and the internal label (UID) of a device.
-type deviceInfo struct {
+type DeviceInfo struct {
 	Name  string // friendly name (e.g. "USB Video")
 	Label string // internal UID used for driver matching
 }
@@ -26,7 +26,7 @@ type deviceInfo struct {
 //	video10;video10
 //
 // Returns empty on other platforms or for labels that don't end in a node.
-func (d deviceInfo) VideoNode() string {
+func (d DeviceInfo) VideoNode() string {
 	node := d.Label
 	if i := strings.LastIndex(node, ";"); i >= 0 {
 		node = node[i+1:]
@@ -37,7 +37,7 @@ func (d deviceInfo) VideoNode() string {
 	return node
 }
 
-func readTrim(path string) (string, error) {
+func ReadTrim(path string) (string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return "", err

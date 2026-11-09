@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/devices"
 	"log"
 	"os"
 	"path/filepath"
@@ -82,7 +83,7 @@ func (p gadgetPaths) udcAttr(udc, attr string) string {
 // boundUDC is the controller the gadget is bound to; empty if it exists but
 // is unbound.
 func (p gadgetPaths) boundUDC() (string, error) {
-	return readTrim(filepath.Join(p.gadget(), "UDC"))
+	return devices.ReadTrim(filepath.Join(p.gadget(), "UDC"))
 }
 
 // carrierDowns reads how many times the gadget's Ethernet function has lost
@@ -90,11 +91,11 @@ func (p gadgetPaths) boundUDC() (string, error) {
 // so it counts enumerations. False when the gadget has no network function.
 func (p gadgetPaths) carrierDowns() (int, bool) {
 	for _, fn := range []string{"ecm.phone", "ncm.phone", "rndis.phone"} {
-		name, err := readTrim(filepath.Join(p.function(fn), "ifname"))
+		name, err := devices.ReadTrim(filepath.Join(p.function(fn), "ifname"))
 		if err != nil || name == "" || strings.Contains(name, "%") {
 			continue
 		}
-		v, err := readTrim(filepath.Join(p.sys, "class/net", name, "carrier_down_count"))
+		v, err := devices.ReadTrim(filepath.Join(p.sys, "class/net", name, "carrier_down_count"))
 		if err != nil {
 			return 0, false
 		}
@@ -107,7 +108,7 @@ func (p gadgetPaths) carrierDowns() (int, bool) {
 // hidgNode resolves a HID function to its device node through the
 // function's major:minor -- never by assuming /dev/hidg0 is the keyboard.
 func (p gadgetPaths) hidgNode(fn string) (string, error) {
-	devnum, err := readTrim(filepath.Join(p.function(fn), "dev"))
+	devnum, err := devices.ReadTrim(filepath.Join(p.function(fn), "dev"))
 	if err != nil {
 		return "", err
 	}
@@ -303,7 +304,7 @@ func (g *GadgetHID) refresh() {
 	}
 	udc, _ := g.paths.boundUDC()
 	g.udc.Store(udc)
-	if s, err := readTrim(filepath.Join(g.paths.gadget(), "strings/0x409/serialnumber")); err == nil {
+	if s, err := devices.ReadTrim(filepath.Join(g.paths.gadget(), "strings/0x409/serialnumber")); err == nil {
 		g.serial.Store(s)
 	}
 	if udc == "" {
@@ -315,7 +316,7 @@ func (g *GadgetHID) refresh() {
 
 	state := "unbound"
 	if udc != "" {
-		state, _ = readTrim(g.paths.udcAttr(udc, "state"))
+		state, _ = devices.ReadTrim(g.paths.udcAttr(udc, "state"))
 	}
 
 	open, want := 0, 0
@@ -417,7 +418,7 @@ func (g *GadgetHID) syncFunction(f *hidFunction) bool {
 
 	// The descriptor and roadie's encoder must agree on the report size, or
 	// every report would be garbled input on the phone.
-	lenStr, err := readTrim(filepath.Join(dir, "report_length"))
+	lenStr, err := devices.ReadTrim(filepath.Join(dir, "report_length"))
 	n, _ := strconv.Atoi(lenStr)
 	if err != nil || n != f.reportLen {
 		f.problem = fmt.Sprintf("%s: gadget report_length is %q but roadie sends %d-byte "+
@@ -918,7 +919,7 @@ func describeGadget(p gadgetPaths) string {
 	udc, _ := p.boundUDC()
 	state := "unbound"
 	if udc != "" {
-		state, _ = readTrim(p.udcAttr(udc, "state"))
+		state, _ = devices.ReadTrim(p.udcAttr(udc, "state"))
 	}
 	lines := []string{fmt.Sprintf("  - %s on %s (%s)", gadgetName, orDash(udc), state)}
 	for _, fn := range []string{"keyboard", "mouse", "touch"} {

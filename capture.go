@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/VibiumDev/roadie/internal/devices"
 	"github.com/VibiumDev/roadie/rtc"
 	"github.com/pion/mediadevices"
 	"github.com/pion/mediadevices/pkg/driver"
@@ -763,18 +764,18 @@ func cameraName(info driver.Info) (string, bool) {
 	return name, true
 }
 
-func DetectDevice(filter string) (deviceInfo, error) {
+func DetectDevice(filter string) (devices.DeviceInfo, error) {
 	drivers := driver.GetManager().Query(func(d driver.Driver) bool {
 		return d.Info().DeviceType == driver.Camera
 	})
-	var devices []deviceInfo
+	var devs []devices.DeviceInfo
 	for _, d := range drivers {
 		info := d.Info()
 		if name, ok := cameraName(info); ok {
-			devices = append(devices, deviceInfo{Name: name, Label: info.Label})
+			devs = append(devs, devices.DeviceInfo{Name: name, Label: info.Label})
 		}
 	}
-	return chooseDevice(devices, filter)
+	return chooseDevice(devs, filter)
 }
 
 // chooseDevice picks the device to capture from: the first whose name
@@ -782,18 +783,18 @@ func DetectDevice(filter string) (deviceInfo, error) {
 // video blocks are never chosen: nothing can be captured from them, and
 // while a dongle is briefly off the bus (a USB reset) they would be all
 // that is left to fall back on.
-func chooseDevice(devices []deviceInfo, filter string) (deviceInfo, error) {
+func chooseDevice(devs []devices.DeviceInfo, filter string) (devices.DeviceInfo, error) {
 	skipKeywords := []string{"facetime", "iphone", "macbook", "imac", "integrated", "built-in"}
 	preferKeywords := []string{"usb", "hdmi", "capture", "video"}
 
-	var candidates []deviceInfo
-	for _, d := range devices {
+	var candidates []devices.DeviceInfo
+	for _, d := range devs {
 		if !onChipVideo(d.Name) {
 			candidates = append(candidates, d)
 		}
 	}
 	if len(candidates) == 0 {
-		return deviceInfo{}, fmt.Errorf("no video capture devices found")
+		return devices.DeviceInfo{}, fmt.Errorf("no video capture devices found")
 	}
 
 	var names []string
@@ -808,10 +809,10 @@ func chooseDevice(devices []deviceInfo, filter string) (deviceInfo, error) {
 				return c, nil
 			}
 		}
-		return deviceInfo{}, fmt.Errorf("no device matching %q found\nAvailable devices: %s", filter, strings.Join(names, ", "))
+		return devices.DeviceInfo{}, fmt.Errorf("no device matching %q found\nAvailable devices: %s", filter, strings.Join(names, ", "))
 	}
 
-	skipped := func(c deviceInfo) bool {
+	skipped := func(c devices.DeviceInfo) bool {
 		lower := strings.ToLower(c.Name)
 		for _, kw := range skipKeywords {
 			if strings.Contains(lower, kw) {
@@ -841,7 +842,7 @@ func chooseDevice(devices []deviceInfo, filter string) (deviceInfo, error) {
 		}
 	}
 
-	return deviceInfo{}, fmt.Errorf("no external capture device found\nAvailable devices: %s", strings.Join(names, ", "))
+	return devices.DeviceInfo{}, fmt.Errorf("no external capture device found\nAvailable devices: %s", strings.Join(names, ", "))
 }
 
 // CaptureCandidates returns the distinct names of connected video devices
@@ -895,10 +896,10 @@ func onChipVideo(name string) bool {
 
 // ListDevices returns a list of all video device names for diagnostic output.
 func ListDevices() []string {
-	devices := mediadevices.EnumerateDevices()
+	devs := mediadevices.EnumerateDevices()
 	var names []string
 	seen := make(map[string]bool)
-	for _, d := range devices {
+	for _, d := range devs {
 		if d.Kind != mediadevices.VideoInput {
 			continue
 		}
@@ -926,7 +927,7 @@ func ListDevices() []string {
 // only metadata -- with different labels, and the driver list comes in no
 // fixed order, so the node chosen is as likely to be the one with nothing
 // to stream.
-func captureNodes(drivers []driver.Driver, dev deviceInfo) []driver.Driver {
+func captureNodes(drivers []driver.Driver, dev devices.DeviceInfo) []driver.Driver {
 	var nodes []driver.Driver
 	for _, d := range drivers {
 		info := d.Info()
@@ -1178,7 +1179,7 @@ type mediadevicesReader struct {
 func (m *mediadevicesReader) Read() (image.Image, func(), error) { return m.reader.Read() }
 func (m *mediadevicesReader) Close() error                       { return m.driver.Close() }
 
-func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, buf *FrameBuffer) (<-chan struct{}, error) {
+func StartCapture(ctx context.Context, dev devices.DeviceInfo, width, height, fps int, buf *FrameBuffer) (<-chan struct{}, error) {
 	var reader frameReader
 	if r, err := openNativeCapture(dev, width, height, fps); err == nil {
 		reader = r
@@ -1194,7 +1195,7 @@ func StartCapture(ctx context.Context, dev deviceInfo, width, height, fps int, b
 }
 
 // openMediadevicesCapture opens the device through pion/mediadevices.
-func openMediadevicesCapture(dev deviceInfo, width, height, fps int) (frameReader, error) {
+func openMediadevicesCapture(dev devices.DeviceInfo, width, height, fps int) (frameReader, error) {
 	drivers := captureNodes(driver.GetManager().Query(func(driver.Driver) bool { return true }), dev)
 	if len(drivers) == 0 {
 		return nil, fmt.Errorf("device %q not found", dev.Name)
@@ -1242,7 +1243,7 @@ func openMediadevicesCapture(dev deviceInfo, width, height, fps int) (frameReade
 }
 
 // runCapture reads frames until the context ends or the device fails.
-func runCapture(ctx context.Context, dev deviceInfo, reader frameReader, fps int, buf *FrameBuffer) <-chan struct{} {
+func runCapture(ctx context.Context, dev devices.DeviceInfo, reader frameReader, fps int, buf *FrameBuffer) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -1447,7 +1448,7 @@ type CaptureManager struct {
 	usbReset        chan chan error
 
 	mu     sync.RWMutex
-	device deviceInfo
+	device devices.DeviceInfo
 }
 
 // NewCaptureManager creates a new CaptureManager.
@@ -1628,7 +1629,7 @@ func (cm *CaptureManager) monitorCapture(done <-chan struct{}) string {
 		node := cm.device.VideoNode()
 		cm.mu.RUnlock()
 		log.Printf("resetting USB capture device (%s)", node)
-		err := resetCaptureUSB(node)
+		err := devices.ResetCaptureUSB(node)
 		if err != nil {
 			log.Printf("USB reset failed: %v", err)
 		} else {
