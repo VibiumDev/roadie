@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/audio"
 	"github.com/VibiumDev/roadie/internal/devices"
 	"log"
 	"math"
@@ -140,11 +141,11 @@ type GadgetAudio struct {
 
 // NewGadgetAudio prepares the streams the gadget's audio function has. ab
 // receives the phone's speaker output; it may be nil to leave it unused.
-func NewGadgetAudio(cfg gadgetAudioConfig, ab *AudioBroadcaster) *GadgetAudio {
+func NewGadgetAudio(cfg gadgetAudioConfig, ab *audio.AudioBroadcaster) *GadgetAudio {
 	return newGadgetAudio(cfg, ab, "/proc/asound", openPCM)
 }
 
-func newGadgetAudio(cfg gadgetAudioConfig, ab *AudioBroadcaster, procAsound string,
+func newGadgetAudio(cfg gadgetAudioConfig, ab *audio.AudioBroadcaster, procAsound string,
 	open func(int, bool, pcmParams) (pcmStream, error)) *GadgetAudio {
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &GadgetAudio{cfg: cfg, procAsound: procAsound, open: open, ctx: ctx, cancel: cancel}
@@ -383,12 +384,12 @@ func (m *micStream) pump(ctx context.Context, s pcmStream) error {
 // to the AudioBroadcaster behind /audio, in the format the HDMI capture path
 // has always produced: little-endian float32, interleaved.
 type headsetStream struct {
-	ab *AudioBroadcaster
+	ab *audio.AudioBroadcaster
 }
 
 func (h *headsetStream) pump(ctx context.Context, s pcmStream) error {
 	p := s.Params()
-	h.ab.SetParams(AudioParams{SampleRate: p.rate, Channels: p.channels, Format: "f32-interleaved"})
+	h.ab.SetParams(audio.AudioParams{SampleRate: p.rate, Channels: p.channels, Format: "f32-interleaved"})
 	defer h.ab.SetInactive()
 	buf := make([]byte, p.periodFrames*p.channels*2)
 	xruns, lastXrunLog := 0, time.Time{}

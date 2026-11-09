@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/VibiumDev/roadie/internal/audio"
 	"github.com/VibiumDev/roadie/internal/devices"
 	"github.com/VibiumDev/roadie/rtc"
 	"github.com/pion/mediadevices"
@@ -1277,7 +1278,7 @@ func runCapture(ctx context.Context, dev devices.DeviceInfo, reader frameReader,
 			img, release, err := reader.Read()
 			if err != nil {
 				consecutiveErrors++
-				if consecutiveErrors >= maxConsecutiveErrors {
+				if consecutiveErrors >= audio.MaxConsecutiveErrors {
 					log.Printf("device %q: %d consecutive read errors, treating as disconnected", dev.Name, consecutiveErrors)
 					buf.Clear()
 					return
@@ -1440,7 +1441,7 @@ type CaptureManager struct {
 	// one name for video and another that starts the same way for audio.
 	AudioFilter    string
 	Buf            *FrameBuffer
-	AudioBroadcast *AudioBroadcaster
+	AudioBroadcast *audio.AudioBroadcaster
 
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -1452,7 +1453,7 @@ type CaptureManager struct {
 }
 
 // NewCaptureManager creates a new CaptureManager.
-func NewCaptureManager(filter, audioFilter string, buf *FrameBuffer, ab *AudioBroadcaster) *CaptureManager {
+func NewCaptureManager(filter, audioFilter string, buf *FrameBuffer, ab *audio.AudioBroadcaster) *CaptureManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &CaptureManager{
 		Filter:          filter,
@@ -1555,11 +1556,11 @@ func (cm *CaptureManager) Run() {
 			}
 		}
 		if useDriver {
-			audioDev, found := DetectAudioDevice(cm.audioFilter())
+			audioDev, found := audio.DetectAudioDevice(cm.audioFilter())
 			if found {
 				audioCtx, ac := context.WithCancel(captureCtx)
 				audioCancel = ac
-				ad, err := StartAudioCapture(audioCtx, audioDev, cm.AudioBroadcast)
+				ad, err := audio.StartAudioCapture(audioCtx, audioDev, cm.AudioBroadcast)
 				if err != nil {
 					log.Printf("audio capture failed on %q: %v (continuing without audio)", audioDev.Name, err)
 					audioCancel()

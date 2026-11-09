@@ -1,4 +1,4 @@
-package main
+package audio
 
 import (
 	"context"
@@ -34,11 +34,11 @@ func TestAudioMuxFollowsThePhone(t *testing.T) {
 	p := AudioParams{SampleRate: 48000, Channels: 2, Format: "f32-interleaved"}
 	usb.SetParams(p)
 	hdmi.SetParams(p)
-	m := newAudioMux(out, usb, hdmi)
+	m := NewAudioMux(out, usb, hdmi)
 	m.usbHold = 100 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go m.run(ctx)
+	go m.Run(ctx)
 	time.Sleep(20 * time.Millisecond) // let the mux subscribe
 	listener, unsub := out.Subscribe()
 	defer unsub()
@@ -82,10 +82,10 @@ func TestAudioMuxRestartsOnFormatChange(t *testing.T) {
 	out, usb, hdmi := NewAudioBroadcaster(), NewAudioBroadcaster(), NewAudioBroadcaster()
 	usb.SetParams(AudioParams{SampleRate: 48000, Channels: 2, Format: "f32-interleaved"})
 	hdmi.SetParams(AudioParams{SampleRate: 44100, Channels: 2, Format: "f32-interleaved"})
-	m := newAudioMux(out, usb, hdmi)
+	m := NewAudioMux(out, usb, hdmi)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go m.run(ctx)
+	go m.Run(ctx)
 	time.Sleep(20 * time.Millisecond)
 	listener, unsub := out.Subscribe()
 	usb.Broadcast([]byte("usb"))
@@ -109,10 +109,10 @@ func TestAudioMuxRestartsOnFormatChange(t *testing.T) {
 
 func TestAudioMuxInactiveWithNoSource(t *testing.T) {
 	out, usb := NewAudioBroadcaster(), NewAudioBroadcaster()
-	m := newAudioMux(out, usb, nil)
+	m := NewAudioMux(out, usb, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go m.run(ctx)
+	go m.Run(ctx)
 	time.Sleep(300 * time.Millisecond)
 	if out.IsActive() {
 		t.Error("/audio active with no source")

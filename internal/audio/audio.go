@@ -1,4 +1,4 @@
-package main
+package audio
 
 import (
 	"context"
@@ -307,7 +307,7 @@ func runAudioCapture(ctx context.Context, name string, reader audio.Reader, ab *
 		chunk, release, err := reader.Read()
 		if err != nil {
 			consecutiveErrors++
-			if consecutiveErrors >= maxConsecutiveErrors {
+			if consecutiveErrors >= MaxConsecutiveErrors {
 				log.Printf("audio device %q: %d consecutive errors, stopping", name, consecutiveErrors)
 				return
 			}
@@ -386,4 +386,4 @@ func audioScore(p prop.Media) int {
 
 // maxConsecutiveErrors is the number of consecutive read errors before
 // the capture goroutine treats the device as disconnected.
-const maxConsecutiveErrors = 3
+const MaxConsecutiveErrors = 3

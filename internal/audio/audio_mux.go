@@ -1,4 +1,4 @@
-package main
+package audio
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 // and can switch by itself -- it remembers the HDMI display as an output too.
 // A phone sends to one at a time, so rather than mix them (two clocks), the
 // mux passes USB through whenever USB is carrying audio and HDMI otherwise.
-type audioMux struct {
+type AudioMux struct {
 	out  *AudioBroadcaster // what /audio serves
 	usb  *AudioBroadcaster // the gadget speaker
 	hdmi *AudioBroadcaster // the capture dongle; nil without one
@@ -29,16 +29,16 @@ type audioMux struct {
 
 // Source is the output /audio is following: "usb" (the gadget's speaker),
 // "hdmi" (the capture dongle), or "" when the phone is sending neither.
-func (m *audioMux) Source() string {
+func (m *AudioMux) Source() string {
 	s, _ := m.source.Load().(string)
 	return s
 }
 
-func newAudioMux(out, usb, hdmi *AudioBroadcaster) *audioMux {
-	return &audioMux{out: out, usb: usb, hdmi: hdmi, usbHold: 300 * time.Millisecond}
+func NewAudioMux(out, usb, hdmi *AudioBroadcaster) *AudioMux {
+	return &AudioMux{out: out, usb: usb, hdmi: hdmi, usbHold: 300 * time.Millisecond}
 }
 
-func (m *audioMux) run(ctx context.Context) {
+func (m *AudioMux) Run(ctx context.Context) {
 	usbCh, unsubUSB := m.usb.Subscribe()
 	defer unsubUSB()
 	var hdmiCh <-chan []byte

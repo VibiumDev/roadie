@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/audio"
 	"math"
 	"math/rand"
 	"os"
@@ -279,7 +280,7 @@ func TestMicPumpStopsWhenDeviceGone(t *testing.T) {
 }
 
 func TestHeadsetPumpBroadcasts(t *testing.T) {
-	ab := NewAudioBroadcaster()
+	ab := audio.NewAudioBroadcaster()
 	ch, unsub := ab.Subscribe()
 	defer unsub()
 	frames := pcmBytes([]int16{16384, -16384, 0, 32767})

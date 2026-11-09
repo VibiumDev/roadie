@@ -19,6 +19,7 @@ import (
 
 	"fiatjaf.com/nostr"
 
+	"github.com/VibiumDev/roadie/internal/audio"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/VibiumDev/roadie/rtc"
@@ -162,7 +163,7 @@ func main() {
 		}
 		fmt.Println()
 		fmt.Println("Audio devices:")
-		for _, d := range ListAudioDevices() {
+		for _, d := range audio.ListAudioDevices() {
 			fmt.Printf("  - %s\n", d)
 		}
 		fmt.Println()
@@ -224,7 +225,7 @@ func main() {
 			fmt.Printf("✂️  Crop: %s\n", use)
 		}
 	}
-	var ab *AudioBroadcaster
+	var ab *audio.AudioBroadcaster
 	var gadgetAudio *GadgetAudio
 	var sourceType string
 	var deviceName string
@@ -242,7 +243,7 @@ func main() {
 	} else {
 		// Hardware capture mode.
 		sourceType = "hardware"
-		ab = NewAudioBroadcaster()
+		ab = audio.NewAudioBroadcaster()
 	}
 
 	// With the gadget's speaker the phone can send its sound over USB or
@@ -250,24 +251,24 @@ func main() {
 	// follows whichever is live (audioMux). Without a speaker, the capture
 	// dongle's audio is used as it always was.
 	captureAudio := ab
-	var mux *audioMux
+	var mux *audio.AudioMux
 	if hidBackend == hid.BackendLinuxGadget {
 		cfg, err := readGadgetAudioConfig(defaultGadgetPaths())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "⚠️  USB audio: %v (no USB microphone or speaker until roadie restarts)\n", err)
 		} else {
-			var usbAudio *AudioBroadcaster
+			var usbAudio *audio.AudioBroadcaster
 			if cfg.hasSpeaker() {
 				if ab == nil {
-					ab = NewAudioBroadcaster()
+					ab = audio.NewAudioBroadcaster()
 				}
-				usbAudio = NewAudioBroadcaster()
-				var hdmiAudio *AudioBroadcaster
+				usbAudio = audio.NewAudioBroadcaster()
+				var hdmiAudio *audio.AudioBroadcaster
 				if captureAudio != nil {
-					hdmiAudio = NewAudioBroadcaster()
+					hdmiAudio = audio.NewAudioBroadcaster()
 					captureAudio = hdmiAudio
 				}
-				mux = newAudioMux(ab, usbAudio, hdmiAudio)
+				mux = audio.NewAudioMux(ab, usbAudio, hdmiAudio)
 			}
 			gadgetAudio = NewGadgetAudio(cfg, usbAudio)
 			fmt.Printf("🔊 USB audio: %s (microphone %d ch @ %d Hz, speaker %d ch @ %d Hz)\n",
@@ -381,7 +382,7 @@ func main() {
 	muxCtx, stopMux := context.WithCancel(context.Background())
 	defer stopMux()
 	if mux != nil {
-		go mux.run(muxCtx)
+		go mux.Run(muxCtx)
 	}
 
 	// Print startup banner.
@@ -616,7 +617,7 @@ func getLANIP() string {
 }
 
 // rtcAudio is the capture's audio as the WebRTC broadcaster wants it.
-type rtcAudio struct{ *AudioBroadcaster }
+type rtcAudio struct{ *audio.AudioBroadcaster }
 
 func (a rtcAudio) AudioFormat() (int, int) {
 	p := a.Params()

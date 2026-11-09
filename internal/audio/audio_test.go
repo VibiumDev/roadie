@@ -1,10 +1,8 @@
-package main
+package audio
 
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -106,43 +104,6 @@ func TestAudioBroadcasterParams(t *testing.T) {
 	}
 }
 
-func TestAudioHandlerNoAudio(t *testing.T) {
-	buf := &FrameBuffer{}
-	buf.SetFPS(30)
-	s := &Server{
-		Source:         &fakeSource{status: StatusConnected},
-		Buf:            buf,
-		AudioBroadcast: nil, // no audio
-	}
-	w := httptest.NewRecorder()
-	NewMux(s).ServeHTTP(w, httptest.NewRequest("GET", "/audio", nil))
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503 when no audio broadcaster, got %d", w.Code)
-	}
-}
-
-func TestAudioHandlerInactive(t *testing.T) {
-	buf := &FrameBuffer{}
-	buf.SetFPS(30)
-	ab := NewAudioBroadcaster()
-	s := &Server{
-		Source:         &fakeSource{status: StatusConnected},
-		Buf:            buf,
-		AudioBroadcast: ab, // present but inactive
-	}
-	w := httptest.NewRecorder()
-	NewMux(s).ServeHTTP(w, httptest.NewRequest("GET", "/audio", nil))
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503 when audio inactive, got %d", w.Code)
-	}
-}
-
-// readerFunc adapts a function to the audio reader interface the capture
-// loop consumes.
-type readerFunc func() (wave.Audio, func(), error)
-
-func (f readerFunc) Read() (wave.Audio, func(), error) { return f() }
-
 // TestRunAudioCaptureSurvivesDriverPanic covers the case that killed the
 // whole server: the microphone driver panics inside Read instead of
 // returning an error, which an ALSA null device does on a machine with no
@@ -186,8 +147,8 @@ func TestRunAudioCaptureStopsAfterRepeatedErrors(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("runAudioCapture kept reading a device that only returns errors")
 	}
-	if reads < maxConsecutiveErrors {
-		t.Errorf("gave up after %d reads, want at least %d", reads, maxConsecutiveErrors)
+	if reads < MaxConsecutiveErrors {
+		t.Errorf("gave up after %d reads, want at least %d", reads, MaxConsecutiveErrors)
 	}
 }
 
@@ -214,3 +175,9 @@ func TestRunAudioCaptureStopsOnContextCancel(t *testing.T) {
 		t.Fatal("runAudioCapture ignored a cancelled context")
 	}
 }
+
+// readerFunc adapts a function to the audio reader interface the capture
+// loop consumes.
+type readerFunc func() (wave.Audio, func(), error)
+
+func (f readerFunc) Read() (wave.Audio, func(), error) { return f() }

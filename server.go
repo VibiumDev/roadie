@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/audio"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/VibiumDev/roadie/rtc"
@@ -30,7 +31,7 @@ type Server struct {
 	Buf            *FrameBuffer
 	RelayFPS       int // frame rate cap for the MJPEG stream through a station
 	Device         string
-	AudioBroadcast *AudioBroadcaster
+	AudioBroadcast *audio.AudioBroadcaster
 	// AudioSource says which of the phone's outputs /audio is following,
 	// "usb" or "hdmi", when there is a choice (the gadget backend); nil
 	// otherwise.
@@ -867,7 +868,7 @@ func (s *Server) handleAudio(w http.ResponseWriter, r *http.Request) {
 	var down *pcm.Downsampler
 	if _, relayed := rig.GrantFrom(r.Context()); relayed || r.URL.Query().Get("format") == "s16-16k" {
 		down = pcm.NewDownsampler(params.SampleRate, 16000, params.Channels)
-		params = AudioParams{SampleRate: 16000, Channels: 1, Format: "s16le"}
+		params = audio.AudioParams{SampleRate: 16000, Channels: 1, Format: "s16le"}
 	}
 
 	// Send audio params as first (text) message.

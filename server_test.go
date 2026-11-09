@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/VibiumDev/roadie/internal/audio"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"html"
@@ -442,8 +443,8 @@ func TestViewPlatform(t *testing.T) {
 
 // With a choice of outputs, /health says which one /audio is following.
 func TestHealthAudioSource(t *testing.T) {
-	ab := NewAudioBroadcaster()
-	ab.SetParams(AudioParams{SampleRate: 48000, Channels: 2, Format: "f32-interleaved"})
+	ab := audio.NewAudioBroadcaster()
+	ab.SetParams(audio.AudioParams{SampleRate: 48000, Channels: 2, Format: "f32-interleaved"})
 	for _, src := range []string{"usb", ""} {
 		s := &Server{Source: &fakeSource{status: StatusConnected}, Buf: &FrameBuffer{},
 			AudioBroadcast: ab, AudioSource: func() string { return src }}

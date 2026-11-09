@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/audio"
 	"github.com/VibiumDev/roadie/internal/devices"
 	"log"
 	"os"
@@ -106,7 +107,7 @@ func openDongleCapture(card int) (pcmStream, error) {
 
 // startDongleAudio streams the dongle's audio into ab until ctx ends,
 // reopening it after an error. The returned channel closes on exit.
-func startDongleAudio(ctx context.Context, dev devices.DeviceInfo, filter string, ab *AudioBroadcaster) (<-chan struct{}, string, error) {
+func startDongleAudio(ctx context.Context, dev devices.DeviceInfo, filter string, ab *audio.AudioBroadcaster) (<-chan struct{}, string, error) {
 	card, name, err := dongleSoundCard("/sys", dev.VideoNode(), filter)
 	if err != nil {
 		return nil, "", err
