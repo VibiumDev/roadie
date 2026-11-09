@@ -92,6 +92,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/api/settings", s.handleAPISettings)
 	mux.HandleFunc("/audio", s.handleAudio)
 	mux.HandleFunc("/audio-in", s.handleAudioIn)
+	mux.HandleFunc("/audio-in/monitor", s.handleAudioInMonitor)
 	mux.HandleFunc("/audio-in/say", s.handleAudioSay)
 	mux.HandleFunc("/audio-in/play", s.handleAudioPlay)
 	mux.HandleFunc("/audio-in/stop", s.handleAudioStop)
@@ -1837,6 +1838,48 @@ func (s *Server) handleAudioIn(w http.ResponseWriter, r *http.Request) {
 		if err := s.HID.SendAudio(data); err != nil {
 			log.Printf("audio-in: %v", err)
 			return
+		}
+	}
+}
+
+// handleAudioInMonitor mirrors the mixed mic stream: every PCM byte SendAudio
+// delivers to the board, from any source. Read-only; silence sends no frames.
+func (s *Server) handleAudioInMonitor(w http.ResponseWriter, r *http.Request) {
+	if s.HID == nil {
+		http.Error(w, "HID not available", http.StatusServiceUnavailable)
+		return
+	}
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		InsecureSkipVerify: true, // allow any origin for local network use
+	})
+	if err != nil {
+		log.Printf("audio-in monitor websocket accept: %v", err)
+		return
+	}
+	defer conn.CloseNow()
+
+	ctx := conn.CloseRead(r.Context())
+
+	params := s.HID.Monitor.Params()
+	paramsJSON, _ := json.Marshal(params)
+	if err := conn.Write(ctx, websocket.MessageText, paramsJSON); err != nil {
+		return
+	}
+
+	ch, unsub := s.HID.Monitor.Subscribe()
+	defer unsub()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case chunk, ok := <-ch:
+			if !ok {
+				return
+			}
+			if err := conn.Write(ctx, websocket.MessageBinary, chunk); err != nil {
+				return
+			}
 		}
 	}
 }

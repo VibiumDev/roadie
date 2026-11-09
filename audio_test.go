@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/coder/websocket"
 )
 
 func TestAudioBroadcasterSubscribeUnsubscribe(t *testing.T) {
@@ -129,5 +134,121 @@ func TestAudioHandlerInactive(t *testing.T) {
 	NewMux(s).ServeHTTP(w, httptest.NewRequest("GET", "/audio", nil))
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected 503 when audio inactive, got %d", w.Code)
+	}
+}
+
+func TestSendAudioMirrorsToMonitor(t *testing.T) {
+	mp := &mockPort{}
+	hc := newTestHID(mp)
+	defer hc.Shutdown()
+
+	ch, unsub := hc.Monitor.Subscribe()
+	defer unsub()
+
+	pcm := make([]byte, 700) // spans two 512-byte board frames
+	for i := range pcm {
+		pcm[i] = byte(i)
+	}
+	if err := hc.SendAudio(pcm); err != nil {
+		t.Fatal(err)
+	}
+
+	got := <-ch
+	if len(got) != len(pcm) {
+		t.Fatalf("monitor got %d bytes, want %d", len(got), len(pcm))
+	}
+	for i := range got {
+		if got[i] != pcm[i] {
+			t.Fatalf("monitor byte %d = %d, want %d", i, got[i], pcm[i])
+		}
+	}
+}
+
+func TestSendAudioDisconnectedMirrorsNothing(t *testing.T) {
+	hc := NewHIDController("")
+	defer hc.Shutdown()
+
+	ch, unsub := hc.Monitor.Subscribe()
+	defer unsub()
+
+	if err := hc.SendAudio([]byte{1, 2, 3, 4}); err == nil {
+		t.Fatal("expected error while disconnected")
+	}
+	select {
+	case got := <-ch:
+		t.Fatalf("monitor got %d bytes, want none", len(got))
+	default:
+	}
+}
+
+func TestAudioInMonitorNoHID(t *testing.T) {
+	buf := &FrameBuffer{}
+	buf.SetFPS(30)
+	s := &Server{
+		Source: &fakeSource{status: StatusConnected},
+		Buf:    buf,
+	}
+	w := httptest.NewRecorder()
+	NewMux(s).ServeHTTP(w, httptest.NewRequest("GET", "/audio-in/monitor", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 without HID, got %d", w.Code)
+	}
+}
+
+func TestAudioInMonitorStream(t *testing.T) {
+	mp := &mockPort{}
+	hc := newTestHID(mp)
+	defer hc.Shutdown()
+
+	buf := &FrameBuffer{}
+	buf.SetFPS(30)
+	s := &Server{
+		Source: &fakeSource{status: StatusConnected},
+		Buf:    buf,
+		HID:    hc,
+	}
+	ts := httptest.NewServer(NewMux(s))
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, ts.URL+"/audio-in/monitor", nil)
+	if err != nil {
+		t.Fatalf("dial /audio-in/monitor: %v", err)
+	}
+	defer conn.CloseNow()
+
+	typ, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if typ != websocket.MessageText {
+		t.Fatalf("first message type = %v, want text params", typ)
+	}
+	var params AudioParams
+	if err := json.Unmarshal(data, &params); err != nil {
+		t.Fatal(err)
+	}
+	if params.SampleRate != 16000 || params.Channels != 1 || params.Format != "s16le" {
+		t.Fatalf("unexpected params: %+v", params)
+	}
+
+	// The subscription races the dial: wait for it before injecting audio.
+	deadline := time.Now().Add(2 * time.Second)
+	for hc.Monitor.Listeners() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	pcm := []byte{1, 2, 3, 4, 5, 6}
+	if err := hc.SendAudio(pcm); err != nil {
+		t.Fatal(err)
+	}
+
+	typ, data, err = conn.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if typ != websocket.MessageBinary || len(data) != len(pcm) || data[0] != 1 {
+		t.Fatalf("binary chunk = type %v, %v", typ, data)
 	}
 }

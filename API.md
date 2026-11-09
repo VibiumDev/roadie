@@ -110,6 +110,18 @@ The stream on the target stops ~250 ms after the last message arrives. Returns `
 
 The viewer's microphone button uses this endpoint. It needs a secure context (https or localhost) for `getUserMedia`, and a browser that supports opening an `AudioContext` at 16 kHz (Chrome, Edge, Safari — not Firefox yet).
 
+### `GET /audio-in/monitor`
+WebSocket endpoint that mirrors the mixed mic stream: everything played into the target's USB microphone, from every source (`/audio-in`, say, play). Read-only — recorders use it to capture the input side of a conversation.
+
+**Protocol:**
+1. Server sends audio parameters as the first text message:
+   ```json
+   {"sampleRate": 16000, "channels": 1, "format": "s16le"}
+   ```
+2. Server streams PCM audio as binary messages, mirroring bytes as they are delivered to the board. Silence sends no frames.
+
+Multiple monitors may connect; a slow monitor drops chunks rather than affecting playback. Returns `503` if the HID relay is not connected.
+
 ### `POST /audio-in/say`
 Speak text through the target's USB microphone, like macOS `say`. The server
 runs the TTS command from `--tts-cmd` and paces the audio at real time.

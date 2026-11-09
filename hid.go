@@ -38,6 +38,10 @@ type HIDController struct {
 	// "the only connected board".
 	Filter string
 
+	// Monitor fans out every PCM byte SendAudio delivers to the board, so
+	// /audio-in/monitor subscribers hear the mixed mic stream from all sources.
+	Monitor *AudioBroadcaster
+
 	mu     sync.Mutex
 	port   io.WriteCloser
 	status atomic.Value // stores HIDStatus
@@ -51,7 +55,8 @@ type HIDController struct {
 // matching filter. See HIDController.Filter for the matching rules.
 func NewHIDController(filter string) *HIDController {
 	ctx, cancel := context.WithCancel(context.Background())
-	hc := &HIDController{Filter: filter, ctx: ctx, cancel: cancel}
+	hc := &HIDController{Filter: filter, ctx: ctx, cancel: cancel, Monitor: NewAudioBroadcaster()}
+	hc.Monitor.SetParams(AudioParams{SampleRate: playRate, Channels: 1, Format: "s16le"})
 	hc.status.Store(HIDDisconnected)
 	hc.path.Store("")
 	return hc
@@ -211,6 +216,13 @@ func (hc *HIDController) SendAudio(pcm []byte) error {
 	if len(pcm)%2 == 1 {
 		pcm = pcm[:len(pcm)-1] // whole S16 samples only
 	}
+	written := 0
+	// Mirror what actually reached the board; copied because callers reuse pcm.
+	defer func() {
+		if written > 0 && hc.Monitor.Listeners() > 0 {
+			hc.Monitor.Broadcast(append([]byte(nil), pcm[:written]...))
+		}
+	}()
 	for off := 0; off < len(pcm); off += audioMax {
 		end := min(off+audioMax, len(pcm))
 		chunk := pcm[off:end]
@@ -235,6 +247,7 @@ func (hc *HIDController) SendAudio(pcm []byte) error {
 			return fmt.Errorf("write failed: %w", err)
 		}
 		hc.mu.Unlock()
+		written = end
 	}
 	return nil
 }
