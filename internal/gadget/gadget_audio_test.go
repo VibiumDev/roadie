@@ -1,4 +1,4 @@
-package main
+package gadget
 
 import (
 	"encoding/binary"
@@ -17,19 +17,19 @@ func TestReadGadgetAudioConfig(t *testing.T) {
 	for attr, v := range map[string]string{"p_chmask": "1", "p_srate": "48000", "c_chmask": "3", "c_srate": "48000"} {
 		fg.write(filepath.Join(dir, attr), v+"\n")
 	}
-	cfg, err := readGadgetAudioConfig(fg.paths)
+	cfg, err := ReadGadgetAudioConfig(fg.paths)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.cardID != "UAC2Gadget" || cfg.micChannels != 1 || cfg.spkChannels != 2 || cfg.micRate != 48000 {
+	if cfg.CardID != "UAC2Gadget" || cfg.MicChannels != 1 || cfg.SpkChannels != 2 || cfg.MicRate != 48000 {
 		t.Errorf("config %+v", cfg)
 	}
 	fg.write(filepath.Join(dir, "c_chmask"), "0\n")
-	cfg, _ = readGadgetAudioConfig(fg.paths)
-	if cfg.hasSpeaker() {
+	cfg, _ = ReadGadgetAudioConfig(fg.paths)
+	if cfg.HasSpeaker() {
 		t.Error("c_chmask 0 read as having a speaker")
 	}
-	if _, err := readGadgetAudioConfig(gadgetPaths{sys: t.TempDir()}); err == nil {
+	if _, err := ReadGadgetAudioConfig(gadgetPaths{sys: t.TempDir()}); err == nil {
 		t.Error("no gadget read as having audio")
 	}
 }
@@ -39,7 +39,7 @@ func TestReadGadgetAudioConfig(t *testing.T) {
 func TestGadgetAudioReopens(t *testing.T) {
 	proc := t.TempDir()
 	os.Symlink("card3", filepath.Join(proc, "UAC2Gadget"))
-	cfg := gadgetAudioConfig{cardID: "UAC2Gadget", micRate: 48000, micChannels: 1}
+	cfg := gadgetAudioConfig{CardID: "UAC2Gadget", MicRate: 48000, MicChannels: 1}
 	var mu sync.Mutex
 	opens := 0
 	open := func(card int, playback bool, want alsa.PCMParams) (alsa.PCMStream, error) {

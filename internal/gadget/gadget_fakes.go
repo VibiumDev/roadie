@@ -1,4 +1,4 @@
-package main
+package gadget
 
 import (
 	"errors"
@@ -78,14 +78,14 @@ func (h *fakeHost) setFail(path string, err error) {
 	h.mu.Unlock()
 }
 
-func (h *fakeHost) got(path string) [][]byte {
+func (h *fakeHost) Got(path string) [][]byte {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return append([][]byte(nil), h.reports[path]...)
 }
 
-func (h *fakeHost) last(path string) []byte {
-	r := h.got(path)
+func (h *fakeHost) Last(path string) []byte {
+	r := h.Got(path)
 	if len(r) == 0 {
 		return nil
 	}
@@ -103,11 +103,11 @@ func (h *fakeHost) reset() {
 type fakeGadget struct {
 	t     testing.TB
 	paths gadgetPaths
-	host  *fakeHost
-	nodes map[string]string // function name -> /dev path
+	Host  *fakeHost
+	Nodes map[string]string // function name -> /dev path
 }
 
-const fakeUDC = "fe980000.usb"
+const FakeUDC = "fe980000.usb"
 
 func newFakeGadget(t testing.TB) *fakeGadget {
 	t.Helper()
@@ -115,14 +115,14 @@ func newFakeGadget(t testing.TB) *fakeGadget {
 	fg := &fakeGadget{
 		t:     t,
 		paths: gadgetPaths{sys: filepath.Join(root, "sys"), dev: filepath.Join(root, "dev")},
-		host:  newFakeHost(),
-		nodes: map[string]string{},
+		Host:  newFakeHost(),
+		Nodes: map[string]string{},
 	}
 	g := fg.paths.gadget()
-	fg.write(filepath.Join(g, "UDC"), fakeUDC+"\n")
+	fg.write(filepath.Join(g, "UDC"), FakeUDC+"\n")
 	fg.write(filepath.Join(g, "strings/0x409/serialnumber"), "10000000ff2137f1\n")
-	fg.write(fg.paths.udcAttr(fakeUDC, "state"), "not attached\n")
-	fg.write(fg.paths.udcAttr(fakeUDC, "soft_connect"), "")
+	fg.write(fg.paths.udcAttr(FakeUDC, "state"), "not attached\n")
+	fg.write(fg.paths.udcAttr(FakeUDC, "soft_connect"), "")
 	// Deliberately not in keyboard/mouse/touch order: the backend must map
 	// by device number, not by assuming hidg0 is the keyboard.
 	fg.addHID("touch", 13, "236:0", "hidg0")
@@ -147,23 +147,23 @@ func (fg *fakeGadget) addHID(name string, reportLen int, devnum, node string) {
 	fg.write(filepath.Join(dir, "report_length"), fmt.Sprintf("%d\n", reportLen))
 	fg.write(filepath.Join(fg.paths.sys, "dev/char", devnum, "uevent"),
 		"MAJOR=236\nMINOR=x\nDEVNAME="+node+"\n")
-	fg.nodes[name] = filepath.Join(fg.paths.dev, node)
+	fg.Nodes[name] = filepath.Join(fg.paths.dev, node)
 }
 
-func (fg *fakeGadget) setState(state string) {
-	fg.write(fg.paths.udcAttr(fakeUDC, "state"), state+"\n")
+func (fg *fakeGadget) SetState(state string) {
+	fg.write(fg.paths.udcAttr(FakeUDC, "state"), state+"\n")
 }
 
 // newTestGadgetHID returns a backend on a fake gadget, refreshed once so its
 // devices are open, with the phone attached unless attached is false.
-func newTestGadgetHID(t testing.TB, attached bool) (*GadgetHID, *fakeGadget) {
+func NewTestGadgetHID(t testing.TB, attached bool) (*GadgetHID, *fakeGadget) {
 	t.Helper()
 	fg := newFakeGadget(t)
 	if attached {
-		fg.setState("configured")
+		fg.SetState("configured")
 	}
-	g := newGadgetHID(fg.paths, fg.host.open)
-	g.refresh()
-	fg.host.reset() // drop the start-up clean slate; tests check it on its own
+	g := newGadgetHID(fg.paths, fg.Host.open)
+	g.Refresh()
+	fg.Host.reset() // drop the start-up clean slate; tests check it on its own
 	return g, fg
 }

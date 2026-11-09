@@ -1,4 +1,4 @@
-package main
+package gadget
 
 import (
 	"context"
@@ -21,7 +21,7 @@ import (
 // which gadget/roadie-gadget creates at boot. Roadie never creates, binds or
 // removes the gadget itself, so restarting it never re-enumerates the phone.
 
-const gadgetName = "roadie"
+const GadgetName = "roadie"
 
 const (
 	// How long a command waits for the phone to collect the report ahead of
@@ -66,10 +66,10 @@ type gadgetPaths struct {
 	dev string // normally /dev
 }
 
-func defaultGadgetPaths() gadgetPaths { return gadgetPaths{sys: "/sys", dev: "/dev"} }
+func DefaultGadgetPaths() gadgetPaths { return gadgetPaths{sys: "/sys", dev: "/dev"} }
 
 func (p gadgetPaths) gadget() string {
-	return filepath.Join(p.sys, "kernel/config/usb_gadget", gadgetName)
+	return filepath.Join(p.sys, "kernel/config/usb_gadget", GadgetName)
 }
 
 func (p gadgetPaths) function(fn string) string {
@@ -195,7 +195,7 @@ type micSink interface {
 
 // NewGadgetHID returns the backend for the "roadie" gadget. Call Run.
 func NewGadgetHID() *GadgetHID {
-	return newGadgetHID(defaultGadgetPaths(), openHIDGadget)
+	return newGadgetHID(DefaultGadgetPaths(), openHIDGadget)
 }
 
 func newGadgetHID(paths gadgetPaths, open func(string) (reportDevice, error)) *GadgetHID {
@@ -261,7 +261,7 @@ func (g *GadgetHID) Run() {
 	g.started.Store(true)
 	defer close(g.done)
 	for {
-		g.refresh()
+		g.Refresh()
 		interval := gadgetPollInterval
 		if g.anyDirty() {
 			interval = gadgetDirtyInterval
@@ -287,10 +287,10 @@ func (g *GadgetHID) anyDirty() bool {
 	return false
 }
 
-func (g *GadgetHID) refresh() {
+func (g *GadgetHID) Refresh() {
 	if _, err := os.Stat(g.paths.gadget()); err != nil {
 		g.logChange("gadget", fmt.Sprintf("USB gadget %q is not configured: start it with "+
-			"'sudo systemctl start roadie-gadget' (see 'roadie-gadget status')", gadgetName))
+			"'sudo systemctl start roadie-gadget' (see 'roadie-gadget status')", GadgetName))
 		for _, f := range g.functions() {
 			f.mu.Lock()
 			f.present = false
@@ -309,9 +309,9 @@ func (g *GadgetHID) refresh() {
 	}
 	if udc == "" {
 		g.logChange("gadget", fmt.Sprintf("USB gadget %q exists but is not bound to a controller "+
-			"(sudo roadie-gadget up)", gadgetName))
+			"(sudo roadie-gadget up)", GadgetName))
 	} else {
-		g.logChange("gadget", fmt.Sprintf("USB gadget %q is bound to %s", gadgetName, udc))
+		g.logChange("gadget", fmt.Sprintf("USB gadget %q is bound to %s", GadgetName, udc))
 	}
 
 	state := "unbound"
@@ -334,7 +334,7 @@ func (g *GadgetHID) refresh() {
 	case want > 0 && open == want:
 		g.status.Store(hid.HIDConnected)
 	case want == 0:
-		g.logChange("functions", fmt.Sprintf("USB gadget %q has no HID functions", gadgetName))
+		g.logChange("functions", fmt.Sprintf("USB gadget %q has no HID functions", GadgetName))
 		g.status.Store(hid.HIDDisconnected)
 	default:
 		g.status.Store(hid.HIDConnecting)
@@ -899,7 +899,7 @@ func (g *GadgetHID) Shutdown() {
 // describeGadget summarizes the gadget for --list-devices: where it is
 // bound, whether a phone is attached, and which node each function has.
 // Empty if there is no gadget.
-func describeGadget(p gadgetPaths) string {
+func DescribeGadget(p gadgetPaths) string {
 	if _, err := os.Stat(p.gadget()); err != nil {
 		return ""
 	}
@@ -908,7 +908,7 @@ func describeGadget(p gadgetPaths) string {
 	if udc != "" {
 		state, _ = devices.ReadTrim(p.udcAttr(udc, "state"))
 	}
-	lines := []string{fmt.Sprintf("  - %s on %s (%s)", gadgetName, orDash(udc), state)}
+	lines := []string{fmt.Sprintf("  - %s on %s (%s)", GadgetName, orDash(udc), state)}
 	for _, fn := range []string{"keyboard", "mouse", "touch"} {
 		if _, err := os.Stat(p.function("hid." + fn)); err != nil {
 			continue
@@ -919,9 +919,9 @@ func describeGadget(p gadgetPaths) string {
 		}
 		lines = append(lines, fmt.Sprintf("    %-9s %s", fn, node))
 	}
-	if cfg, err := readGadgetAudioConfig(p); err == nil {
+	if cfg, err := ReadGadgetAudioConfig(p); err == nil {
 		lines = append(lines, fmt.Sprintf("    %-9s %s: microphone %d ch, speaker %d ch",
-			"audio", cfg.cardID, cfg.micChannels, cfg.spkChannels))
+			"audio", cfg.CardID, cfg.MicChannels, cfg.SpkChannels))
 	}
 	return strings.Join(lines, "\n")
 }

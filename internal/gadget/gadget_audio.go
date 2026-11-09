@@ -1,4 +1,4 @@
-package main
+package gadget
 
 import (
 	"context"
@@ -23,17 +23,17 @@ import (
 // gadgetAudioConfig is what the gadget's audio function offers.
 type gadgetAudioConfig struct {
 	function             string // uac2.audio or uac1.audio
-	cardID               string // ALSA card id: UAC2Gadget or UAC1Gadget
-	micRate, micChannels int    // gadget playback = phone's microphone
-	spkRate, spkChannels int    // gadget capture = phone's speaker
+	CardID               string // ALSA card id: UAC2Gadget or UAC1Gadget
+	MicRate, MicChannels int    // gadget playback = phone's microphone
+	SpkRate, SpkChannels int    // gadget capture = phone's speaker
 }
 
-func (c gadgetAudioConfig) hasMic() bool     { return c.micChannels > 0 }
-func (c gadgetAudioConfig) hasSpeaker() bool { return c.spkChannels > 0 }
+func (c gadgetAudioConfig) hasMic() bool     { return c.MicChannels > 0 }
+func (c gadgetAudioConfig) HasSpeaker() bool { return c.SpkChannels > 0 }
 
 // readGadgetAudioConfig reads the audio function's settings from configfs.
 // They are authoritative: the ALSA card only accepts exactly these.
-func readGadgetAudioConfig(paths gadgetPaths) (gadgetAudioConfig, error) {
+func ReadGadgetAudioConfig(paths gadgetPaths) (gadgetAudioConfig, error) {
 	for _, fn := range []struct{ name, card string }{
 		{"uac2.audio", "UAC2Gadget"}, {"uac1.audio", "UAC1Gadget"},
 	} {
@@ -48,14 +48,14 @@ func readGadgetAudioConfig(paths gadgetPaths) (gadgetAudioConfig, error) {
 		}
 		return gadgetAudioConfig{
 			function:    fn.name,
-			cardID:      fn.card,
-			micRate:     num("p_srate"),
-			micChannels: bits.OnesCount(uint(num("p_chmask"))),
-			spkRate:     num("c_srate"),
-			spkChannels: bits.OnesCount(uint(num("c_chmask"))),
+			CardID:      fn.card,
+			MicRate:     num("p_srate"),
+			MicChannels: bits.OnesCount(uint(num("p_chmask"))),
+			SpkRate:     num("c_srate"),
+			SpkChannels: bits.OnesCount(uint(num("c_chmask"))),
 		}, nil
 	}
-	return gadgetAudioConfig{}, fmt.Errorf("USB gadget %q has no audio function", gadgetName)
+	return gadgetAudioConfig{}, fmt.Errorf("USB gadget %q has no audio function", GadgetName)
 }
 
 // GadgetAudio runs the gadget microphone and speaker streams.
@@ -83,9 +83,9 @@ func newGadgetAudio(cfg gadgetAudioConfig, ab *audio.AudioBroadcaster, procAsoun
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &GadgetAudio{cfg: cfg, procAsound: procAsound, open: open, ctx: ctx, cancel: cancel}
 	if cfg.hasMic() {
-		a.Mic = alsa.NewMicStream(cfg.micRate, cfg.micChannels)
+		a.Mic = alsa.NewMicStream(cfg.MicRate, cfg.MicChannels)
 	}
-	if cfg.hasSpeaker() && ab != nil {
+	if cfg.HasSpeaker() && ab != nil {
 		a.headset = &alsa.HeadsetStream{Ab: ab}
 	}
 	return a
@@ -97,14 +97,14 @@ func (a *GadgetAudio) Start() {
 		a.wg.Add(1)
 		go func() {
 			defer a.wg.Done()
-			a.keepOpen("microphone", true, a.cfg.micRate, a.cfg.micChannels, alsa.MicPeriods, a.Mic.Pump)
+			a.keepOpen("microphone", true, a.cfg.MicRate, a.cfg.MicChannels, alsa.MicPeriods, a.Mic.Pump)
 		}()
 	}
 	if a.headset != nil {
 		a.wg.Add(1)
 		go func() {
 			defer a.wg.Done()
-			a.keepOpen("speaker", false, a.cfg.spkRate, a.cfg.spkChannels, alsa.HeadsetPeriod, a.headset.Pump)
+			a.keepOpen("speaker", false, a.cfg.SpkRate, a.cfg.SpkChannels, alsa.HeadsetPeriod, a.headset.Pump)
 		}()
 	}
 }
@@ -128,7 +128,7 @@ func (a *GadgetAudio) keepOpen(what string, playback bool, rate, channels, perio
 	delay := alsa.PcmRetryMin
 	lastErr := ""
 	for a.ctx.Err() == nil {
-		card, err := alsa.CardIndex(a.procAsound, a.cfg.cardID)
+		card, err := alsa.CardIndex(a.procAsound, a.cfg.CardID)
 		var s alsa.PCMStream
 		if err == nil {
 			s, err = a.open(card, playback, alsa.PCMParams{
@@ -153,7 +153,7 @@ func (a *GadgetAudio) keepOpen(what string, playback bool, rate, channels, perio
 		}
 		p := s.Params()
 		log.Printf("USB audio %s: open on card %s, %d Hz, %d channel(s), %d x %d frames",
-			what, a.cfg.cardID, p.Rate, p.Channels, p.Periods, p.PeriodFrames)
+			what, a.cfg.CardID, p.Rate, p.Channels, p.Periods, p.PeriodFrames)
 		lastErr = ""
 		opened := time.Now()
 		err = pump(a.ctx, s)

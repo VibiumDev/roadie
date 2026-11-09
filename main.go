@@ -20,6 +20,7 @@ import (
 	"fiatjaf.com/nostr"
 
 	"github.com/VibiumDev/roadie/internal/audio"
+	"github.com/VibiumDev/roadie/internal/gadget"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/VibiumDev/roadie/rtc"
@@ -176,7 +177,7 @@ func main() {
 			fmt.Printf("  - %s\n", r)
 		}
 		fmt.Println()
-		if desc := describeGadget(defaultGadgetPaths()); desc != "" {
+		if desc := gadget.DescribeGadget(gadget.DefaultGadgetPaths()); desc != "" {
 			fmt.Println("USB gadget (for --hid-backend linux-gadget):")
 			fmt.Println(desc)
 			fmt.Println()
@@ -226,7 +227,7 @@ func main() {
 		}
 	}
 	var ab *audio.AudioBroadcaster
-	var gadgetAudio *GadgetAudio
+	var gadgetAudio *gadget.GadgetAudio
 	var sourceType string
 	var deviceName string
 	var shutdownFunc func()
@@ -253,12 +254,12 @@ func main() {
 	captureAudio := ab
 	var mux *audio.AudioMux
 	if hidBackend == hid.BackendLinuxGadget {
-		cfg, err := readGadgetAudioConfig(defaultGadgetPaths())
+		cfg, err := gadget.ReadGadgetAudioConfig(gadget.DefaultGadgetPaths())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "⚠️  USB audio: %v (no USB microphone or speaker until roadie restarts)\n", err)
 		} else {
 			var usbAudio *audio.AudioBroadcaster
-			if cfg.hasSpeaker() {
+			if cfg.HasSpeaker() {
 				if ab == nil {
 					ab = audio.NewAudioBroadcaster()
 				}
@@ -270,9 +271,9 @@ func main() {
 				}
 				mux = audio.NewAudioMux(ab, usbAudio, hdmiAudio)
 			}
-			gadgetAudio = NewGadgetAudio(cfg, usbAudio)
+			gadgetAudio = gadget.NewGadgetAudio(cfg, usbAudio)
 			fmt.Printf("🔊 USB audio: %s (microphone %d ch @ %d Hz, speaker %d ch @ %d Hz)\n",
-				cfg.cardID, cfg.micChannels, cfg.micRate, cfg.spkChannels, cfg.spkRate)
+				cfg.CardID, cfg.MicChannels, cfg.MicRate, cfg.SpkChannels, cfg.SpkRate)
 		}
 	}
 
@@ -354,12 +355,12 @@ func main() {
 	// Start the HID backend: the relay boards, or this machine's USB gadget.
 	var input hid.HIDBackend
 	if hidBackend == hid.BackendLinuxGadget {
-		g := NewGadgetHID()
+		g := gadget.NewGadgetHID()
 		if gadgetAudio != nil && gadgetAudio.Mic != nil {
 			g.SetMic(gadgetAudio.Mic)
 		}
 		input = g
-		fmt.Printf("🔌 HID: USB gadget %q (linux-gadget backend)\n", gadgetName)
+		fmt.Printf("🔌 HID: USB gadget %q (linux-gadget backend)\n", gadget.GadgetName)
 	} else {
 		input = hid.NewHIDController(*relay)
 		if relays := hid.ListRelays(); len(relays) > 1 && *relay == "" {

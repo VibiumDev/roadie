@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/VibiumDev/roadie/internal/gadget"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"net/http/httptest"
 	"strings"
@@ -26,7 +27,7 @@ func TestParseHIDBackend(t *testing.T) {
 // The existing handlers drive the gadget unchanged: the frontend and the
 // API do not know which backend is behind them.
 func TestServerDrivesGadgetBackend(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
+	g, fg := gadget.NewTestGadgetHID(t, true)
 	s, _ := newTestServer()
 	s.HID = g
 	mux := NewMux(s)
@@ -39,7 +40,7 @@ func TestServerDrivesGadgetBackend(t *testing.T) {
 	if c := post("/api/hid/key", `{"keycode":4,"action":"click"}`); c != 200 {
 		t.Fatalf("key click: %d", c)
 	}
-	if got := fg.host.got(fg.nodes["keyboard"]); len(got) != 2 || got[0][2] != 4 || got[1][2] != 0 {
+	if got := fg.Host.Got(fg.Nodes["keyboard"]); len(got) != 2 || got[0][2] != 4 || got[1][2] != 0 {
 		t.Errorf("keyboard saw % x", got)
 	}
 	if c := post("/api/hid/touch", `{"contacts":[{"id":0,"tip":true,"x":100,"y":200}]}`); c != 200 {
@@ -48,7 +49,7 @@ func TestServerDrivesGadgetBackend(t *testing.T) {
 	if c := post("/api/hid/release", ``); c != 200 {
 		t.Fatalf("release: %d", c)
 	}
-	if r := fg.host.last(fg.nodes["touch"]); r[1] != 0 {
+	if r := fg.Host.Last(fg.Nodes["touch"]); r[1] != 0 {
 		t.Errorf("finger still down after /api/hid/release: % x", r)
 	}
 	if c := post("/api/hid/type", `{"text":"naïve"}`); c != 500 {
@@ -60,7 +61,7 @@ func TestServerDrivesGadgetBackend(t *testing.T) {
 	var st map[string]string
 	json.Unmarshal(w.Body.Bytes(), &st)
 	want := map[string]string{"status": "connected", "backend": "linux-gadget",
-		"usb_state": "configured", "port": fakeUDC, "serial": "10000000ff2137f1"}
+		"usb_state": "configured", "port": gadget.FakeUDC, "serial": "10000000ff2137f1"}
 	for k, v := range want {
 		if st[k] != v {
 			t.Errorf("/api/hid/status %s = %q, want %q (all: %v)", k, st[k], v, st)
@@ -70,8 +71,8 @@ func TestServerDrivesGadgetBackend(t *testing.T) {
 		t.Error("board reported not answering with the phone attached")
 	}
 
-	fg.setState("not attached")
-	g.refresh()
+	fg.SetState("not attached")
+	g.Refresh()
 	w = httptest.NewRecorder()
 	mux.ServeHTTP(w, httptest.NewRequest("GET", "/health", nil))
 	if !bytes.Contains(w.Body.Bytes(), []byte(`"hid_board": "not_answering"`)) {

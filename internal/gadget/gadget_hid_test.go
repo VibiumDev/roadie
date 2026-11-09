@@ -1,4 +1,4 @@
-package main
+package gadget
 
 import (
 	"bytes"
@@ -16,30 +16,30 @@ import (
 )
 
 func TestGadgetMapsFunctionsByDeviceNumber(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
+	g, fg := NewTestGadgetHID(t, true)
 	if g.Status() != hid.HIDConnected {
 		t.Fatalf("status %s, want connected", g.Status())
 	}
 	if !g.BoardResponding() || g.USBState() != "configured" {
 		t.Errorf("phone attached but BoardResponding=%v state=%q", g.BoardResponding(), g.USBState())
 	}
-	if g.Port() != fakeUDC || g.Serial() != "10000000ff2137f1" {
+	if g.Port() != FakeUDC || g.Serial() != "10000000ff2137f1" {
 		t.Errorf("port %q serial %q", g.Port(), g.Serial())
 	}
 	if err := g.KeyPress(4); err != nil {
 		t.Fatal(err)
 	}
-	if got := fg.host.got(fg.nodes["keyboard"]); len(got) != 1 || !strings.HasSuffix(fg.nodes["keyboard"], "hidg1") {
-		t.Errorf("keyboard report went to the wrong node: %v", fg.host.reports)
+	if got := fg.Host.Got(fg.Nodes["keyboard"]); len(got) != 1 || !strings.HasSuffix(fg.Nodes["keyboard"], "hidg1") {
+		t.Errorf("keyboard report went to the wrong node: %v", fg.Host.reports)
 	}
 }
 
 func TestGadgetNotAttached(t *testing.T) {
-	g, fg := newTestGadgetHID(t, false)
+	g, fg := NewTestGadgetHID(t, false)
 	if g.Status() != hid.HIDConnected || g.BoardResponding() {
 		t.Fatalf("status %s responding %v; want connected, not responding", g.Status(), g.BoardResponding())
 	}
-	fg.host.setFail(fg.nodes["keyboard"], errUSBNotConfigured)
+	fg.Host.setFail(fg.Nodes["keyboard"], errUSBNotConfigured)
 	if err := g.KeyPress(4); !errors.Is(err, errUSBNotConfigured) {
 		t.Errorf("KeyPress with no phone: %v", err)
 	}
@@ -52,9 +52,9 @@ func TestGadgetNotAttached(t *testing.T) {
 func TestGadgetReportLengthMismatch(t *testing.T) {
 	fg := newFakeGadget(t)
 	fg.write(filepath.Join(fg.paths.function("hid.mouse"), "report_length"), "7\n")
-	fg.setState("configured")
-	g := newGadgetHID(fg.paths, fg.host.open)
-	g.refresh()
+	fg.SetState("configured")
+	g := newGadgetHID(fg.paths, fg.Host.open)
+	g.Refresh()
 	if g.Status() != hid.HIDConnecting {
 		t.Errorf("status %s with an unusable mouse, want connecting", g.Status())
 	}
@@ -70,43 +70,43 @@ func TestGadgetReportLengthMismatch(t *testing.T) {
 // A release that cannot be delivered right away must still be delivered:
 // the caller hears about the failure, and the button does not stay down.
 func TestGadgetFailedReleaseIsRetried(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
-	mouse := fg.nodes["mouse"]
+	g, fg := NewTestGadgetHID(t, true)
+	mouse := fg.Nodes["mouse"]
 	if err := g.MousePress(1); err != nil {
 		t.Fatal(err)
 	}
-	fg.host.setFail(mouse, errHostNotReading)
+	fg.Host.setFail(mouse, errHostNotReading)
 	if err := g.MouseRelease(1); !errors.Is(err, errHostNotReading) {
 		t.Fatalf("release while the phone is not reading: %v", err)
 	}
 	if !g.anyDirty() {
 		t.Fatal("failed release did not mark the mouse dirty")
 	}
-	g.refresh() // still failing: stays dirty
-	fg.host.setFail(mouse, nil)
-	g.refresh()
+	g.Refresh() // still failing: stays dirty
+	fg.Host.setFail(mouse, nil)
+	g.Refresh()
 	if g.anyDirty() {
 		t.Error("still dirty after the phone started reading again")
 	}
-	if last := fg.host.last(mouse); last[0] != 0 {
+	if last := fg.Host.Last(mouse); last[0] != 0 {
 		t.Errorf("last mouse report % x leaves a button down", last)
 	}
 }
 
 // A press whose caller was told it failed must never land later.
 func TestGadgetFailedPressIsRolledBack(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
-	kbd := fg.nodes["keyboard"]
-	fg.host.setFail(kbd, errHostNotReading)
+	g, fg := NewTestGadgetHID(t, true)
+	kbd := fg.Nodes["keyboard"]
+	fg.Host.setFail(kbd, errHostNotReading)
 	if err := g.KeyPress(0x04); err == nil {
 		t.Fatal("press succeeded with the phone not reading")
 	}
-	fg.host.setFail(kbd, nil)
-	g.refresh()
+	fg.Host.setFail(kbd, nil)
+	g.Refresh()
 	if err := g.KeyPress(0x05); err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range fg.host.got(kbd) {
+	for _, r := range fg.Host.Got(kbd) {
 		if bytes.Contains(r[2:], []byte{0x04}) {
 			t.Errorf("report % x carries the key whose press failed", r)
 		}
@@ -114,8 +114,8 @@ func TestGadgetFailedPressIsRolledBack(t *testing.T) {
 }
 
 func TestGadgetClickReleaseRetried(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
-	mouse := fg.nodes["mouse"]
+	g, fg := NewTestGadgetHID(t, true)
+	mouse := fg.Nodes["mouse"]
 	// Let the press through and refuse the release, as f_hid does when the
 	// phone stops polling between the two.
 	calls := 0
@@ -125,14 +125,14 @@ func TestGadgetClickReleaseRetried(t *testing.T) {
 		if calls == 2 {
 			return errHostNotReading
 		}
-		return fg.host.devWrite(mouse, r)
+		return fg.Host.devWrite(mouse, r)
 	}}
 	g.mouse.mu.Unlock()
 	if err := g.MouseClick(1); err == nil {
 		t.Fatal("click reported success with its release refused")
 	}
-	g.refresh()
-	got := fg.host.got(mouse)
+	g.Refresh()
+	got := fg.Host.Got(mouse)
 	if len(got) != 2 || got[0][0] != 1 || got[1][0] != 0 {
 		t.Errorf("phone saw % x; want press then (resent) release", got)
 	}
@@ -154,27 +154,27 @@ func (h *fakeHost) devWrite(path string, r []byte) error {
 // A phone that re-enumerates has nothing held. Neither may roadie: a key
 // held before the replug must not ride along on the next report.
 func TestGadgetReconnectForgetsHeldState(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
-	kbd := fg.nodes["keyboard"]
+	g, fg := NewTestGadgetHID(t, true)
+	kbd := fg.Nodes["keyboard"]
 	if err := g.KeyPress(0xE1); err != nil { // shift
 		t.Fatal(err)
 	}
-	fg.setState("not attached")
-	g.refresh()
+	fg.SetState("not attached")
+	g.Refresh()
 	if g.BoardResponding() {
 		t.Error("still responding after the phone went away")
 	}
-	fg.setState("configured")
-	g.refresh()
-	fg.host.reset()
+	fg.SetState("configured")
+	g.Refresh()
+	fg.Host.reset()
 	if err := g.KeyPress(0x04); err != nil {
 		t.Fatal(err)
 	}
-	if r := fg.host.last(kbd); r[0] != 0 {
+	if r := fg.Host.Last(kbd); r[0] != 0 {
 		t.Errorf("shift from before the replug is still in % x", r)
 	}
 	// And a fresh phone gets no clean-slate reports: the mouse stays put.
-	if n := len(fg.host.got(fg.nodes["mouse"])); n != 0 {
+	if n := len(fg.Host.Got(fg.Nodes["mouse"])); n != 0 {
 		t.Errorf("%d mouse reports sent on a fresh attach", n)
 	}
 }
@@ -183,11 +183,11 @@ func TestGadgetReconnectForgetsHeldState(t *testing.T) {
 // killed roadie may have left held -- once.
 func TestGadgetCleanSlateOnStart(t *testing.T) {
 	fg := newFakeGadget(t)
-	fg.setState("configured")
-	g := newGadgetHID(fg.paths, fg.host.open)
-	g.refresh()
+	fg.SetState("configured")
+	g := newGadgetHID(fg.paths, fg.Host.open)
+	g.Refresh()
 	for _, fn := range []string{"keyboard", "touch", "mouse"} {
-		got := fg.host.got(fg.nodes[fn])
+		got := fg.Host.Got(fg.Nodes[fn])
 		if len(got) != 1 {
 			t.Fatalf("%s: %d clean-slate reports, want 1", fn, len(got))
 		}
@@ -201,67 +201,67 @@ func TestGadgetCleanSlateOnStart(t *testing.T) {
 			}
 		}
 	}
-	fg.host.reset()
-	g.refresh()
-	if len(fg.host.got(fg.nodes["keyboard"])) != 0 {
+	fg.Host.reset()
+	g.Refresh()
+	if len(fg.Host.Got(fg.Nodes["keyboard"])) != 0 {
 		t.Error("clean slate sent twice")
 	}
 }
 
 func TestGadgetShutdownReleasesHeld(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
+	g, fg := NewTestGadgetHID(t, true)
 	g.KeyPress(0x04)
 	g.MousePress(2)
 	g.Touch([]hid.TouchContact{{ID: 0, Tip: true, X: 10, Y: 10}, {ID: 1, Tip: true, X: 20, Y: 20}})
-	fg.host.reset()
+	fg.Host.reset()
 	g.Shutdown()
-	if r := fg.host.last(fg.nodes["keyboard"]); r == nil || r[2] != 0 {
+	if r := fg.Host.Last(fg.Nodes["keyboard"]); r == nil || r[2] != 0 {
 		t.Errorf("keyboard after shutdown: % x", r)
 	}
-	if r := fg.host.last(fg.nodes["mouse"]); r == nil || r[0] != 0 {
+	if r := fg.Host.Last(fg.Nodes["mouse"]); r == nil || r[0] != 0 {
 		t.Errorf("mouse after shutdown: % x", r)
 	}
-	if r := fg.host.last(fg.nodes["touch"]); r == nil || r[1] != 0 || r[7] != 0 || r[12] != 0 {
+	if r := fg.Host.Last(fg.Nodes["touch"]); r == nil || r[1] != 0 || r[7] != 0 || r[12] != 0 {
 		t.Errorf("touch after shutdown: % x", r)
 	}
 }
 
 func TestGadgetShutdownLeavesIdleMouseAlone(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
+	g, fg := NewTestGadgetHID(t, true)
 	g.MouseMove(500, 500)
-	fg.host.reset()
+	fg.Host.reset()
 	g.Shutdown()
-	if n := len(fg.host.got(fg.nodes["mouse"])); n != 0 {
+	if n := len(fg.Host.Got(fg.Nodes["mouse"])); n != 0 {
 		t.Errorf("shutdown sent %d mouse reports with no button down", n)
 	}
 }
 
 func TestGadgetReopensReplacedNode(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
-	kbd := fg.nodes["keyboard"]
-	fg.host.mu.Lock()
-	fg.host.stale[kbd] = true
-	fg.host.mu.Unlock()
-	g.refresh()
-	if fg.host.opens[kbd] != 2 {
-		t.Errorf("keyboard opened %d times, want a reopen", fg.host.opens[kbd])
+	g, fg := NewTestGadgetHID(t, true)
+	kbd := fg.Nodes["keyboard"]
+	fg.Host.mu.Lock()
+	fg.Host.stale[kbd] = true
+	fg.Host.mu.Unlock()
+	g.Refresh()
+	if fg.Host.opens[kbd] != 2 {
+		t.Errorf("keyboard opened %d times, want a reopen", fg.Host.opens[kbd])
 	}
 }
 
 func TestGadgetReopensAfterWriteError(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
-	kbd := fg.nodes["keyboard"]
-	fg.host.setFail(kbd, syscall.EIO)
+	g, fg := NewTestGadgetHID(t, true)
+	kbd := fg.Nodes["keyboard"]
+	fg.Host.setFail(kbd, syscall.EIO)
 	if err := g.KeyPress(4); err == nil {
 		t.Fatal("EIO not reported")
 	}
 	if g.Status() != hid.HIDConnecting {
 		t.Errorf("status %s after the node failed, want connecting", g.Status())
 	}
-	fg.host.setFail(kbd, nil)
-	g.refresh()
-	if g.Status() != hid.HIDConnected || fg.host.opens[kbd] != 2 {
-		t.Errorf("status %s, opens %d; want reconnected", g.Status(), fg.host.opens[kbd])
+	fg.Host.setFail(kbd, nil)
+	g.Refresh()
+	if g.Status() != hid.HIDConnected || fg.Host.opens[kbd] != 2 {
+		t.Errorf("status %s, opens %d; want reconnected", g.Status(), fg.Host.opens[kbd])
 	}
 }
 
@@ -270,18 +270,18 @@ func TestGadgetMissingThenAppears(t *testing.T) {
 	paths := gadgetPaths{sys: filepath.Join(root, "sys"), dev: filepath.Join(root, "dev")}
 	host := newFakeHost()
 	g := newGadgetHID(paths, host.open)
-	g.refresh()
+	g.Refresh()
 	if g.Status() != hid.HIDDisconnected {
 		t.Errorf("status %s with no gadget, want disconnected", g.Status())
 	}
 	if err := g.KeyPress(4); err == nil || !strings.Contains(err.Error(), "no keyboard") {
 		t.Errorf("KeyPress with no gadget: %v", err)
 	}
-	fg := &fakeGadget{t: t, paths: paths, host: host, nodes: map[string]string{}}
-	fg.write(filepath.Join(paths.gadget(), "UDC"), fakeUDC)
-	fg.setState("configured")
+	fg := &fakeGadget{t: t, paths: paths, Host: host, Nodes: map[string]string{}}
+	fg.write(filepath.Join(paths.gadget(), "UDC"), FakeUDC)
+	fg.SetState("configured")
 	fg.addHID("keyboard", 8, "236:0", "hidg0")
-	g.refresh()
+	g.Refresh()
 	if g.Status() != hid.HIDConnected {
 		t.Errorf("status %s once the gadget exists", g.Status())
 	}
@@ -298,12 +298,12 @@ func TestGadgetMissingThenAppears(t *testing.T) {
 }
 
 func TestGadgetResetSoftConnect(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
+	g, fg := NewTestGadgetHID(t, true)
 	g.KeyPress(0xE1)
 	var writes []string
 	stop := make(chan struct{})
 	done := make(chan struct{})
-	path := fg.paths.udcAttr(fakeUDC, "soft_connect")
+	path := fg.paths.udcAttr(FakeUDC, "soft_connect")
 	go func() { // watch the attribute the way the kernel would see writes
 		defer close(done)
 		last := ""
@@ -335,36 +335,36 @@ func TestGadgetResetSoftConnect(t *testing.T) {
 }
 
 func TestGadgetResetRelayReopens(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
+	g, fg := NewTestGadgetHID(t, true)
 	if err := g.ResetRelay(); err != nil {
 		t.Fatal(err)
 	}
-	g.refresh()
+	g.Refresh()
 	for _, fn := range []string{"keyboard", "mouse", "touch"} {
-		if fg.host.opens[fg.nodes[fn]] != 2 {
+		if fg.Host.opens[fg.Nodes[fn]] != 2 {
 			t.Errorf("%s not reopened", fn)
 		}
 	}
 }
 
 func TestGadgetTypeRejectsWholeText(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
+	g, fg := NewTestGadgetHID(t, true)
 	if err := g.Type("abc€"); err == nil {
 		t.Fatal("text with € accepted")
 	}
-	if n := len(fg.host.got(fg.nodes["keyboard"])); n != 0 {
+	if n := len(fg.Host.Got(fg.Nodes["keyboard"])); n != 0 {
 		t.Errorf("%d reports typed before rejecting the text", n)
 	}
 	if err := g.Type("Hi"); err != nil {
 		t.Fatal(err)
 	}
-	if last := fg.host.last(fg.nodes["keyboard"]); !bytes.Equal(last, make([]byte, 8)) {
+	if last := fg.Host.Last(fg.Nodes["keyboard"]); !bytes.Equal(last, make([]byte, 8)) {
 		t.Errorf("typing ended with % x held", last)
 	}
 }
 
 func TestGadgetSendAudio(t *testing.T) {
-	g, _ := newTestGadgetHID(t, true)
+	g, _ := NewTestGadgetHID(t, true)
 	if err := g.SendAudio(make([]byte, 640)); err == nil {
 		t.Error("SendAudio succeeded with no microphone")
 	}
@@ -382,8 +382,8 @@ func TestGadgetSendAudio(t *testing.T) {
 // going: for the race detector, and to show nothing deadlocks.
 func TestGadgetConcurrentUse(t *testing.T) {
 	fg := newFakeGadget(t)
-	fg.setState("configured")
-	g := newGadgetHID(fg.paths, fg.host.open)
+	fg.SetState("configured")
+	g := newGadgetHID(fg.paths, fg.Host.open)
 	go g.Run()
 	var wg sync.WaitGroup
 	for w := 0; w < 4; w++ {
@@ -409,10 +409,10 @@ func TestGadgetConcurrentUse(t *testing.T) {
 		}(w)
 	}
 	for i := 0; i < 5; i++ {
-		fg.setState("suspended")
+		fg.SetState("suspended")
 		g.nudge()
 		time.Sleep(2 * time.Millisecond)
-		fg.setState("configured")
+		fg.SetState("configured")
 		g.nudge()
 	}
 	wg.Wait()
@@ -420,32 +420,32 @@ func TestGadgetConcurrentUse(t *testing.T) {
 }
 
 func TestGadgetFailedLiftIsRetried(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
-	touch := fg.nodes["touch"]
+	g, fg := NewTestGadgetHID(t, true)
+	touch := fg.Nodes["touch"]
 	if err := g.Touch([]hid.TouchContact{{ID: 0, Tip: true, X: 100, Y: 100}, {ID: 1, Tip: true, X: 200, Y: 200}}); err != nil {
 		t.Fatal(err)
 	}
-	fg.host.setFail(touch, errHostNotReading)
+	fg.Host.setFail(touch, errHostNotReading)
 	if err := g.Touch([]hid.TouchContact{{ID: 0, Tip: false, X: 100, Y: 100}, {ID: 1, Tip: false, X: 200, Y: 200}}); err == nil {
 		t.Fatal("lift reported success while refused")
 	}
-	fg.host.setFail(touch, nil)
-	g.refresh()
-	if r := fg.host.last(touch); r[1] != 0 || r[7] != 0 {
+	fg.Host.setFail(touch, nil)
+	g.Refresh()
+	if r := fg.Host.Last(touch); r[1] != 0 || r[7] != 0 {
 		t.Errorf("fingers still down after the retried lift: % x", r)
 	}
 }
 
 func TestGadgetFailedTouchDownNeverLands(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
-	touch := fg.nodes["touch"]
-	fg.host.setFail(touch, errHostNotReading)
+	g, fg := NewTestGadgetHID(t, true)
+	touch := fg.Nodes["touch"]
+	fg.Host.setFail(touch, errHostNotReading)
 	if err := g.Touch([]hid.TouchContact{{ID: 0, Tip: true, X: 1, Y: 1}}); err == nil {
 		t.Fatal("touch-down reported success while refused")
 	}
-	fg.host.setFail(touch, nil)
-	g.refresh()
-	for _, r := range fg.host.got(touch) {
+	fg.Host.setFail(touch, nil)
+	g.Refresh()
+	for _, r := range fg.Host.Got(touch) {
 		if r[1] != 0 {
 			t.Errorf("a refused touch-down was delivered later: % x", r)
 		}
@@ -453,17 +453,17 @@ func TestGadgetFailedTouchDownNeverLands(t *testing.T) {
 }
 
 func TestGadgetFailedKeyReleaseIsRetried(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
-	kbd := fg.nodes["keyboard"]
+	g, fg := NewTestGadgetHID(t, true)
+	kbd := fg.Nodes["keyboard"]
 	g.KeyPress(0xE0)
 	g.KeyPress(0x06)
-	fg.host.setFail(kbd, errHostNotReading)
+	fg.Host.setFail(kbd, errHostNotReading)
 	if err := g.KeyRelease(0x06); err == nil {
 		t.Fatal("release reported success while refused")
 	}
-	fg.host.setFail(kbd, nil)
-	g.refresh()
-	if r := fg.host.last(kbd); !bytes.Equal(r, []byte{0x01, 0, 0, 0, 0, 0, 0, 0}) {
+	fg.Host.setFail(kbd, nil)
+	g.Refresh()
+	if r := fg.Host.Last(kbd); !bytes.Equal(r, []byte{0x01, 0, 0, 0, 0, 0, 0, 0}) {
 		t.Errorf("after the retried release: % x, want ctrl alone", r)
 	}
 }
@@ -471,20 +471,20 @@ func TestGadgetFailedKeyReleaseIsRetried(t *testing.T) {
 // A phone that sleeps and wakes has not re-enumerated: what it holds, it
 // still holds, and a release owed to it must still arrive.
 func TestGadgetResumeKeepsOwedRelease(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
-	kbd := fg.nodes["keyboard"]
+	g, fg := NewTestGadgetHID(t, true)
+	kbd := fg.Nodes["keyboard"]
 	g.KeyPress(0xE1)
-	fg.setState("suspended")
-	g.refresh()
-	fg.host.setFail(kbd, errHostNotReading)
+	fg.SetState("suspended")
+	g.Refresh()
+	fg.Host.setFail(kbd, errHostNotReading)
 	if err := g.KeyRelease(0xE1); err == nil {
 		t.Fatal("release succeeded on a suspended bus")
 	}
-	g.refresh() // still suspended: nothing resent yet
-	fg.host.setFail(kbd, nil)
-	fg.setState("configured")
-	g.refresh()
-	if r := fg.host.last(kbd); r[0] != 0 {
+	g.Refresh() // still suspended: nothing resent yet
+	fg.Host.setFail(kbd, nil)
+	fg.SetState("configured")
+	g.Refresh()
+	if r := fg.Host.Last(kbd); r[0] != 0 {
 		t.Errorf("after resume the phone was left with % x", r)
 	}
 	if g.anyDirty() {
@@ -499,89 +499,89 @@ func TestGadgetCarrierDropMeansReenumerated(t *testing.T) {
 	fg.write(filepath.Join(fg.paths.function("ecm.phone"), "ifname"), "phone0\n")
 	counter := filepath.Join(fg.paths.sys, "class/net/phone0/carrier_down_count")
 	fg.write(counter, "3\n")
-	fg.setState("configured")
-	g := newGadgetHID(fg.paths, fg.host.open)
-	g.refresh()
+	fg.SetState("configured")
+	g := newGadgetHID(fg.paths, fg.Host.open)
+	g.Refresh()
 	g.KeyPress(0xE1)
-	fg.setState("suspended") // a replug seen only as suspended -> configured
-	g.refresh()
+	fg.SetState("suspended") // a replug seen only as suspended -> configured
+	g.Refresh()
 	fg.write(counter, "4\n")
-	fg.setState("configured")
-	g.refresh()
-	fg.host.reset()
+	fg.SetState("configured")
+	g.Refresh()
+	fg.Host.reset()
 	g.KeyPress(0x04)
-	if r := fg.host.last(fg.nodes["keyboard"]); r[0] != 0 {
+	if r := fg.Host.Last(fg.Nodes["keyboard"]); r[0] != 0 {
 		t.Errorf("shift from before the replug rode along: % x", r)
 	}
 }
 
 // A write that finds no host is proof of a new enumeration to come.
 func TestGadgetNotConfiguredWriteMeansReenumerated(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
-	kbd := fg.nodes["keyboard"]
+	g, fg := NewTestGadgetHID(t, true)
+	kbd := fg.Nodes["keyboard"]
 	g.KeyPress(0xE1)
-	fg.host.setFail(kbd, errUSBNotConfigured)
+	fg.Host.setFail(kbd, errUSBNotConfigured)
 	g.KeyPress(0x05) // the phone is mid-replug
-	fg.host.setFail(kbd, nil)
-	g.refresh() // still "configured" by the time we look
-	fg.host.reset()
+	fg.Host.setFail(kbd, nil)
+	g.Refresh() // still "configured" by the time we look
+	fg.Host.reset()
 	g.KeyPress(0x04)
-	if r := fg.host.last(kbd); r[0] != 0 {
+	if r := fg.Host.Last(kbd); r[0] != 0 {
 		t.Errorf("stale shift after a missed replug: % x", r)
 	}
 }
 
 func TestGadgetScrollZeroKeepsOwedRelease(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
-	mouse := fg.nodes["mouse"]
+	g, fg := NewTestGadgetHID(t, true)
+	mouse := fg.Nodes["mouse"]
 	g.MousePress(1)
-	fg.host.setFail(mouse, errHostNotReading)
+	fg.Host.setFail(mouse, errHostNotReading)
 	g.MouseRelease(1)
-	fg.host.setFail(mouse, nil)
+	fg.Host.setFail(mouse, nil)
 	if err := g.MouseScroll(0); err != nil {
 		t.Fatal(err)
 	}
 	if !g.anyDirty() {
 		t.Fatal("scrolling by zero cleared a release still owed")
 	}
-	g.refresh()
-	if r := fg.host.last(mouse); r[0] != 0 {
+	g.Refresh()
+	if r := fg.Host.Last(mouse); r[0] != 0 {
 		t.Errorf("button left down: % x", r)
 	}
-	fg.host.reset()
+	fg.Host.reset()
 	g.MouseScroll(1 << 40) // bounded, not billions of reports
-	if n := len(fg.host.got(mouse)); n != 100 {
+	if n := len(fg.Host.Got(mouse)); n != 100 {
 		t.Errorf("huge scroll sent %d reports, want 100", n)
 	}
 }
 
 func TestGadgetCleanSlateRetried(t *testing.T) {
 	fg := newFakeGadget(t)
-	fg.setState("configured")
-	fg.host.setFail(fg.nodes["touch"], errHostNotReading)
-	g := newGadgetHID(fg.paths, fg.host.open)
-	g.refresh() // the clean-slate lift cannot be sent
-	fg.host.setFail(fg.nodes["touch"], nil)
-	g.refresh()
-	if got := fg.host.got(fg.nodes["touch"]); len(got) != 1 || got[0][1] != 0 {
+	fg.SetState("configured")
+	fg.Host.setFail(fg.Nodes["touch"], errHostNotReading)
+	g := newGadgetHID(fg.paths, fg.Host.open)
+	g.Refresh() // the clean-slate lift cannot be sent
+	fg.Host.setFail(fg.Nodes["touch"], nil)
+	g.Refresh()
+	if got := fg.Host.Got(fg.Nodes["touch"]); len(got) != 1 || got[0][1] != 0 {
 		t.Errorf("clean-slate lift not retried: % x", got)
 	}
 }
 
 func TestGadgetNothingSentAfterShutdown(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
+	g, fg := NewTestGadgetHID(t, true)
 	g.Shutdown()
-	fg.host.reset()
+	fg.Host.reset()
 	if err := g.KeyPress(4); err == nil {
 		t.Error("a key press was accepted after shutdown")
 	}
-	if n := len(fg.host.got(fg.nodes["keyboard"])); n != 0 {
+	if n := len(fg.Host.Got(fg.Nodes["keyboard"])); n != 0 {
 		t.Errorf("%d reports sent after shutdown", n)
 	}
 }
 
 func TestGadgetPartialSendSaysSo(t *testing.T) {
-	g, fg := newTestGadgetHID(t, true)
+	g, fg := NewTestGadgetHID(t, true)
 	calls := 0
 	g.mouse.mu.Lock()
 	g.mouse.dev = &scriptedDev{fn: func(r []byte) error {
@@ -589,7 +589,7 @@ func TestGadgetPartialSendSaysSo(t *testing.T) {
 		if calls == 2 {
 			return errHostNotReading
 		}
-		return fg.host.devWrite(fg.nodes["mouse"], r)
+		return fg.Host.devWrite(fg.Nodes["mouse"], r)
 	}}
 	g.mouse.mu.Unlock()
 	err := g.MouseClick(1)
