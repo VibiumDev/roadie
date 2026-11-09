@@ -1,11 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"github.com/VibiumDev/roadie/internal/devices"
+	"github.com/VibiumDev/roadie/internal/hid"
 	"log"
 	"os"
 	"path/filepath"
@@ -152,9 +152,9 @@ type GadgetHID struct {
 	open  func(path string) (reportDevice, error)
 
 	kbd, mouse, touch *hidFunction
-	kstate            keyboardState  // guarded by kbd.mu
-	mstate            mouseState     // guarded by mouse.mu
-	tstate            []TouchContact // guarded by touch.mu
+	kstate            hid.KeyboardState  // guarded by kbd.mu
+	mstate            hid.MouseState     // guarded by mouse.mu
+	tstate            []hid.TouchContact // guarded by touch.mu
 
 	micMu sync.Mutex
 	mic   micSink // the gadget microphone; nil if it has none
@@ -203,9 +203,9 @@ func newGadgetHID(paths gadgetPaths, open func(string) (reportDevice, error)) *G
 	g := &GadgetHID{
 		paths:   paths,
 		open:    open,
-		kbd:     &hidFunction{name: "keyboard", reportLen: keyboardReportLen},
-		mouse:   &hidFunction{name: "mouse", reportLen: mouseReportLen},
-		touch:   &hidFunction{name: "touch", reportLen: touchReportLen},
+		kbd:     &hidFunction{name: "keyboard", reportLen: hid.KeyboardReportLen},
+		mouse:   &hidFunction{name: "mouse", reportLen: hid.MouseReportLen},
+		touch:   &hidFunction{name: "touch", reportLen: hid.TouchReportLen},
 		lastLog: map[string]string{},
 		wake:    make(chan struct{}, 1),
 
@@ -215,7 +215,7 @@ func newGadgetHID(paths gadgetPaths, open func(string) (reportDevice, error)) *G
 		cancel:       cancel,
 		done:         make(chan struct{}),
 	}
-	g.status.Store(HIDDisconnected)
+	g.status.Store(hid.HIDDisconnected)
 	g.usbState.Store("")
 	g.udc.Store("")
 	g.serial.Store("")
@@ -299,7 +299,7 @@ func (g *GadgetHID) refresh() {
 		}
 		g.udc.Store("")
 		g.setUSBState("")
-		g.status.Store(HIDDisconnected)
+		g.status.Store(hid.HIDDisconnected)
 		return
 	}
 	udc, _ := g.paths.boundUDC()
@@ -332,12 +332,12 @@ func (g *GadgetHID) refresh() {
 	}
 	switch {
 	case want > 0 && open == want:
-		g.status.Store(HIDConnected)
+		g.status.Store(hid.HIDConnected)
 	case want == 0:
 		g.logChange("functions", fmt.Sprintf("USB gadget %q has no HID functions", gadgetName))
-		g.status.Store(HIDDisconnected)
+		g.status.Store(hid.HIDDisconnected)
 	default:
-		g.status.Store(HIDConnecting)
+		g.status.Store(hid.HIDConnecting)
 	}
 
 	if n, ok := g.paths.carrierDowns(); ok {
@@ -463,11 +463,11 @@ func (f *hidFunction) closeLocked() {
 // enumerates us again.
 func (g *GadgetHID) resetInputState() {
 	g.kbd.mu.Lock()
-	g.kstate = keyboardState{}
+	g.kstate = hid.KeyboardState{}
 	g.kbd.dirty, g.kbd.state = false, nil
 	g.kbd.mu.Unlock()
 	g.mouse.mu.Lock()
-	g.mstate = mouseState{}
+	g.mstate = hid.MouseState{}
 	g.mouse.dirty, g.mouse.state = false, nil
 	g.mouse.mu.Unlock()
 	g.touch.mu.Lock()
@@ -519,7 +519,7 @@ func (g *GadgetHID) writeLocked(f *hidFunction, report []byte, timeout time.Dura
 		return err
 	}
 	f.closeLocked()
-	g.status.Store(HIDConnecting)
+	g.status.Store(hid.HIDConnecting)
 	g.nudge()
 	return fmt.Errorf("%s: %w", f.path, err)
 }
@@ -555,20 +555,7 @@ func (g *GadgetHID) sendLocked(f *hidFunction, reports [][]byte, safe []byte) er
 	return nil
 }
 
-// Held in both a and b: what a failed call converges on.
-func (a keyboardState) and(b keyboardState) keyboardState {
-	out := keyboardState{mods: a.mods & b.mods}
-	n := 0
-	for _, k := range a.keys {
-		if k != 0 && bytes.IndexByte(b.keys[:], k) >= 0 {
-			out.keys[n] = k
-			n++
-		}
-	}
-	return out
-}
-
-func anyTip(contacts []TouchContact) bool {
+func anyTip(contacts []hid.TouchContact) bool {
 	for _, c := range contacts {
 		if c.Tip {
 			return true
@@ -577,8 +564,8 @@ func anyTip(contacts []TouchContact) bool {
 	return false
 }
 
-func touchesAnd(a, b []TouchContact) []TouchContact {
-	var out []TouchContact
+func touchesAnd(a, b []hid.TouchContact) []hid.TouchContact {
+	var out []hid.TouchContact
 	for _, c := range a {
 		for _, d := range b {
 			if c.ID == d.ID && c.Tip && d.Tip {
@@ -591,9 +578,9 @@ func touchesAnd(a, b []TouchContact) []TouchContact {
 
 // ---- HIDBackend ------------------------------------------------------------
 
-func (g *GadgetHID) Backend() string { return BackendLinuxGadget }
+func (g *GadgetHID) Backend() string { return hid.BackendLinuxGadget }
 
-func (g *GadgetHID) Status() HIDStatus { return g.status.Load().(HIDStatus) }
+func (g *GadgetHID) Status() hid.HIDStatus { return g.status.Load().(hid.HIDStatus) }
 
 // BoardResponding is true when a phone has enumerated the gadget. False
 // means nothing is attached, or the phone has suspended the bus.
@@ -610,7 +597,7 @@ func (g *GadgetHID) Port() string { s, _ := g.udc.Load().(string); return s }
 func (g *GadgetHID) Serial() string { s, _ := g.serial.Load().(string); return s }
 
 func (g *GadgetHID) KeyPress(keycode int) error {
-	return g.keyboardChange(func(k *keyboardState) error { return k.press(keycode) })
+	return g.keyboardChange(func(k *hid.KeyboardState) error { return k.Press(keycode) })
 }
 
 // absent: the gadget has no such function. Releasing on it is then a no-op
@@ -626,10 +613,10 @@ func (g *GadgetHID) KeyRelease(keycode int) error {
 	if g.absent(g.kbd) {
 		return nil
 	}
-	return g.keyboardChange(func(k *keyboardState) error { k.release(keycode); return nil })
+	return g.keyboardChange(func(k *hid.KeyboardState) error { k.Release(keycode); return nil })
 }
 
-func (g *GadgetHID) keyboardChange(change func(*keyboardState) error) error {
+func (g *GadgetHID) keyboardChange(change func(*hid.KeyboardState) error) error {
 	f := g.kbd
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -637,8 +624,8 @@ func (g *GadgetHID) keyboardChange(change func(*keyboardState) error) error {
 	if err := change(&next); err != nil {
 		return err
 	}
-	safe := g.kstate.and(next)
-	if err := g.sendLocked(f, [][]byte{next.report()}, safe.report()); err != nil {
+	safe := g.kstate.And(next)
+	if err := g.sendLocked(f, [][]byte{next.Report()}, safe.Report()); err != nil {
 		g.kstate = safe
 		return err
 	}
@@ -653,15 +640,15 @@ func (g *GadgetHID) Type(text string) error {
 	f := g.kbd
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	reports, err := typeReports(g.kstate, text)
+	reports, err := hid.TypeReports(g.kstate, text)
 	if err != nil {
 		return err
 	}
 	if len(reports) == 0 {
 		return nil
 	}
-	err = g.sendLocked(f, reports, keyboardState{}.report())
-	g.kstate = keyboardState{}
+	err = g.sendLocked(f, reports, hid.KeyboardState{}.Report())
+	g.kstate = hid.KeyboardState{}
 	return err
 }
 
@@ -669,8 +656,8 @@ func (g *GadgetHID) MouseMove(x, y int) error {
 	f := g.mouse
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	reports, next := g.mstate.moveReports(x, y)
-	if err := g.sendLocked(f, reports, g.mstate.report()); err != nil {
+	reports, next := g.mstate.MoveReports(x, y)
+	if err := g.sendLocked(f, reports, g.mstate.Report()); err != nil {
 		return err
 	}
 	g.mstate = next
@@ -679,10 +666,10 @@ func (g *GadgetHID) MouseMove(x, y int) error {
 
 // mouseChange sends the reports for a button change; final is the state
 // after them.
-func (g *GadgetHID) mouseChange(reports [][]byte, final mouseState) error {
+func (g *GadgetHID) mouseChange(reports [][]byte, final hid.MouseState) error {
 	safe := g.mstate
-	safe.buttons &= final.buttons
-	if err := g.sendLocked(g.mouse, reports, safe.report()); err != nil {
+	safe.Buttons &= final.Buttons
+	if err := g.sendLocked(g.mouse, reports, safe.Report()); err != nil {
 		g.mstate = safe
 		return err
 	}
@@ -694,8 +681,8 @@ func (g *GadgetHID) MousePress(buttons int) error {
 	g.mouse.mu.Lock()
 	defer g.mouse.mu.Unlock()
 	next := g.mstate
-	next.buttons |= byte(buttons)
-	return g.mouseChange([][]byte{next.report()}, next)
+	next.Buttons |= byte(buttons)
+	return g.mouseChange([][]byte{next.Report()}, next)
 }
 
 func (g *GadgetHID) MouseRelease(buttons int) error {
@@ -705,8 +692,8 @@ func (g *GadgetHID) MouseRelease(buttons int) error {
 	g.mouse.mu.Lock()
 	defer g.mouse.mu.Unlock()
 	next := g.mstate
-	next.buttons &^= byte(buttons)
-	return g.mouseChange([][]byte{next.report()}, next)
+	next.Buttons &^= byte(buttons)
+	return g.mouseChange([][]byte{next.Report()}, next)
 }
 
 // MouseClick presses and releases, as two reports. If the release fails the
@@ -715,10 +702,10 @@ func (g *GadgetHID) MouseClick(buttons int) error {
 	g.mouse.mu.Lock()
 	defer g.mouse.mu.Unlock()
 	down := g.mstate
-	down.buttons |= byte(buttons)
+	down.Buttons |= byte(buttons)
 	up := down
-	up.buttons &^= byte(buttons)
-	return g.mouseChange([][]byte{down.report(), up.report()}, up)
+	up.Buttons &^= byte(buttons)
+	return g.mouseChange([][]byte{down.Report(), up.Report()}, up)
 }
 
 // maxScroll bounds one scroll call (100 reports of 127).
@@ -729,22 +716,22 @@ func (g *GadgetHID) MouseScroll(amount int) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	amount = max(min(amount, maxScroll), -maxScroll)
-	return g.sendLocked(f, g.mstate.scrollReports(amount), g.mstate.report())
+	return g.sendLocked(f, g.mstate.ScrollReports(amount), g.mstate.Report())
 }
 
-func (g *GadgetHID) Touch(contacts []TouchContact) error {
+func (g *GadgetHID) Touch(contacts []hid.TouchContact) error {
 	f := g.touch
 	if g.absent(f) && !anyTip(contacts) {
 		return nil
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	report, err := touchReport(contacts)
+	report, err := hid.TouchReport(contacts)
 	if err != nil {
 		return err
 	}
 	safe := touchesAnd(g.tstate, contacts)
-	safeReport, _ := touchReport(safe)
+	safeReport, _ := hid.TouchReport(safe)
 	if err := g.sendLocked(f, [][]byte{report}, safeReport); err != nil {
 		g.tstate = safe
 		return err
@@ -789,23 +776,23 @@ func (g *GadgetHID) releaseLocked(f *hidFunction, timeout time.Duration, force b
 	var report []byte
 	switch f {
 	case g.kbd:
-		if !force && !g.kstate.held() {
+		if !force && !g.kstate.Held() {
 			return
 		}
-		g.kstate = keyboardState{}
-		report = g.kstate.report()
+		g.kstate = hid.KeyboardState{}
+		report = g.kstate.Report()
 	case g.touch:
 		if !force && len(g.tstate) == 0 {
 			return
 		}
 		g.tstate = nil
-		report, _ = touchReport(nil)
+		report, _ = hid.TouchReport(nil)
 	case g.mouse:
-		if !force && g.mstate.buttons == 0 {
+		if !force && g.mstate.Buttons == 0 {
 			return
 		}
-		g.mstate.buttons = 0
-		report = g.mstate.report()
+		g.mstate.Buttons = 0
+		report = g.mstate.Report()
 	}
 	if g.writeLocked(f, report, timeout) == nil {
 		f.dirty = false
@@ -882,7 +869,7 @@ func (g *GadgetHID) ResetRelay() error {
 		f.mu.Unlock()
 	}
 	g.resetInputState()
-	g.status.Store(HIDConnecting)
+	g.status.Store(hid.HIDConnecting)
 	g.nudge()
 	return nil
 }

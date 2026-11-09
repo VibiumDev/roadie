@@ -19,6 +19,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/VibiumDev/station/rig"
 )
@@ -58,7 +59,7 @@ type bidiSession struct {
 	// shiftFor marks keys whose character needed a Shift this session
 	// pressed for it (":" is Shift+";"), so keyUp lets go of that too.
 	shiftFor   map[int]bool
-	touchState [2]*TouchContact
+	touchState [2]*hid.TouchContact
 	pointerPos map[string]*bidiPointerPos // keyed by source ID
 }
 
@@ -169,14 +170,14 @@ func (s *Server) handleBiDi(w http.ResponseWriter, r *http.Request) {
 // session.status
 
 func (s *Server) bidiSessionStatus(conn *websocket.Conn, ctx context.Context, cmd bidiCommand) {
-	ready := s.Source.Status() == StatusConnected && s.HID != nil && s.HID.Status() == HIDConnected
+	ready := s.Source.Status() == StatusConnected && s.HID != nil && s.HID.Status() == hid.HIDConnected
 	msg := "ready"
 	if !ready {
 		parts := []string{}
 		if s.Source.Status() != StatusConnected {
 			parts = append(parts, fmt.Sprintf("capture: %s", s.Source.Status()))
 		}
-		if s.HID == nil || s.HID.Status() != HIDConnected {
+		if s.HID == nil || s.HID.Status() != hid.HIDConnected {
 			parts = append(parts, "hid: disconnected")
 		}
 		msg = strings.Join(parts, ", ")
@@ -444,7 +445,7 @@ func (s *Server) checkBiDiActions(sources []bidiActionSource) error {
 		}
 	}
 	if fingers > 1 {
-		return errOneFinger
+		return hid.ErrOneFinger
 	}
 	return nil
 }
@@ -512,7 +513,7 @@ func (s *Server) executeBiDiAction(sess *bidiSession, srcType, ptrType, srcID st
 			contactID := s.touchContactID(srcID)
 			hidX, hidY := s.bidiToHID(px, py)
 			bidiSessionMu.Lock()
-			sess.touchState[contactID] = &TouchContact{
+			sess.touchState[contactID] = &hid.TouchContact{
 				ID:  contactID,
 				Tip: true,
 				X:   hidX,
@@ -565,12 +566,12 @@ func (s *Server) executeBiDiAction(sess *bidiSession, srcType, ptrType, srcID st
 				sess.shiftFor = map[int]bool{}
 			}
 			sess.shiftFor[keycode] = true
-			sess.heldKeys = append(sess.heldKeys, shiftKeycode)
+			sess.heldKeys = append(sess.heldKeys, hid.ShiftKeycode)
 		}
 		sess.heldKeys = append(sess.heldKeys, keycode)
 		bidiSessionMu.Unlock()
 		if addShift {
-			if err := s.HID.KeyPress(shiftKeycode); err != nil {
+			if err := s.HID.KeyPress(hid.ShiftKeycode); err != nil {
 				return err
 			}
 		}
@@ -586,14 +587,14 @@ func (s *Server) executeBiDiAction(sess *bidiSession, srcType, ptrType, srcID st
 		addedShift := sess.shiftFor[keycode]
 		if addedShift {
 			delete(sess.shiftFor, keycode)
-			sess.heldKeys = removeKey(sess.heldKeys, shiftKeycode)
+			sess.heldKeys = removeKey(sess.heldKeys, hid.ShiftKeycode)
 		}
 		bidiSessionMu.Unlock()
 		if err := s.HID.KeyRelease(keycode); err != nil {
 			return err
 		}
 		if addedShift {
-			return s.HID.KeyRelease(shiftKeycode)
+			return s.HID.KeyRelease(hid.ShiftKeycode)
 		}
 		return nil
 
@@ -676,9 +677,9 @@ func (s *Server) releaseAllInput(sess *bidiSession) {
 	sess.shiftFor = nil
 	buttons := sess.heldButtons
 	sess.heldButtons = 0
-	var touches [2]*TouchContact
+	var touches [2]*hid.TouchContact
 	copy(touches[:], sess.touchState[:])
-	sess.touchState = [2]*TouchContact{}
+	sess.touchState = [2]*hid.TouchContact{}
 	bidiSessionMu.Unlock()
 
 	for i := len(keys) - 1; i >= 0; i-- {
@@ -695,7 +696,7 @@ func (s *Server) releaseAllInput(sess *bidiSession) {
 		}
 	}
 	if hasTouch {
-		s.HID.Touch([]TouchContact{})
+		s.HID.Touch([]hid.TouchContact{})
 	}
 }
 
@@ -797,7 +798,7 @@ func (s *Server) bidiToHID(pixelX, pixelY float64) (int, int) {
 	hidX := int(math.Round((fullX - float64(area.Min.X)) / float64(area.Dx()) * 32767))
 	hidY := int(math.Round((fullY - float64(area.Min.Y)) / float64(area.Dy()) * 32767))
 
-	return clampInt(hidX, 0, 32767), clampInt(hidY, 0, 32767)
+	return hid.ClampInt(hidX, 0, 32767), hid.ClampInt(hidY, 0, 32767)
 }
 
 // Touch contact helpers.
@@ -822,9 +823,9 @@ func (s *Server) touchContactID(srcID string) int {
 	return id
 }
 
-func (s *Server) activeContacts(sess *bidiSession) []TouchContact {
+func (s *Server) activeContacts(sess *bidiSession) []hid.TouchContact {
 	// Caller must hold bidiSessionMu.
-	var contacts []TouchContact
+	var contacts []hid.TouchContact
 	for _, tc := range sess.touchState {
 		if tc != nil {
 			contacts = append(contacts, *tc)
@@ -857,7 +858,7 @@ func bidiKeyToHID(value string) (int, bool) {
 	// A printable character: its key on a US keyboard, the table the HID
 	// backends type with.
 	if c, ok := printableKey(value); ok {
-		return int(usASCII[c] & 0x7f), true
+		return int(hid.USASCII[c] & 0x7f), true
 	}
 	return 0, false
 }
@@ -866,7 +867,7 @@ func bidiKeyToHID(value string) (int, bool) {
 // keyboard: capitals, and the symbols above the digits and punctuation.
 func bidiKeyNeedsShift(value string) bool {
 	c, ok := printableKey(value)
-	return ok && usASCII[c]&0x80 != 0
+	return ok && hid.USASCII[c]&0x80 != 0
 }
 
 func printableKey(value string) (byte, bool) {
@@ -874,7 +875,7 @@ func printableKey(value string) (byte, bool) {
 		return 0, false
 	}
 	r := []rune(value)[0]
-	if r < 0x20 || r >= 0x7f || usASCII[r] == 0 {
+	if r < 0x20 || r >= 0x7f || hid.USASCII[r] == 0 {
 		return 0, false
 	}
 	return byte(r), true

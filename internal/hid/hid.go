@@ -1,4 +1,4 @@
-package main
+package hid
 
 import (
 	"bytes"
@@ -724,8 +724,17 @@ func ioregValue(line string) string {
 	return strings.Trim(strings.TrimSpace(parts[1]), `"`)
 }
 
+// NewControllerWithPort is a controller over a port already open and
+// taken as connected, for tests that stand in for the board.
+func NewControllerWithPort(port io.WriteCloser) *HIDController {
+	hc := NewHIDController("")
+	hc.port = port
+	hc.status.Store(HIDConnected)
+	return hc
+}
+
 // usbDeviceLister names what an input backend presents to the target over
 // USB: what a USB reset replugs.
-type usbDeviceLister interface {
+type USBDeviceLister interface {
 	USBDevices() []string
 }

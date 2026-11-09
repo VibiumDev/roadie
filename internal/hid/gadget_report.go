@@ -1,6 +1,7 @@
-package main
+package hid
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 )
@@ -10,23 +11,23 @@ import (
 // descriptors without report IDs; TestGadgetDescriptors parses those files
 // and checks them against the lengths here.
 const (
-	keyboardReportLen = 8  // modifiers, reserved, six keys
-	mouseReportLen    = 6  // buttons, x, y, wheel
-	touchReportLen    = 13 // two contacts of (id, tip, x, y), contact count
+	KeyboardReportLen = 8  // modifiers, reserved, six keys
+	MouseReportLen    = 6  // buttons, x, y, wheel
+	TouchReportLen    = 13 // two contacts of (id, tip, x, y), contact count
 
-	hidCoordMax   = 32767
+	HIDCoordMax   = 32767
 	mouseButtons  = 0x1F // five buttons in the descriptor
 	maxContacts   = 2
-	shiftKeycode  = 0xE1 // Left Shift
+	ShiftKeycode  = 0xE1 // Left Shift
 	firstModifier = 0xE0
 	lastModifier  = 0xE7
 )
 
 // keyboardState is what a boot keyboard report carries: a modifier bitmap
 // and up to six other keys.
-type keyboardState struct {
-	mods byte
-	keys [6]byte
+type KeyboardState struct {
+	Mods byte
+	Keys [6]byte
 }
 
 var errSixKeys = errors.New("six keys are already held; release one first")
@@ -34,51 +35,51 @@ var errSixKeys = errors.New("six keys are already held; release one first")
 // press adds a key, as adafruit_hid's Keyboard.press does on the HID board:
 // modifiers set a bit, anything else takes a free slot, and a key already
 // held is left alone.
-func (k *keyboardState) press(code int) error {
+func (k *KeyboardState) Press(code int) error {
 	if code < 0 || code > 0xFF {
 		return fmt.Errorf("keycode %d is out of range (0-255)", code)
 	}
 	if code >= firstModifier && code <= lastModifier {
-		k.mods |= 1 << (code - firstModifier)
+		k.Mods |= 1 << (code - firstModifier)
 		return nil
 	}
 	if code == 0 {
 		return nil
 	}
-	for _, c := range k.keys {
+	for _, c := range k.Keys {
 		if c == byte(code) {
 			return nil
 		}
 	}
-	for i, c := range k.keys {
+	for i, c := range k.Keys {
 		if c == 0 {
-			k.keys[i] = byte(code)
+			k.Keys[i] = byte(code)
 			return nil
 		}
 	}
 	return errSixKeys
 }
 
-func (k *keyboardState) release(code int) {
+func (k *KeyboardState) Release(code int) {
 	if code >= firstModifier && code <= lastModifier {
-		k.mods &^= 1 << (code - firstModifier)
+		k.Mods &^= 1 << (code - firstModifier)
 		return
 	}
-	for i, c := range k.keys {
+	for i, c := range k.Keys {
 		if c == byte(code) && code != 0 {
-			k.keys[i] = 0
+			k.Keys[i] = 0
 		}
 	}
 }
 
-func (k keyboardState) held() bool {
-	return k != keyboardState{}
+func (k KeyboardState) Held() bool {
+	return k != KeyboardState{}
 }
 
-func (k keyboardState) report() []byte {
-	r := make([]byte, keyboardReportLen)
-	r[0] = k.mods
-	copy(r[2:], k.keys[:])
+func (k KeyboardState) Report() []byte {
+	r := make([]byte, KeyboardReportLen)
+	r[0] = k.Mods
+	copy(r[2:], k.Keys[:])
 	return r
 }
 
@@ -86,7 +87,7 @@ func (k keyboardState) report() []byte {
 // "hold shift". It is adafruit_hid's KeyboardLayoutUS.ASCII_TO_KEYCODE (MIT),
 // the table the RP2040 HID board types with, so text comes out the same on
 // either backend. Zero means no key: such characters cannot be typed.
-var usASCII = [128]byte{
+var USASCII = [128]byte{
 	'\b': 0x2a, '\t': 0x2b, '\n': 0x28, 0x1b: 0x29, ' ': 0x2c,
 	'!': 0x9e, '"': 0xb4, '#': 0xa0, '$': 0xa1, '%': 0xa2, '&': 0xa4,
 	'\'': 0x34, '(': 0xa6, ')': 0xa7, '*': 0xa5, '+': 0xae, ',': 0x36,
@@ -114,34 +115,34 @@ var usASCII = [128]byte{
 // HID board: shift down on its own, then the key, then release everything --
 // including keys held by an earlier key_press. Text containing anything
 // without a US key is rejected whole, before a single report is produced.
-func typeReports(held keyboardState, text string) ([][]byte, error) {
+func TypeReports(held KeyboardState, text string) ([][]byte, error) {
 	for i, r := range text {
-		if r >= 128 || usASCII[r] == 0 {
+		if r >= 128 || USASCII[r] == 0 {
 			return nil, fmt.Errorf("cannot type %q (character %d): no key for it on a US keyboard", r, i)
 		}
 	}
 	var out [][]byte
 	for i := 0; i < len(text); i++ {
-		code := usASCII[text[i]]
+		code := USASCII[text[i]]
 		k := held
 		if code&0x80 != 0 {
-			if err := k.press(shiftKeycode); err != nil {
+			if err := k.Press(ShiftKeycode); err != nil {
 				return nil, err
 			}
-			out = append(out, k.report())
+			out = append(out, k.Report())
 		}
-		if err := k.press(int(code & 0x7f)); err != nil {
+		if err := k.Press(int(code & 0x7f)); err != nil {
 			return nil, err
 		}
-		out = append(out, k.report())
-		held = keyboardState{}
-		out = append(out, held.report())
+		out = append(out, k.Report())
+		held = KeyboardState{}
+		out = append(out, held.Report())
 	}
 	return out, nil
 }
 
 func clampCoord(v int) int {
-	return min(max(v, 0), hidCoordMax)
+	return min(max(v, 0), HIDCoordMax)
 }
 
 func putU16(b []byte, v int) {
@@ -151,14 +152,14 @@ func putU16(b []byte, v int) {
 
 // mouseState is the absolute mouse's buttons and position. placed is false
 // until a position has been sent since the phone last enumerated us.
-type mouseState struct {
-	buttons byte
+type MouseState struct {
+	Buttons byte
 	x, y    int
 	placed  bool
 }
 
 func mouseReport(buttons byte, x, y, wheel int) []byte {
-	r := make([]byte, mouseReportLen)
+	r := make([]byte, MouseReportLen)
 	r[0] = buttons & mouseButtons
 	putU16(r[1:], clampCoord(x))
 	putU16(r[3:], clampCoord(y))
@@ -166,8 +167,8 @@ func mouseReport(buttons byte, x, y, wheel int) []byte {
 	return r
 }
 
-func (m mouseState) report() []byte {
-	return mouseReport(m.buttons, m.x, m.y, 0)
+func (m MouseState) Report() []byte {
+	return mouseReport(m.Buttons, m.x, m.y, 0)
 }
 
 // moveReports moves to (x, y). Linux's input core drops an absolute event
@@ -175,7 +176,7 @@ func (m mouseState) report() []byte {
 // pointer is not necessarily still there, because the target moves it too.
 // The HID board's fix, kept here: step one unit aside first. One unit is
 // 1/32767 of the screen, under a pixel, so nothing visibly moves.
-func (m mouseState) moveReports(x, y int) ([][]byte, mouseState) {
+func (m MouseState) MoveReports(x, y int) ([][]byte, MouseState) {
 	next := m
 	next.x, next.y, next.placed = clampCoord(x), clampCoord(y), true
 	var out [][]byte
@@ -184,21 +185,21 @@ func (m mouseState) moveReports(x, y int) ([][]byte, mouseState) {
 		if next.x == 0 {
 			aside = 1
 		}
-		out = append(out, mouseReport(next.buttons, aside, next.y, 0))
+		out = append(out, mouseReport(next.Buttons, aside, next.y, 0))
 	}
-	out = append(out, next.report())
+	out = append(out, next.Report())
 	return out, next
 }
 
 // scrollReports turns the wheel. Positive amount scrolls down, which is a
 // negative wheel value, in steps of at most 127 as the absolute_mouse
 // library sends them.
-func (m mouseState) scrollReports(amount int) [][]byte {
+func (m MouseState) ScrollReports(amount int) [][]byte {
 	var out [][]byte
 	wheel := -amount
 	for wheel != 0 {
 		step := max(min(wheel, 127), -127)
-		out = append(out, mouseReport(m.buttons, m.x, m.y, step))
+		out = append(out, mouseReport(m.Buttons, m.x, m.y, step))
 		wheel -= step
 	}
 	return out
@@ -207,11 +208,11 @@ func (m mouseState) scrollReports(amount int) [][]byte {
 // touchReport encodes up to two contacts the way board/hid/digitizer.py
 // does: both slots always carry their ids (0 and 1) so a lifted contact is
 // identifiable, and the count is the number of contacts given.
-func touchReport(contacts []TouchContact) ([]byte, error) {
+func TouchReport(contacts []TouchContact) ([]byte, error) {
 	if len(contacts) > maxContacts {
 		return nil, fmt.Errorf("%d contacts given; the digitizer has %d", len(contacts), maxContacts)
 	}
-	r := make([]byte, touchReportLen)
+	r := make([]byte, TouchReportLen)
 	r[0], r[6] = 0, 1
 	for _, c := range contacts {
 		if c.ID < 0 || c.ID >= maxContacts {
@@ -227,4 +228,17 @@ func touchReport(contacts []TouchContact) ([]byte, error) {
 	}
 	r[12] = byte(len(contacts))
 	return r, nil
+}
+
+// And is what is held in both a and b: what a failed call converges on.
+func (a KeyboardState) And(b KeyboardState) KeyboardState {
+	out := KeyboardState{Mods: a.Mods & b.Mods}
+	n := 0
+	for _, k := range a.Keys {
+		if k != 0 && bytes.IndexByte(b.Keys[:], k) >= 0 {
+			out.Keys[n] = k
+			n++
+		}
+	}
+	return out
 }

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/coder/websocket"
 )
@@ -395,10 +396,10 @@ func TestBiDiCoordinateTranslation(t *testing.T) {
 				Buf:    buf,
 			}
 			gotX, gotY := s.bidiToHID(tt.pixelX, tt.pixelY)
-			if abs(gotX-tt.wantHIDX) > 1 {
+			if hid.Abs(gotX-tt.wantHIDX) > 1 {
 				t.Errorf("hidX: got %d, want %d", gotX, tt.wantHIDX)
 			}
-			if abs(gotY-tt.wantHIDY) > 1 {
+			if hid.Abs(gotY-tt.wantHIDY) > 1 {
 				t.Errorf("hidY: got %d, want %d", gotY, tt.wantHIDY)
 			}
 		})
@@ -432,7 +433,7 @@ func TestBiDiToHIDScreenPointerSpace(t *testing.T) {
 				Platform: platform.PlatformIOS,
 			}
 			gotX, gotY := s.bidiToHID(tt.pixelX, tt.pixelY)
-			if abs(gotX-tt.wantX) > 1 || abs(gotY-tt.wantY) > 1 {
+			if hid.Abs(gotX-tt.wantX) > 1 || hid.Abs(gotY-tt.wantY) > 1 {
 				t.Errorf("got (%d,%d), want (%d,%d)", gotX, gotY, tt.wantX, tt.wantY)
 			}
 		})
@@ -507,32 +508,32 @@ func TestBiDiShiftedCharacters(t *testing.T) {
 		}
 	}
 
-	hid := &keyHID{}
-	s := &Server{HID: hid}
+	k := &keyHID{}
+	s := &Server{HID: k}
 	sess := &bidiSession{}
 	press(s, sess, "keyDown", ":")
 	press(s, sess, "keyUp", ":")
-	if got, want := strings.Join(hid.log, " "), "+225 +51 -51 -225"; got != want {
+	if got, want := strings.Join(k.log, " "), "+225 +51 -51 -225"; got != want {
 		t.Errorf("\":\": %s, want %s", got, want)
 	}
 	if len(sess.heldKeys) != 0 {
 		t.Errorf("still held: %v", sess.heldKeys)
 	}
 
-	hid.log = nil
+	k.log = nil
 	press(s, sess, "keyDown", "\uE008") // the client holds Shift itself
 	press(s, sess, "keyDown", "A")
 	press(s, sess, "keyUp", "A")
 	press(s, sess, "keyUp", "\uE008")
-	if got, want := strings.Join(hid.log, " "), "+225 +4 -4 -225"; got != want {
+	if got, want := strings.Join(k.log, " "), "+225 +4 -4 -225"; got != want {
 		t.Errorf("Shift+A: %s, want %s", got, want)
 	}
 
 	// Let go of everything mid-character: the added Shift goes too.
-	hid.log = nil
+	k.log = nil
 	press(s, sess, "keyDown", "?")
 	s.releaseAllInput(sess)
-	if got, want := strings.Join(hid.log, " "), "+225 +56 -56 -225"; got != want {
+	if got, want := strings.Join(k.log, " "), "+225 +56 -56 -225"; got != want {
 		t.Errorf("release all: %s, want %s", got, want)
 	}
 }
@@ -543,8 +544,8 @@ func TestBiDiShiftedCharacters(t *testing.T) {
 // viewport, or one from a pointer source is refused.
 func TestBiDiScroll(t *testing.T) {
 	inner := &wheelHID{}
-	h := newSettledHID(inner)
-	h.sleep = func(time.Duration) {}
+	h := hid.NewSettledHID(inner)
+	h.Sleep = func(time.Duration) {}
 	s := &Server{HID: h, Source: &timedSource{clock: new(time.Time)}, Buf: &FrameBuffer{}}
 	h.MouseMove(100, 200)
 	inner.log = nil
@@ -657,7 +658,7 @@ func TestBiDiRefusesTwoFingersBeforeRunning(t *testing.T) {
 	mouse := bidiActionSource{Type: "pointer", ID: "mouse", Actions: []bidiAction{{Type: "pointerDown"}}}
 
 	ios := &Server{Platform: platform.PlatformIOS}
-	if err := ios.checkBiDiActions([]bidiActionSource{touch("f0", true), touch("f1", true)}); err != errOneFinger {
+	if err := ios.checkBiDiActions([]bidiActionSource{touch("f0", true), touch("f1", true)}); err != hid.ErrOneFinger {
 		t.Errorf("two fingers on iOS: %v, want errOneFinger", err)
 	}
 	for name, srcs := range map[string][]bidiActionSource{

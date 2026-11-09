@@ -19,6 +19,7 @@ import (
 
 	"fiatjaf.com/nostr"
 
+	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/VibiumDev/roadie/rtc"
 	"github.com/VibiumDev/station/rig"
@@ -39,7 +40,7 @@ func deviceHint(name string) string {
 // suggestCommand prints a command line for what is actually plugged in.
 // Listing the devices only answers half the question; the other half is
 // what to type, and these names are too long to retype by hand.
-func suggestCommand(w io.Writer, cands []string, relays []RelayInfo) {
+func suggestCommand(w io.Writer, cands []string, relays []hid.RelayInfo) {
 	if len(cands) == 0 {
 		fmt.Fprintln(w, "No capture device found. Plug in an HDMI-to-USB dongle.")
 		return
@@ -88,7 +89,7 @@ func main() {
 	model := flag.String("model", "", "the device's model name, such as \"iPhone 15 Pro Max\", shown on a station and told to agents")
 	osVersion := flag.String("os-version", "", "the version of what the device runs, such as \"26.6\", shown on a station and told to agents")
 	glide := flag.Bool("glide", false, "glide the pointer to each new spot along an arc, as a hand would, instead of jumping (a switch in /settings too)")
-	hidBackendName := flag.String("hid-backend", BackendRP2040, "input hardware: rp2040 (relay and HID boards) or linux-gadget (this machine's USB device port, set up by gadget/roadie-gadget)")
+	hidBackendName := flag.String("hid-backend", hid.BackendRP2040, "input hardware: rp2040 (relay and HID boards) or linux-gadget (this machine's USB device port, set up by gadget/roadie-gadget)")
 	encoderSpec := flag.String("encoder", "auto", "H.264 encoder for WebRTC: auto, v4l2m2m (Pi 4 hardware), ffmpeg, ffmpeg:<codec>, or none")
 	rtcUDP := flag.Int("rtc-udp", 0, "UDP port for WebRTC media (default: the HTTP port's number)")
 	relayFPS := flag.Int("relay-fps", 5, "frame rate cap for the MJPEG stream when it goes through a station")
@@ -145,7 +146,7 @@ func main() {
 		auth.Secure = true
 	}
 
-	hidBackend, err := ParseHIDBackend(*hidBackendName)
+	hidBackend, err := hid.ParseHIDBackend(*hidBackendName)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -166,7 +167,7 @@ func main() {
 		}
 		fmt.Println()
 		fmt.Println("Relay boards:")
-		relays := ListRelays()
+		relays := hid.ListRelays()
 		if len(relays) == 0 {
 			fmt.Println("  (none found)")
 		}
@@ -191,7 +192,7 @@ func main() {
 		log.Fatalf("--input must be mouse or touch, got %q", *inputMode)
 	}
 
-	if hidBackend == BackendLinuxGadget && *relay != "" {
+	if hidBackend == hid.BackendLinuxGadget && *relay != "" {
 		fmt.Fprintln(os.Stderr, "⚠️  --relay is ignored with --hid-backend linux-gadget")
 	}
 
@@ -250,7 +251,7 @@ func main() {
 	// dongle's audio is used as it always was.
 	captureAudio := ab
 	var mux *audioMux
-	if hidBackend == BackendLinuxGadget {
+	if hidBackend == hid.BackendLinuxGadget {
 		cfg, err := readGadgetAudioConfig(defaultGadgetPaths())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "⚠️  USB audio: %v (no USB microphone or speaker until roadie restarts)\n", err)
@@ -350,17 +351,17 @@ func main() {
 	}
 
 	// Start the HID backend: the relay boards, or this machine's USB gadget.
-	var hid HIDBackend
-	if hidBackend == BackendLinuxGadget {
+	var input hid.HIDBackend
+	if hidBackend == hid.BackendLinuxGadget {
 		g := NewGadgetHID()
 		if gadgetAudio != nil && gadgetAudio.Mic != nil {
 			g.SetMic(gadgetAudio.Mic)
 		}
-		hid = g
+		input = g
 		fmt.Printf("🔌 HID: USB gadget %q (linux-gadget backend)\n", gadgetName)
 	} else {
-		hid = NewHIDController(*relay)
-		if relays := ListRelays(); len(relays) > 1 && *relay == "" {
+		input = hid.NewHIDController(*relay)
+		if relays := hid.ListRelays(); len(relays) > 1 && *relay == "" {
 			fmt.Fprintf(os.Stderr, "\n⚠️  %d relay boards connected — use --relay to pick one:\n", len(relays))
 			for _, r := range relays {
 				fmt.Fprintf(os.Stderr, "   %s\n", r)
@@ -368,12 +369,12 @@ func main() {
 			fmt.Fprintln(os.Stderr, "")
 		}
 	}
-	settled := newSettledHID(hid)
-	settled.touchAsPointer = plat.TouchAsPointer()
-	settled.wheelIOS = plat == platform.PlatformIOS
+	settled := hid.NewSettledHID(input)
+	settled.TouchAsPointer = plat.TouchAsPointer()
+	settled.WheelIOS = plat == platform.PlatformIOS
 	settled.SetGlide(*glide)
-	hid = settled
-	go hid.Run()
+	input = settled
+	go input.Run()
 	if gadgetAudio != nil {
 		gadgetAudio.Start()
 	}
@@ -424,7 +425,7 @@ func main() {
 		Device:         deviceName,
 		AudioBroadcast: ab,
 		SourceType:     sourceType,
-		HID:            hid,
+		HID:            input,
 		Capture:        cm,
 		InputMode:      *inputMode,
 		Platform:       plat,
@@ -441,12 +442,12 @@ func main() {
 	}
 	if broadcaster != nil {
 		var mic func([]byte) error
-		if hid != nil {
-			mic = hid.SendAudio
+		if input != nil {
+			mic = input.SendAudio
 		}
 		broadcaster.SetInput(srv.hidCommand, mic)
 	}
-	settled.turned = srv.pointerTurned
+	settled.Turned = srv.pointerTurned
 	handler := NewMux(srv)
 	httpServer := &http.Server{
 		Addr:    net.JoinHostPort(bind, strconv.Itoa(listenPort)),
@@ -464,14 +465,14 @@ func main() {
 		}
 		return rigRun.current()
 	}, recDir)
-	settled.onInput = recorder.input
+	settled.OnInput = recorder.input
 	onHoldEnd := func(_, holdID string) {
 		if broadcaster != nil {
 			broadcaster.EndHold(holdID)
 		}
 		recorder.end(holdID)
 	}
-	rigRun, err = startRig(handler, deviceOffer(*deviceNameFlag, plat, hid != nil, ab != nil, srv.effectiveInputMode(), *label, *model, *osVersion), onHoldEnd)
+	rigRun, err = startRig(handler, deviceOffer(*deviceNameFlag, plat, input != nil, ab != nil, srv.effectiveInputMode(), *label, *model, *osVersion), onHoldEnd)
 	if err != nil {
 		log.Fatalf("station: %v", err)
 	}
@@ -536,7 +537,7 @@ func main() {
 		broadcaster.Close()
 	}
 	shutdownFunc()
-	hid.Shutdown()
+	input.Shutdown()
 	if gadgetAudio != nil {
 		gadgetAudio.Shutdown()
 	}

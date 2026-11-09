@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"html"
 	"image"
@@ -466,7 +467,7 @@ func TestHealthAudioSource(t *testing.T) {
 // gadgetHID is a backend that reports itself as the Linux USB gadget.
 type gadgetHID struct{ keyHID }
 
-func (g *gadgetHID) Backend() string { return BackendLinuxGadget }
+func (g *gadgetHID) Backend() string { return hid.BackendLinuxGadget }
 func (g *gadgetHID) USBDevices() []string {
 	return []string{"keyboard", "mouse", "touch", "microphone", "speaker", "network"}
 }

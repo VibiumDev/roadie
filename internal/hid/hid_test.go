@@ -1,4 +1,4 @@
-package main
+package hid
 
 import (
 	"bytes"
@@ -242,7 +242,7 @@ func TestSelectRelay(t *testing.T) {
 // audio arriving through the relay's serial port (pure Python) while every
 // path through the server went silent.
 func TestAudioConstants(t *testing.T) {
-	const pyPath = "board/shared/protocol.py"
+	const pyPath = "../../board/shared/protocol.py"
 	body, err := os.ReadFile(pyPath)
 	if err != nil {
 		t.Fatalf("cannot read %s: %v", pyPath, err)

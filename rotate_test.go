@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/coder/websocket"
 )
@@ -53,7 +54,7 @@ type menuPhone struct {
 func (h *menuPhone) MouseMove(x, y int) error {
 	h.mu.Lock()
 	if h.leftways {
-		x, y = hidCoordMax-y, x
+		x, y = hid.HIDCoordMax-y, x
 	}
 	h.at = [2]int{x, y}
 	h.mu.Unlock()
@@ -79,7 +80,7 @@ func (h *menuPhone) MouseClick(b int) error {
 			h.mid = screen.Min.Add(image.Pt(screen.Dx()/2, screen.Dy()/2)).Add(h.shift)
 		case h.page != "":
 			h.page = ""
-		case h.opens && close(hidCoordMax/2, hidCoordMax/2):
+		case h.opens && close(hid.HIDCoordMax/2, hid.HIDCoordMax/2):
 			h.page = pageTop
 			h.mid = screen.Min.Add(image.Pt(screen.Dx()/2, screen.Dy()/2)).Add(h.shift)
 		case h.opens:
@@ -383,9 +384,9 @@ func TestRotateAnAppThatDoesNotTurn(t *testing.T) {
 func TestRotateWhenRoadieForgotThePhoneIsOnItsSide(t *testing.T) {
 	s, mux, h := newMenuPhone(t, OrientationPortrait)
 	h.appTurns, h.leftways = false, true
-	settled := newSettledHID(h)
-	settled.sleep = func(time.Duration) {}
-	settled.turned = s.pointerTurned
+	settled := hid.NewSettledHID(h)
+	settled.Sleep = func(time.Duration) {}
+	settled.Turned = s.pointerTurned
 	s.HID = settled
 
 	if code, body := postRotate(t, mux, `{"to":"portrait"}`); code != 200 {
@@ -533,7 +534,7 @@ func (l *inputLog) add(s string) error {
 }
 func (l *inputLog) MouseMove(x, y int) error { return l.add(fmt.Sprintf("move %d,%d", x, y)) }
 func (l *inputLog) MouseRelease(b int) error { return l.add(fmt.Sprintf("release %d", b)) }
-func (l *inputLog) Touch(c []TouchContact) error {
+func (l *inputLog) Touch(c []hid.TouchContact) error {
 	return l.add(fmt.Sprintf("touch %d", len(c)))
 }
 func (l *inputLog) KeyPress(c int) error   { return l.add(fmt.Sprintf("+%d", c)) }
@@ -581,18 +582,18 @@ func TestRotateRequests(t *testing.T) {
 // (a, b), a quarter turn sends (b, 1-a).
 func TestPointerTurnsWhileThePhoneThinksItIsOnItsSide(t *testing.T) {
 	inner := &posHID{}
-	h := newSettledHID(inner)
-	h.sleep = func(time.Duration) {}
+	h := hid.NewSettledHID(inner)
+	h.Sleep = func(time.Duration) {}
 	turned := false
-	h.turned = func() bool { return turned }
+	h.Turned = func() bool { return turned }
 
 	h.MouseMove(1000, 2000)
 	turned = true
 	h.MouseMove(1000, 2000)
-	h.touchAsPointer = true
-	h.Touch([]TouchContact{{X: 30000, Y: 100, Tip: true}})
+	h.TouchAsPointer = true
+	h.Touch([]hid.TouchContact{{X: 30000, Y: 100, Tip: true}})
 
-	want := [][2]int{{1000, 2000}, {2000, hidCoordMax - 1000}, {100, hidCoordMax - 30000}}
+	want := [][2]int{{1000, 2000}, {2000, hid.HIDCoordMax - 1000}, {100, hid.HIDCoordMax - 30000}}
 	if !reflect.DeepEqual(inner.at, want) {
 		t.Errorf("moves = %v, want %v", inner.at, want)
 	}

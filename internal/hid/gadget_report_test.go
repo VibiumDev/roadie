@@ -1,4 +1,4 @@
-package main
+package hid
 
 import (
 	"bytes"
@@ -79,7 +79,7 @@ func parseHIDDescriptor(t *testing.T, desc []byte) (fields []hidField, inputBits
 
 func loadDesc(t *testing.T, name string) []byte {
 	t.Helper()
-	raw, err := os.ReadFile("gadget/hid/" + name + ".desc")
+	raw, err := os.ReadFile("../../gadget/hid/" + name + ".desc")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,18 +129,18 @@ func TestGadgetDescriptors(t *testing.T) {
 		if ids != 0 {
 			t.Errorf("descriptor has %d report IDs; a separate-interface boot keyboard must have none", ids)
 		}
-		if bits != keyboardReportLen*8 {
-			t.Fatalf("input report is %d bits, encoder sends %d bytes", bits, keyboardReportLen)
+		if bits != KeyboardReportLen*8 {
+			t.Fatalf("input report is %d bits, encoder sends %d bytes", bits, KeyboardReportLen)
 		}
 		mods := findField(t, fields, 0x07, 0xE0, 0)
 		keys := findField(t, fields, 0x07, 0x00, 0)
 		if mods.offset != 0 || mods.size*mods.count != 8 || keys.offset != 16 || keys.count != 6 || keys.size != 8 {
 			t.Errorf("layout: modifiers %+v, keys %+v; want modifiers at byte 0, six keys from byte 2", mods, keys)
 		}
-		var k keyboardState
-		k.press(0xE1)
-		k.press(0x04)
-		if r := k.report(); r[0] != 0x02 || r[2] != 0x04 {
+		var k KeyboardState
+		k.Press(0xE1)
+		k.Press(0x04)
+		if r := k.Report(); r[0] != 0x02 || r[2] != 0x04 {
 			t.Errorf("shift+a encodes as % x", r)
 		}
 	})
@@ -150,8 +150,8 @@ func TestGadgetDescriptors(t *testing.T) {
 		if ids != 0 {
 			t.Errorf("descriptor has %d report IDs, want none", ids)
 		}
-		if bits != mouseReportLen*8 {
-			t.Fatalf("input report is %d bits, encoder sends %d bytes", bits, mouseReportLen)
+		if bits != MouseReportLen*8 {
+			t.Fatalf("input report is %d bits, encoder sends %d bytes", bits, MouseReportLen)
 		}
 		buttons := findField(t, fields, 0x09, 0x01, 0)
 		xy := findField(t, fields, 0x01, 0x30, 0)
@@ -170,8 +170,8 @@ func TestGadgetDescriptors(t *testing.T) {
 		if ids != 0 {
 			t.Errorf("descriptor has %d report IDs, want none", ids)
 		}
-		if bits != touchReportLen*8 {
-			t.Fatalf("input report is %d bits, encoder sends %d bytes", bits, touchReportLen)
+		if bits != TouchReportLen*8 {
+			t.Fatalf("input report is %d bits, encoder sends %d bytes", bits, TouchReportLen)
 		}
 		for c := 0; c < 2; c++ {
 			id := findField(t, fields, 0x0D, 0x51, c)
@@ -187,7 +187,7 @@ func TestGadgetDescriptors(t *testing.T) {
 		if count.offset != 96 {
 			t.Errorf("contact count at bit %d, want 96", count.offset)
 		}
-		r, err := touchReport([]TouchContact{{ID: 1, Tip: true, X: 0x0102, Y: 0x0304}})
+		r, err := TouchReport([]TouchContact{{ID: 1, Tip: true, X: 0x0102, Y: 0x0304}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -200,7 +200,7 @@ func TestGadgetDescriptors(t *testing.T) {
 // TestTouchDescriptorMatchesBoard keeps gadget/hid/touch.desc the HID
 // board's digitizer: the descriptor already proven on phones.
 func TestTouchDescriptorMatchesBoard(t *testing.T) {
-	src, err := os.ReadFile("board/hid/digitizer.py")
+	src, err := os.ReadFile("../../board/hid/digitizer.py")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,40 +235,40 @@ func TestTouchDescriptorMatchesBoard(t *testing.T) {
 	}
 	board = append(board[:i:i], board[i+2:]...)
 	if got := loadDesc(t, "touch"); !bytes.Equal(got, board) {
-		t.Errorf("gadget/hid/touch.desc differs from board/hid/digitizer.py (less its report ID)")
+		t.Errorf("../../gadget/hid/touch.desc differs from board/hid/digitizer.py (less its report ID)")
 	}
 }
 
 func TestKeyboardState(t *testing.T) {
-	var k keyboardState
+	var k KeyboardState
 	for _, code := range []int{0xE0, 0xE3, 4, 5, 4} {
-		if err := k.press(code); err != nil {
+		if err := k.Press(code); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if r := k.report(); !bytes.Equal(r, []byte{0x09, 0, 4, 5, 0, 0, 0, 0}) {
+	if r := k.Report(); !bytes.Equal(r, []byte{0x09, 0, 4, 5, 0, 0, 0, 0}) {
 		t.Errorf("ctrl+gui+a+b = % x", r)
 	}
-	k.release(4)
-	k.release(0xE0)
-	if r := k.report(); !bytes.Equal(r, []byte{0x08, 0, 0, 5, 0, 0, 0, 0}) {
+	k.Release(4)
+	k.Release(0xE0)
+	if r := k.Report(); !bytes.Equal(r, []byte{0x08, 0, 0, 5, 0, 0, 0, 0}) {
 		t.Errorf("after releasing ctrl and a: % x", r)
 	}
 	for code := 6; code < 11; code++ {
-		if err := k.press(code); err != nil {
+		if err := k.Press(code); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := k.press(11); err != errSixKeys {
+	if err := k.Press(11); err != errSixKeys {
 		t.Errorf("seventh key: err = %v, want errSixKeys", err)
 	}
-	if err := k.press(300); err == nil {
+	if err := k.Press(300); err == nil {
 		t.Error("keycode 300 accepted")
 	}
 }
 
 func TestTypeReports(t *testing.T) {
-	reports, err := typeReports(keyboardState{}, "aA\n")
+	reports, err := TypeReports(KeyboardState{}, "aA\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,68 +288,68 @@ func TestTypeReports(t *testing.T) {
 
 	// A held key rides along on the first character, then is let go, as
 	// release_all does on the HID board.
-	var held keyboardState
-	held.press(0xE0)
-	reports, _ = typeReports(held, "c")
+	var held KeyboardState
+	held.Press(0xE0)
+	reports, _ = TypeReports(held, "c")
 	if reports[0][0] != 0x01 || reports[len(reports)-1][0] != 0 {
 		t.Errorf("ctrl held through 'c': first % x, last % x", reports[0], reports[len(reports)-1])
 	}
 
 	for _, bad := range []string{"héllo", "a\x01", "日本"} {
-		if _, err := typeReports(keyboardState{}, bad); err == nil {
+		if _, err := TypeReports(KeyboardState{}, bad); err == nil {
 			t.Errorf("typeReports(%q) accepted", bad)
 		}
 	}
 
 	// Every printable ASCII character has a key.
 	for c := 0x20; c < 0x7f; c++ {
-		if _, err := typeReports(keyboardState{}, string(rune(c))); err != nil {
+		if _, err := TypeReports(KeyboardState{}, string(rune(c))); err != nil {
 			t.Errorf("%q: %v", rune(c), err)
 		}
 	}
 }
 
 func TestMouseReports(t *testing.T) {
-	var m mouseState
-	reports, m := m.moveReports(100, 200)
+	var m MouseState
+	reports, m := m.MoveReports(100, 200)
 	if len(reports) != 1 || !bytes.Equal(reports[0], []byte{0, 100, 0, 200, 0, 0}) {
 		t.Fatalf("first move: % x", reports)
 	}
 	// The same position again is nudged a unit aside first.
-	reports, m = m.moveReports(100, 200)
+	reports, m = m.MoveReports(100, 200)
 	if len(reports) != 2 || reports[0][1] != 99 || reports[1][1] != 100 {
 		t.Errorf("repeat move: % x", reports)
 	}
-	var edge mouseState
-	_, edge = edge.moveReports(0, 0)
-	reports, _ = edge.moveReports(0, 0)
+	var edge MouseState
+	_, edge = edge.MoveReports(0, 0)
+	reports, _ = edge.MoveReports(0, 0)
 	if len(reports) != 2 || reports[0][1] != 1 {
 		t.Errorf("repeat at the left edge should nudge right: % x", reports)
 	}
 
-	_, m = m.moveReports(-5, 99999)
-	if m.x != 0 || m.y != hidCoordMax {
+	_, m = m.MoveReports(-5, 99999)
+	if m.x != 0 || m.y != HIDCoordMax {
 		t.Errorf("clamp: %d,%d", m.x, m.y)
 	}
 
-	scroll := m.scrollReports(300) // down 300 = wheel -300
+	scroll := m.ScrollReports(300) // down 300 = wheel -300
 	if len(scroll) != 3 || int8(scroll[0][5]) != -127 || int8(scroll[1][5]) != -127 || int8(scroll[2][5]) != -46 {
 		t.Errorf("scroll 300: % x", scroll)
 	}
-	if up := m.scrollReports(-2); len(up) != 1 || int8(up[0][5]) != 2 {
+	if up := m.ScrollReports(-2); len(up) != 1 || int8(up[0][5]) != 2 {
 		t.Errorf("scroll -2: % x", up)
 	}
-	if none := m.scrollReports(0); len(none) != 0 {
+	if none := m.ScrollReports(0); len(none) != 0 {
 		t.Errorf("scroll 0 sent %d reports", len(none))
 	}
 }
 
 func TestTouchReport(t *testing.T) {
-	r, _ := touchReport(nil)
+	r, _ := TouchReport(nil)
 	if !bytes.Equal(r, []byte{0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0}) {
 		t.Errorf("no contacts: % x (slot ids must stay 0 and 1)", r)
 	}
-	r, _ = touchReport([]TouchContact{{ID: 0, Tip: false, X: 40000, Y: -3}})
+	r, _ = TouchReport([]TouchContact{{ID: 0, Tip: false, X: 40000, Y: -3}})
 	if r[1] != 0 || r[2] != 0xFF || r[3] != 0x7F || r[4] != 0 || r[12] != 1 {
 		t.Errorf("lifting contact, clamped: % x", r)
 	}
@@ -358,7 +358,7 @@ func TestTouchReport(t *testing.T) {
 		{{ID: -1}},
 		{{ID: 0}, {ID: 1}, {ID: 0}},
 	} {
-		if _, err := touchReport(bad); err == nil {
+		if _, err := TouchReport(bad); err == nil {
 			t.Errorf("touchReport(%+v) accepted", bad)
 		}
 	}

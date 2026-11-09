@@ -1,4 +1,4 @@
-package main
+package hid
 
 import (
 	"fmt"
@@ -27,11 +27,11 @@ func (m *mouseHID) Touch(c []TouchContact) error {
 // that comes later, or a release, goes straight through.
 func TestPressWaitsForThePointerToSettle(t *testing.T) {
 	inner := &mouseHID{}
-	h := newSettledHID(inner)
+	h := NewSettledHID(inner)
 	clock := time.Unix(1000, 0)
 	var slept []time.Duration
 	h.now = func() time.Time { return clock }
-	h.sleep = func(d time.Duration) {
+	h.Sleep = func(d time.Duration) {
 		slept = append(slept, d)
 		inner.log = append(inner.log, "wait "+d.String())
 		clock = clock.Add(d)
@@ -57,10 +57,10 @@ func TestPressWaitsForThePointerToSettle(t *testing.T) {
 // old; moves with the button held, as in a drag, don't wait.
 func TestMoveWaitsForTheTapToFinish(t *testing.T) {
 	inner := &mouseHID{}
-	h := newSettledHID(inner)
+	h := NewSettledHID(inner)
 	clock := time.Unix(1000, 0)
 	h.now = func() time.Time { return clock }
-	h.sleep = func(d time.Duration) {
+	h.Sleep = func(d time.Duration) {
 		inner.log = append(inner.log, "wait "+d.String())
 		clock = clock.Add(d)
 	}
@@ -83,11 +83,11 @@ func TestMoveWaitsForTheTapToFinish(t *testing.T) {
 }
 
 func TestSettledHIDPassesUSBStateThrough(t *testing.T) {
-	if got := newSettledHID(&mouseHID{}).USBState(); got != "" {
+	if got := NewSettledHID(&mouseHID{}).USBState(); got != "" {
 		t.Errorf("relay backend: USBState = %q, want empty", got)
 	}
 	g := &usbStateHID{state: "configured"}
-	var b HIDBackend = newSettledHID(g)
+	var b HIDBackend = NewSettledHID(g)
 	s, ok := b.(interface{ USBState() string })
 	if !ok || s.USBState() != "configured" {
 		t.Errorf("gadget backend: USBState not passed through")
@@ -132,9 +132,9 @@ func TestWheelOnIOS(t *testing.T) {
 		{false, 3, []string{"wheel 3"}},
 	} {
 		inner := &wheelHID{}
-		h := newSettledHID(inner)
-		h.wheelIOS = tc.ios
-		h.sleep = func(d time.Duration) { inner.log = append(inner.log, "wait "+d.String()) }
+		h := NewSettledHID(inner)
+		h.WheelIOS = tc.ios
+		h.Sleep = func(d time.Duration) { inner.log = append(inner.log, "wait "+d.String()) }
 		if err := h.MouseScroll(tc.amount); err != nil {
 			t.Fatal(err)
 		}
@@ -147,8 +147,8 @@ func TestWheelOnIOS(t *testing.T) {
 // Scrolling at a point takes the pointer there, and back.
 func TestScrollAtPutsThePointerBack(t *testing.T) {
 	inner := &wheelHID{}
-	h := newSettledHID(inner)
-	h.sleep = func(time.Duration) {}
+	h := NewSettledHID(inner)
+	h.Sleep = func(time.Duration) {}
 	h.MouseMove(100, 200)
 	inner.log = nil
 	if err := h.ScrollAt(300, 400, 2); err != nil {
@@ -167,11 +167,11 @@ func TestTouchAsPointer(t *testing.T) {
 		return []TouchContact{{ID: 0, Tip: tip, X: x, Y: y}}
 	}
 	inner := &mouseHID{}
-	h := newSettledHID(inner)
-	h.touchAsPointer = true
+	h := NewSettledHID(inner)
+	h.TouchAsPointer = true
 	clock := time.Unix(1000, 0)
 	h.now = func() time.Time { return clock }
-	h.sleep = func(d time.Duration) {
+	h.Sleep = func(d time.Duration) {
 		inner.log = append(inner.log, "wait "+d.String())
 		clock = clock.Add(d)
 	}
@@ -195,12 +195,12 @@ func TestTouchAsPointer(t *testing.T) {
 	}
 
 	two := []TouchContact{{ID: 0, Tip: true}, {ID: 1, Tip: true, X: 5}}
-	if err := h.Touch(two); err != errOneFinger {
+	if err := h.Touch(two); err != ErrOneFinger {
 		t.Errorf("two fingers: %v, want errOneFinger", err)
 	}
 
 	plain := &mouseHID{}
-	if err := newSettledHID(plain).Touch(finger(true, 1, 2)); err != nil || !reflect.DeepEqual(plain.log, []string{"touch 1"}) {
+	if err := NewSettledHID(plain).Touch(finger(true, 1, 2)); err != nil || !reflect.DeepEqual(plain.log, []string{"touch 1"}) {
 		t.Errorf("a touchscreen target: %v %v", plain.log, err)
 	}
 }
@@ -216,12 +216,12 @@ func (p *pathHID) MousePress(int) error     { return nil }
 func (p *pathHID) MouseRelease(int) error   { return nil }
 
 func clockedHID(inner HIDBackend) (h *settledHID, clock *time.Time, slept *time.Duration) {
-	h = newSettledHID(inner)
+	h = NewSettledHID(inner)
 	h.SetGlide(true)
 	clock, slept = new(time.Time), new(time.Duration)
 	*clock = time.Unix(1000, 0)
 	h.now = func() time.Time { return *clock }
-	h.sleep = func(d time.Duration) { *slept += d; *clock = clock.Add(d) }
+	h.Sleep = func(d time.Duration) { *slept += d; *clock = clock.Add(d) }
 	return h, clock, slept
 }
 
@@ -308,7 +308,7 @@ func TestWhatGoesStraight(t *testing.T) {
 	}
 
 	// A finger lands where it lands, even a long way from the last one.
-	h.touchAsPointer = true
+	h.TouchAsPointer = true
 	rest()
 	n := len(inner.moves)
 	h.Touch([]TouchContact{{Tip: true, X: 30000, Y: 1000}})
@@ -325,7 +325,7 @@ func TestWhatGoesStraight(t *testing.T) {
 }
 
 func TestGlideIsOffUnlessTurnedOn(t *testing.T) {
-	if newSettledHID(&pathHID{}).Glide() {
+	if NewSettledHID(&pathHID{}).Glide() {
 		t.Error("glide is on by default")
 	}
 }

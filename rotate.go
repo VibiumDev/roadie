@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"image"
 	"log"
@@ -52,7 +53,7 @@ var (
 
 // menuPark is where the pointer waits while Roadie looks at the menu, in
 // a corner: it would cover part of it anywhere near the middle.
-const menuPark = hidCoordMax / 50
+const menuPark = hid.HIDCoordMax / 50
 
 var (
 	// rotateClock paces the looks: each waits for the screen to settle
@@ -289,7 +290,7 @@ func (s *Server) turned(to string) error {
 // pressMenuButton presses button 5 with the pointer in the middle of the
 // screen, where it opens the menu.
 func (s *Server) pressMenuButton() error {
-	if err := s.HID.MouseMove(hidCoordMax/2, hidCoordMax/2); err != nil {
+	if err := s.HID.MouseMove(hid.HIDCoordMax/2, hid.HIDCoordMax/2); err != nil {
 		return err
 	}
 	return s.HID.MouseClick(menuButton)
@@ -311,7 +312,7 @@ func menuAt(seen menuSeen, at menuSpot) (int, int) {
 	short := float64(min(f.Dx(), f.Dy()))
 	x := float64(seen.mid.X-f.Min.X) + at.x*short
 	y := float64(seen.mid.Y-f.Min.Y) + at.y*short
-	return int(x / float64(f.Dx()) * hidCoordMax), int(y / float64(f.Dy()) * hidCoordMax)
+	return int(x / float64(f.Dx()) * hid.HIDCoordMax), int(y / float64(f.Dy()) * hid.HIDCoordMax)
 }
 
 // lookAtMenu finds the page of the menu open near the middle of the screen

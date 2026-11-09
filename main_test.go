@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/VibiumDev/roadie/internal/hid"
 	"strings"
 	"testing"
 )
@@ -20,7 +21,7 @@ func TestDeviceHint(t *testing.T) {
 
 func TestSuggestCommand(t *testing.T) {
 	var b strings.Builder
-	suggestCommand(&b, []string{"UGREEN 15389: UGREEN;usb-1"}, []RelayInfo{{Serial: "AAA"}})
+	suggestCommand(&b, []string{"UGREEN 15389: UGREEN;usb-1"}, []hid.RelayInfo{{Serial: "AAA"}})
 	one := b.String()
 	if !strings.Contains(one, `--video "UGREEN 15389"`) {
 		t.Errorf("single device: missing --video, got:\n%s", one)
@@ -31,7 +32,7 @@ func TestSuggestCommand(t *testing.T) {
 
 	b.Reset()
 	suggestCommand(&b, []string{"Cap A;usb-1", "Cap B;usb-2"},
-		[]RelayInfo{{Serial: "AAA"}, {Serial: "BBB"}})
+		[]hid.RelayInfo{{Serial: "AAA"}, {Serial: "BBB"}})
 	two := b.String()
 	for _, want := range []string{`--video "Cap A"`, `--video "Cap B"`,
 		"--relay AAA", "--relay BBB", "--port 8080", "--port 8081"} {

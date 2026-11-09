@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/VibiumDev/station/viewer"
 
@@ -42,7 +43,7 @@ func (s *Server) viewerInfo() map[string]any {
 	case platform.PlatformIOS, platform.PlatformAndroid, platform.PlatformMac, platform.PlatformWindows, platform.PlatformLinux:
 		info["platform"] = string(s.Platform)
 	}
-	if s.HID != nil && s.HID.Backend() == BackendLinuxGadget {
+	if s.HID != nil && s.HID.Backend() == hid.BackendLinuxGadget {
 		info["hidBackend"] = "linux-gadget"
 	}
 	if d := s.usbDevices(); d != nil {

@@ -18,6 +18,7 @@ import (
 
 	"fiatjaf.com/nostr"
 
+	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/station/rig"
 )
 
@@ -99,8 +100,8 @@ func TestRecorderRecordsAHold(t *testing.T) {
 	r.input("type", map[string]any{"text": "hel"})
 	r.input("type", map[string]any{"text": "lo"})
 	time.Sleep(60 * time.Millisecond)
-	r.input("touch", map[string]any{"contacts": []TouchContact{{ID: 0, Tip: true, X: 100, Y: 200}}})
-	r.input("touch", map[string]any{"contacts": []TouchContact{}})
+	r.input("touch", map[string]any{"contacts": []hid.TouchContact{{ID: 0, Tip: true, X: 100, Y: 200}}})
+	r.input("touch", map[string]any{"contacts": []hid.TouchContact{}})
 	time.Sleep(60 * time.Millisecond)
 	r.end("hld_1")
 	select {

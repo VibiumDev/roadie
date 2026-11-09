@@ -1,4 +1,4 @@
-package main
+package hid
 
 import (
 	"errors"
@@ -38,9 +38,9 @@ const (
 // fingers at once can't.
 type settledHID struct {
 	HIDBackend
-	touchAsPointer bool
+	TouchAsPointer bool
 	// wheelIOS scrolls the way an iPhone takes the wheel (see notchesIOS).
-	wheelIOS bool
+	WheelIOS bool
 
 	mu       sync.Mutex
 	moved    time.Time
@@ -53,30 +53,30 @@ type settledHID struct {
 	// turned, when it reports true, turns the pointer a quarter turn: the
 	// target reads it as if held on its side while its screen is upright
 	// (see Server.pointerTurned).
-	turned func() bool
+	Turned func() bool
 	now    func() time.Time
-	sleep  func(time.Duration)
+	Sleep  func(time.Duration)
 
 	touchMu    sync.Mutex // one touch translated at a time
 	fingerDown bool
 	// onInput, when set, hears every input that went through: what it
 	// was and its parameters. The hold recorder listens here.
-	onInput func(kind string, params map[string]any)
+	OnInput func(kind string, params map[string]any)
 }
 
 // report tells the listener about one input.
 func (h *settledHID) report(kind string, params map[string]any) {
-	if h.onInput != nil {
-		h.onInput(kind, params)
+	if h.OnInput != nil {
+		h.OnInput(kind, params)
 	}
 }
 
 // errOneFinger is what a two-finger gesture gets on a target whose only
 // pointer stands in for touch.
-var errOneFinger = errors.New("this device takes touch as its pointer, so one finger at a time: two-finger gestures aren't possible")
+var ErrOneFinger = errors.New("this device takes touch as its pointer, so one finger at a time: two-finger gestures aren't possible")
 
-func newSettledHID(b HIDBackend) *settledHID {
-	return &settledHID{HIDBackend: b, now: time.Now, sleep: time.Sleep}
+func NewSettledHID(b HIDBackend) *settledHID {
+	return &settledHID{HIDBackend: b, now: time.Now, Sleep: time.Sleep}
 }
 
 func (h *settledHID) MouseMove(x, y int) error {
@@ -107,11 +107,11 @@ func (h *settledHID) moveTo(x, y int, mayGlide bool) error {
 	var err error
 	for i, p := range path {
 		if i > 0 {
-			h.sleep(glideFrame)
+			h.Sleep(glideFrame)
 		}
 		px, py := p[0], p[1]
-		if h.turned != nil && h.turned() {
-			px, py = py, hidCoordMax-px
+		if h.Turned != nil && h.Turned() {
+			px, py = py, HIDCoordMax-px
 		}
 		if err = h.HIDBackend.MouseMove(px, py); err != nil {
 			break
@@ -167,7 +167,7 @@ func (h *settledHID) MouseClick(buttons int) error {
 // MouseScroll turns the wheel amount notches; positive scrolls down.
 func (h *settledHID) MouseScroll(amount int) error {
 	h.report("mouse_scroll", map[string]any{"amount": amount})
-	if h.wheelIOS {
+	if h.WheelIOS {
 		return h.notchesIOS(amount)
 	}
 	err := h.HIDBackend.MouseScroll(amount)
@@ -186,9 +186,9 @@ func (h *settledHID) notchesIOS(amount int) error {
 	if amount > 0 {
 		step = -1
 	}
-	for i := range min(abs(amount), maxNotches) {
+	for i := range min(Abs(amount), maxNotches) {
 		if i > 0 {
-			h.sleep(notchGap)
+			h.Sleep(notchGap)
 		}
 		if err := h.HIDBackend.MouseScroll(step); err != nil {
 			return err
@@ -225,7 +225,7 @@ func (h *settledHID) ScrollAt(x, y, amount int) error {
 	return h.moveTo(px, py, false)
 }
 
-func abs(n int) int {
+func Abs(n int) int {
 	if n < 0 {
 		return -n
 	}
@@ -255,7 +255,7 @@ func (h *settledHID) KeyRelease(keycode int) error {
 
 func (h *settledHID) Touch(contacts []TouchContact) error {
 	h.report("touch", map[string]any{"contacts": contacts})
-	if h.touchAsPointer {
+	if h.TouchAsPointer {
 		return h.touchWithPointer(contacts)
 	}
 	err := h.HIDBackend.Touch(contacts)
@@ -295,7 +295,7 @@ func (h *settledHID) touchWithPointer(contacts []TouchContact) error {
 		h.fingerDown = true
 		return nil
 	}
-	return errOneFinger
+	return ErrOneFinger
 }
 
 // LastInput is when input last went to the target, so a screenshot can
@@ -312,7 +312,7 @@ func (h *settledHID) wait(at *time.Time, d time.Duration) {
 	since := h.now().Sub(*at)
 	h.mu.Unlock()
 	if since < d {
-		h.sleep(d - since)
+		h.Sleep(d - since)
 	}
 }
 
@@ -327,7 +327,7 @@ func (h *settledHID) mark(at ...*time.Time) {
 
 // USBDevices passes through what the backend presents to the target.
 func (h *settledHID) USBDevices() []string {
-	if l, ok := h.HIDBackend.(usbDeviceLister); ok {
+	if l, ok := h.HIDBackend.(USBDeviceLister); ok {
 		return l.USBDevices()
 	}
 	return nil

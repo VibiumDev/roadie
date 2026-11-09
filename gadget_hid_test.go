@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/hid"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -170,7 +171,7 @@ func newTestGadgetHID(t *testing.T, attached bool) (*GadgetHID, *fakeGadget) {
 
 func TestGadgetMapsFunctionsByDeviceNumber(t *testing.T) {
 	g, fg := newTestGadgetHID(t, true)
-	if g.Status() != HIDConnected {
+	if g.Status() != hid.HIDConnected {
 		t.Fatalf("status %s, want connected", g.Status())
 	}
 	if !g.BoardResponding() || g.USBState() != "configured" {
@@ -189,7 +190,7 @@ func TestGadgetMapsFunctionsByDeviceNumber(t *testing.T) {
 
 func TestGadgetNotAttached(t *testing.T) {
 	g, fg := newTestGadgetHID(t, false)
-	if g.Status() != HIDConnected || g.BoardResponding() {
+	if g.Status() != hid.HIDConnected || g.BoardResponding() {
 		t.Fatalf("status %s responding %v; want connected, not responding", g.Status(), g.BoardResponding())
 	}
 	fg.host.setFail(fg.nodes["keyboard"], errUSBNotConfigured)
@@ -208,7 +209,7 @@ func TestGadgetReportLengthMismatch(t *testing.T) {
 	fg.setState("configured")
 	g := newGadgetHID(fg.paths, fg.host.open)
 	g.refresh()
-	if g.Status() != HIDConnecting {
+	if g.Status() != hid.HIDConnecting {
 		t.Errorf("status %s with an unusable mouse, want connecting", g.Status())
 	}
 	err := g.MouseMove(1, 1)
@@ -365,7 +366,7 @@ func TestGadgetShutdownReleasesHeld(t *testing.T) {
 	g, fg := newTestGadgetHID(t, true)
 	g.KeyPress(0x04)
 	g.MousePress(2)
-	g.Touch([]TouchContact{{ID: 0, Tip: true, X: 10, Y: 10}, {ID: 1, Tip: true, X: 20, Y: 20}})
+	g.Touch([]hid.TouchContact{{ID: 0, Tip: true, X: 10, Y: 10}, {ID: 1, Tip: true, X: 20, Y: 20}})
 	fg.host.reset()
 	g.Shutdown()
 	if r := fg.host.last(fg.nodes["keyboard"]); r == nil || r[2] != 0 {
@@ -408,12 +409,12 @@ func TestGadgetReopensAfterWriteError(t *testing.T) {
 	if err := g.KeyPress(4); err == nil {
 		t.Fatal("EIO not reported")
 	}
-	if g.Status() != HIDConnecting {
+	if g.Status() != hid.HIDConnecting {
 		t.Errorf("status %s after the node failed, want connecting", g.Status())
 	}
 	fg.host.setFail(kbd, nil)
 	g.refresh()
-	if g.Status() != HIDConnected || fg.host.opens[kbd] != 2 {
+	if g.Status() != hid.HIDConnected || fg.host.opens[kbd] != 2 {
 		t.Errorf("status %s, opens %d; want reconnected", g.Status(), fg.host.opens[kbd])
 	}
 }
@@ -424,7 +425,7 @@ func TestGadgetMissingThenAppears(t *testing.T) {
 	host := newFakeHost()
 	g := newGadgetHID(paths, host.open)
 	g.refresh()
-	if g.Status() != HIDDisconnected {
+	if g.Status() != hid.HIDDisconnected {
 		t.Errorf("status %s with no gadget, want disconnected", g.Status())
 	}
 	if err := g.KeyPress(4); err == nil || !strings.Contains(err.Error(), "no keyboard") {
@@ -435,10 +436,10 @@ func TestGadgetMissingThenAppears(t *testing.T) {
 	fg.setState("configured")
 	fg.addHID("keyboard", 8, "236:0", "hidg0")
 	g.refresh()
-	if g.Status() != HIDConnected {
+	if g.Status() != hid.HIDConnected {
 		t.Errorf("status %s once the gadget exists", g.Status())
 	}
-	if err := g.Touch([]TouchContact{{ID: 0, Tip: true}}); err == nil {
+	if err := g.Touch([]hid.TouchContact{{ID: 0, Tip: true}}); err == nil {
 		t.Error("touch accepted by a gadget without a touch function")
 	}
 	// Letting go of nothing is fine: /api/hid/release must still work.
@@ -482,7 +483,7 @@ func TestGadgetResetSoftConnect(t *testing.T) {
 	if strings.Join(writes, ",") != "disconnect,connect" {
 		t.Errorf("soft_connect saw %q, want disconnect then connect", writes)
 	}
-	if g.kstate.held() {
+	if g.kstate.Held() {
 		t.Error("held keys survived a re-enumeration")
 	}
 }
@@ -550,7 +551,7 @@ func TestGadgetConcurrentUse(t *testing.T) {
 				case 1:
 					g.MouseClick(1)
 				case 2:
-					g.Touch([]TouchContact{{ID: 0, Tip: i%2 == 0, X: i, Y: i}})
+					g.Touch([]hid.TouchContact{{ID: 0, Tip: i%2 == 0, X: i, Y: i}})
 				case 3:
 					g.KeyPress(4 + w)
 					g.KeyRelease(4 + w)
@@ -575,11 +576,11 @@ func TestGadgetConcurrentUse(t *testing.T) {
 func TestGadgetFailedLiftIsRetried(t *testing.T) {
 	g, fg := newTestGadgetHID(t, true)
 	touch := fg.nodes["touch"]
-	if err := g.Touch([]TouchContact{{ID: 0, Tip: true, X: 100, Y: 100}, {ID: 1, Tip: true, X: 200, Y: 200}}); err != nil {
+	if err := g.Touch([]hid.TouchContact{{ID: 0, Tip: true, X: 100, Y: 100}, {ID: 1, Tip: true, X: 200, Y: 200}}); err != nil {
 		t.Fatal(err)
 	}
 	fg.host.setFail(touch, errHostNotReading)
-	if err := g.Touch([]TouchContact{{ID: 0, Tip: false, X: 100, Y: 100}, {ID: 1, Tip: false, X: 200, Y: 200}}); err == nil {
+	if err := g.Touch([]hid.TouchContact{{ID: 0, Tip: false, X: 100, Y: 100}, {ID: 1, Tip: false, X: 200, Y: 200}}); err == nil {
 		t.Fatal("lift reported success while refused")
 	}
 	fg.host.setFail(touch, nil)
@@ -593,7 +594,7 @@ func TestGadgetFailedTouchDownNeverLands(t *testing.T) {
 	g, fg := newTestGadgetHID(t, true)
 	touch := fg.nodes["touch"]
 	fg.host.setFail(touch, errHostNotReading)
-	if err := g.Touch([]TouchContact{{ID: 0, Tip: true, X: 1, Y: 1}}); err == nil {
+	if err := g.Touch([]hid.TouchContact{{ID: 0, Tip: true, X: 1, Y: 1}}); err == nil {
 		t.Fatal("touch-down reported success while refused")
 	}
 	fg.host.setFail(touch, nil)

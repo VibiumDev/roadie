@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
 	"github.com/VibiumDev/roadie/rtc"
 	"html/template"
@@ -35,7 +36,7 @@ type Server struct {
 	// otherwise.
 	AudioSource func() string
 	SourceType  string // "hardware" or "http"
-	HID         HIDBackend
+	HID         hid.HIDBackend
 	Capture     *CaptureManager
 	// RTC sends the picture over WebRTC; nil when this host has no way to
 	// encode H.264 or frames come from an HTTP source.
@@ -602,7 +603,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if mode := s.effectiveInputMode(); mode != "" {
 		resp["input_mode"] = mode
 	}
-	if s.HID != nil && s.HID.Status() == HIDConnected && !s.HID.BoardResponding() {
+	if s.HID != nil && s.HID.Status() == hid.HIDConnected && !s.HID.BoardResponding() {
 		resp["hid_board"] = "not_answering"
 	}
 	if s.Platform != "" {
@@ -789,7 +790,7 @@ func (s *Server) handleHIDRelease(w http.ResponseWriter, r *http.Request) {
 // usbDevices is what the target sees replugged by a USB reset, or nil when
 // the backend can't say.
 func (s *Server) usbDevices() []string {
-	if l, ok := s.HID.(usbDeviceLister); ok {
+	if l, ok := s.HID.(hid.USBDeviceLister); ok {
 		return l.USBDevices()
 	}
 	return nil
@@ -1630,7 +1631,7 @@ func (s *Server) handleHIDStatus(w http.ResponseWriter, r *http.Request) {
 		// Reaching the relay is not the same as reaching the board behind
 		// it. An unpowered target leaves the relay perfectly healthy while
 		// nothing at all arrives at the phone.
-		if status == string(HIDConnected) && !s.HID.BoardResponding() {
+		if status == string(hid.HIDConnected) && !s.HID.BoardResponding() {
 			resp["board"] = "not_answering"
 		}
 	}
@@ -1798,7 +1799,7 @@ func (s *Server) handleHIDTouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Contacts []TouchContact `json:"contacts"`
+		Contacts []hid.TouchContact `json:"contacts"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -1813,7 +1814,7 @@ func (s *Server) handleHIDTouch(w http.ResponseWriter, r *http.Request) {
 }
 
 // releasesOnly is whether a viewer's input only lets go of something.
-func releasesOnly(cmd string, contacts []TouchContact) bool {
+func releasesOnly(cmd string, contacts []hid.TouchContact) bool {
 	switch cmd {
 	case "mouse_release", "key_release":
 		return true
@@ -1836,14 +1837,14 @@ func (s *Server) hidCommand(data []byte) {
 		return
 	}
 	var msg struct {
-		Cmd      string         `json:"cmd"`
-		X        int            `json:"x"`
-		Y        int            `json:"y"`
-		Keycode  int            `json:"keycode"`
-		Buttons  int            `json:"buttons"`
-		Text     string         `json:"text"`
-		Amount   int            `json:"amount"`
-		Contacts []TouchContact `json:"contacts"`
+		Cmd      string             `json:"cmd"`
+		X        int                `json:"x"`
+		Y        int                `json:"y"`
+		Keycode  int                `json:"keycode"`
+		Buttons  int                `json:"buttons"`
+		Text     string             `json:"text"`
+		Amount   int                `json:"amount"`
+		Contacts []hid.TouchContact `json:"contacts"`
 		// Space "picture" says x and y (and the contacts) are fractions of
 		// the picture a viewer sees, scaled to 0..32767, for a viewer that
 		// knows nothing of the crop: the station's.
@@ -1897,9 +1898,9 @@ func (s *Server) hidCommand(data []byte) {
 		// A whole tap in one command, for a viewer on a link where the gap
 		// between a touch and its lift would stretch: down at x, y, a
 		// short hold, up.
-		s.HID.Touch([]TouchContact{{ID: 0, Tip: true, X: msg.X, Y: msg.Y}})
+		s.HID.Touch([]hid.TouchContact{{ID: 0, Tip: true, X: msg.X, Y: msg.Y}})
 		time.Sleep(60 * time.Millisecond)
-		s.HID.Touch([]TouchContact{{ID: 0, Tip: false, X: msg.X, Y: msg.Y}})
+		s.HID.Touch([]hid.TouchContact{{ID: 0, Tip: false, X: msg.X, Y: msg.Y}})
 		s.HID.Touch(nil)
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/VibiumDev/roadie/internal/hid"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -10,14 +11,14 @@ import (
 
 func TestParseHIDBackend(t *testing.T) {
 	for in, want := range map[string]string{
-		"": BackendRP2040, "rp2040": BackendRP2040, "RP2040": BackendRP2040,
-		"linux-gadget": BackendLinuxGadget, " gadget ": BackendLinuxGadget,
+		"": hid.BackendRP2040, "rp2040": hid.BackendRP2040, "RP2040": hid.BackendRP2040,
+		"linux-gadget": hid.BackendLinuxGadget, " gadget ": hid.BackendLinuxGadget,
 	} {
-		if got, err := ParseHIDBackend(in); err != nil || got != want {
+		if got, err := hid.ParseHIDBackend(in); err != nil || got != want {
 			t.Errorf("ParseHIDBackend(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
-	if _, err := ParseHIDBackend("usbip"); err == nil {
+	if _, err := hid.ParseHIDBackend("usbip"); err == nil {
 		t.Error("unknown backend accepted")
 	}
 }

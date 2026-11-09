@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/VibiumDev/roadie/internal/hid"
 	"image"
 	"image/color"
 	"image/draw"
@@ -341,7 +342,7 @@ func TestSettingsAutocropChoosesTheCrop(t *testing.T) {
 
 // /api/settings shows and sets the glide switch, where the input can glide.
 func TestSettingsGlide(t *testing.T) {
-	h := newSettledHID(&pathHID{})
+	h := hid.NewSettledHID(&pathHID{})
 	s := &Server{Buf: &FrameBuffer{}, HID: h}
 	call := func(method, body string) (int, map[string]interface{}) {
 		t.Helper()
