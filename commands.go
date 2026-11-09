@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/pem"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -11,8 +9,6 @@ import (
 	"os/user"
 	"strings"
 	"time"
-
-	"crypto/x509"
 )
 
 // Subcommands: `roadie token` and `roadie tls status`. Anything starting
@@ -115,18 +111,4 @@ func tlsCommand(args []string) int {
 		return 1
 	}
 	return 0
-}
-
-// parseFirstPEMCert reads the first certificate in a PEM file.
-func parseFirstPEMCert(data []byte) (*x509.Certificate, error) {
-	for {
-		var block *pem.Block
-		block, data = pem.Decode(data)
-		if block == nil {
-			return nil, errors.New("no certificate found")
-		}
-		if block.Type == "CERTIFICATE" {
-			return x509.ParseCertificate(block.Bytes)
-		}
-	}
 }

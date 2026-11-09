@@ -160,7 +160,7 @@ func startRig(handler http.Handler, offer enroll.Offer, onEnd func(deviceID, hol
 }
 
 // status is the station block of /health.
-func (rr *rigRunner) status() map[string]any {
+func (rr *rigRunner) Status() map[string]any {
 	online := rr.rig.Online()
 	if online == nil {
 		online = []string{}

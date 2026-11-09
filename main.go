@@ -422,6 +422,8 @@ func main() {
 
 	// Start HTTP server.
 	srv := &Server{
+		GesturePage:    gesturePageHTML,
+		SoundcheckPage: soundcheckPage,
 		Source:         buf,
 		Buf:            buf,
 		RelayFPS:       *relayFPS,

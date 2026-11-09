@@ -27,6 +27,12 @@ import (
 )
 
 // Server holds the state needed by HTTP handlers.
+// StationLink is what the server asks of the rig's link to its stations:
+// what to show about them on /health and the index page.
+type StationLink interface {
+	Status() map[string]any
+}
+
 type Server struct {
 	Source         capture.FrameSource
 	Buf            *capture.FrameBuffer
@@ -44,7 +50,10 @@ type Server struct {
 	// encode H.264 or frames come from an HTTP source.
 	RTC *rtc.Broadcaster
 	// Station is the rig side, while enrolled with one: see station.go.
-	Station *rigRunner
+	Station StationLink // the rig's link to its stations, when it has one
+	// GesturePage and SoundcheckPage are the e2e test pages under board/,
+	// embedded by the main package and served at /gestures and /soundcheck.
+	GesturePage, SoundcheckPage []byte
 	// Auth decides who may use the pages and API; see --auth.
 	Auth *Auth
 
@@ -155,7 +164,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		data["Platform"] = string(s.Platform)
 	}
 	if s.Station != nil {
-		if st, ok := s.Station.status()["stations"].([]map[string]any); ok {
+		if st, ok := s.Station.Status()["stations"].([]map[string]any); ok {
 			data["Stations"] = st
 		}
 	}
@@ -655,7 +664,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		resp["webrtc"] = s.RTC.Status()
 	}
 	if s.Station != nil {
-		resp["station"] = s.Station.status()
+		resp["station"] = s.Station.Status()
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
@@ -949,25 +958,19 @@ func (s *Server) handleMic(w http.ResponseWriter, r *http.Request) {
 // file so the page is same-origin with /api/mic, which refuses cross-origin
 // connections.
 //
-//go:embed board/e2e/gesture-page.html
-var gesturePageHTML []byte
-
 // handleGestures serves a page that shows what a multi-touch gesture did --
 // pinch to scale, twist to rotate -- so a gesture can be checked by eye as
 // well as by the test that drives the same file.
 func (s *Server) handleGestures(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Write(gesturePageHTML)
+	w.Write(s.GesturePage)
 }
-
-//go:embed board/e2e/mic-page.html
-var soundcheckPage []byte
 
 func (s *Server) handleSoundcheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Write(soundcheckPage)
+	w.Write(s.SoundcheckPage)
 }
 
 func (s *Server) handleTest(w http.ResponseWriter, r *http.Request) {

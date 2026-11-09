@@ -3,6 +3,8 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -127,4 +129,18 @@ func tlsStatus(w io.Writer, certFile, keyFile string) error {
 		fmt.Fprintf(w, "Key:         %s (matches)\n", keyFile)
 	}
 	return nil
+}
+
+// parseFirstPEMCert reads the first certificate in a PEM file.
+func parseFirstPEMCert(data []byte) (*x509.Certificate, error) {
+	for {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			return nil, errors.New("no certificate found")
+		}
+		if block.Type == "CERTIFICATE" {
+			return x509.ParseCertificate(block.Bytes)
+		}
+	}
 }
