@@ -59,12 +59,38 @@ var rigAllowlist = rig.Allowlist{
 	{Path: "/api/relay/reset", Scope: station.ScopeAdmin},
 }
 
-// deviceOffer describes the target as a device for the station: its kind,
-// what this Roadie can do with it, the pointer mode viewers should start
-// in (--input, else the platform's), and the toolbar buttons the shared
-// viewer should show, as the keyboard shortcuts the target takes.
-func deviceOffer(platform Platform, hasHID, hasAudio bool, input string, label string) enroll.Offer {
-	o := enroll.Offer{Name: "phone", Kind: "phone", Caps: []string{station.CapVideo, station.CapBidi, station.CapMJPEG}, Input: input, Extras: "/viewer/extras.js",
+// defaultDeviceName names the device in its station address when
+// --device-name says nothing.
+const defaultDeviceName = "phone"
+
+// checkDeviceName accepts a name that can live in a station address and a
+// URL: a lowercase word of up to 32 letters, digits, _ or -, starting
+// with a letter.
+func checkDeviceName(name string) error {
+	if name == "" || len(name) > 32 {
+		return fmt.Errorf("--device-name %q: a word of 1 to 32 characters", name)
+	}
+	for i, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case i > 0 && (r >= '0' && r <= '9' || r == '_' || r == '-'):
+		default:
+			return fmt.Errorf("--device-name %q: lowercase letters, digits, _ or -, starting with a letter", name)
+		}
+	}
+	return nil
+}
+
+// deviceOffer describes the target as a device for the station: its name
+// in the station's address (--device-name), its kind, what this Roadie
+// can do with it, the pointer mode viewers should start in (--input, else
+// the platform's), and the toolbar buttons the shared viewer should show,
+// as the keyboard shortcuts the target takes.
+func deviceOffer(name string, platform Platform, hasHID, hasAudio bool, input string, label string) enroll.Offer {
+	if name == "" {
+		name = defaultDeviceName
+	}
+	o := enroll.Offer{Name: name, Kind: "phone", Caps: []string{station.CapVideo, station.CapBidi, station.CapMJPEG}, Input: input, Extras: "/viewer/extras.js",
 		Label: strings.TrimSpace(label)}
 	switch platform {
 	case PlatformIOS, PlatformAndroid, PlatformMac, PlatformWindows, PlatformLinux:
@@ -187,10 +213,11 @@ func enrollCommand(args []string) int {
 	code := fs.String("code", "", "the one-time code from the station (required)")
 	name := fs.String("name", "", "this rig's name (default: the host name)")
 	platformFlag := fs.String("platform", "", "the target's platform, as for the server: ios, android, mac, windows, linux")
+	deviceName := fs.String("device-name", defaultDeviceName, "the device's name in its station address, as for the server")
 	admin := fs.Bool("admin", false, "accept admin grants from this station (settings, resets)")
 	record := fs.Bool("record", false, "record every hold from this station (a screenshot after each burst of input) and upload it to the station's Record Store")
 	fs.Usage = func() {
-		fmt.Println("usage: roadie enroll [https://station[:port]] --code ABCD-1234-7F3A [--name NAME] [--platform P] [--admin] [--record]\n" +
+		fmt.Println("usage: roadie enroll [https://station[:port]] --code ABCD-1234-7F3A [--name NAME] [--platform P] [--device-name N] [--admin] [--record]\n" +
 			"Without a URL the station is found on this network over mDNS.")
 		fs.PrintDefaults()
 	}
@@ -199,6 +226,10 @@ func enrollCommand(args []string) int {
 		url, args = args[0], args[1:]
 	}
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if err := checkDeviceName(*deviceName); err != nil {
+		fmt.Fprintln(os.Stderr, "roadie enroll:", err)
 		return 2
 	}
 	if url == "" && fs.NArg() > 0 {
@@ -240,7 +271,7 @@ func enrollCommand(args []string) int {
 	}
 	entry, err := rig.Enroll(context.Background(), rig.EnrollOptions{
 		URL: url, Code: *code, Name: *name, Key: key, Admin: *admin,
-		Devices: []enroll.Offer{deviceOffer(platform, true, true, platform.DefaultInputMode(), "")},
+		Devices: []enroll.Offer{deviceOffer(*deviceName, platform, true, true, platform.DefaultInputMode(), "")},
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "roadie enroll:", err)

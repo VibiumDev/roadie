@@ -83,6 +83,7 @@ func main() {
 	inputMode := flag.String("input", "", "default pointer mode for viewers: mouse or touch (empty: viewer decides)")
 	platformName := flag.String("platform", "", "target OS: android, ios, mac, windows, linux (tunes pointer mapping and input mode)")
 	label := flag.String("label", "", "the device's name for people on a station, such as \"Dev iPhone 15\" (default: shown by its kind, \"phone\")")
+	deviceNameFlag := flag.String("device-name", defaultDeviceName, "the device's name in its station address, rig/<name>: a lowercase word of letters, digits, _ or -, such as iphone_1")
 	glide := flag.Bool("glide", false, "glide the pointer to each new spot along an arc, as a hand would, instead of jumping (a switch in /settings too)")
 	hidBackendName := flag.String("hid-backend", BackendRP2040, "input hardware: rp2040 (relay and HID boards) or linux-gadget (this machine's USB device port, set up by gadget/roadie-gadget)")
 	encoderSpec := flag.String("encoder", "auto", "H.264 encoder for WebRTC: auto, v4l2m2m (Pi 4 hardware), ffmpeg, ffmpeg:<codec>, or none")
@@ -96,6 +97,10 @@ func main() {
 	httpRedirect := flag.String("http-redirect", "", "with TLS: also listen here (e.g. :80) and redirect to HTTPS")
 	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile here until exit (for go tool pprof)")
 	flag.Parse()
+	if err := checkDeviceName(*deviceNameFlag); err != nil {
+		fmt.Fprintln(os.Stderr, "roadie:", err)
+		os.Exit(2)
+	}
 
 	if *cpuProfile != "" {
 		f, err := os.Create(*cpuProfile)
@@ -461,7 +466,7 @@ func main() {
 		}
 		recorder.end(holdID)
 	}
-	rigRun, err = startRig(handler, deviceOffer(platform, hid != nil, ab != nil, srv.effectiveInputMode(), *label), onHoldEnd)
+	rigRun, err = startRig(handler, deviceOffer(*deviceNameFlag, platform, hid != nil, ab != nil, srv.effectiveInputMode(), *label), onHoldEnd)
 	if err != nil {
 		log.Fatalf("station: %v", err)
 	}
