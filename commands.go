@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/VibiumDev/roadie/internal/remote"
 	"github.com/VibiumDev/roadie/internal/web"
 	"os"
 	"os/exec"
@@ -27,7 +28,7 @@ func runCommand(name string, args []string) int {
 		if code := serviceAccountHint(name); code != 0 {
 			return code
 		}
-		return enrollCommand(args)
+		return remote.EnrollCommand(args)
 	case "help":
 		fmt.Println("usage: roadie [flags]            run the server (roadie -h for the flags)\n" +
 			"       roadie token [--rotate]  show the local admin token (--auth token)\n" +

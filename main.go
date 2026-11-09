@@ -24,6 +24,7 @@ import (
 	"github.com/VibiumDev/roadie/internal/gadget"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
+	"github.com/VibiumDev/roadie/internal/remote"
 	"github.com/VibiumDev/roadie/internal/web"
 	"github.com/VibiumDev/roadie/rtc"
 	"github.com/VibiumDev/station/rig"
@@ -89,7 +90,7 @@ func main() {
 	inputMode := flag.String("input", "", "default pointer mode for viewers: mouse or touch (empty: viewer decides)")
 	platformName := flag.String("platform", "", "target OS: android, ios, mac, windows, linux (tunes pointer mapping and input mode)")
 	label := flag.String("label", "", "the device's name for people on a station, such as \"Dev iPhone 15\" (default: shown by its kind, \"phone\")")
-	deviceNameFlag := flag.String("device-name", defaultDeviceName, "the device's name in its station address, rig/<name>: a lowercase word of letters, digits, _ or -, such as iphone_1")
+	deviceNameFlag := flag.String("device-name", remote.DefaultDeviceName, "the device's name in its station address, rig/<name>: a lowercase word of letters, digits, _ or -, such as iphone_1")
 	model := flag.String("model", "", "the device's model name, such as \"iPhone 15 Pro Max\", shown on a station and told to agents")
 	osVersion := flag.String("os-version", "", "the version of what the device runs, such as \"26.6\", shown on a station and told to agents")
 	glide := flag.Bool("glide", false, "glide the pointer to each new spot along an arc, as a hand would, instead of jumping (a switch in /settings too)")
@@ -105,7 +106,7 @@ func main() {
 	httpRedirect := flag.String("http-redirect", "", "with TLS: also listen here (e.g. :80) and redirect to HTTPS")
 	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile here until exit (for go tool pprof)")
 	flag.Parse()
-	if err := checkDeviceName(*deviceNameFlag); err != nil {
+	if err := remote.CheckDeviceName(*deviceNameFlag); err != nil {
 		fmt.Fprintln(os.Stderr, "roadie:", err)
 		os.Exit(2)
 	}
@@ -463,13 +464,13 @@ func main() {
 	// the rig's gate instead of the local login.
 	// A hold the policy says to record is recorded (see record.go): the
 	// recorder hears every input and learns the hold from the rig.
-	var rigRun *rigRunner
-	recDir, _ := rigPath("recordings")
+	var rigRun *remote.RigRunner
+	recDir, _ := remote.RigPath("recordings")
 	recorder := web.NewRecorder(buf, func() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
 		if rigRun == nil {
 			return nil, "", "", nostr.SecretKey{}, false
 		}
-		return rigRun.current()
+		return rigRun.Current()
 	}, recDir)
 	settled.OnInput = recorder.Input
 	onHoldEnd := func(_, holdID string) {
@@ -478,13 +479,13 @@ func main() {
 		}
 		recorder.End(holdID)
 	}
-	rigRun, err = startRig(handler, deviceOffer(*deviceNameFlag, plat, input != nil, ab != nil, srv.EffectiveInputMode(), *label, *model, *osVersion), onHoldEnd)
+	rigRun, err = remote.StartRig(handler, remote.DeviceOffer(*deviceNameFlag, plat, input != nil, ab != nil, srv.EffectiveInputMode(), *label, *model, *osVersion), onHoldEnd)
 	if err != nil {
 		log.Fatalf("station: %v", err)
 	}
 	srv.Station = rigRun
 	if rigRun != nil {
-		go recorder.Retry(rigRun.rig.Policy, rigRun.rig.Key)
+		go recorder.Retry(rigRun.Rig.Policy, rigRun.Rig.Key)
 	}
 	if certs != nil {
 		httpServer.TLSConfig = &tls.Config{GetCertificate: certs.GetCertificate, MinVersion: tls.VersionTLS12}
@@ -537,7 +538,7 @@ func main() {
 	// off stays on disk for the next start.
 	recorder.EndAll()
 	if rigRun != nil {
-		rigRun.shutdown()
+		rigRun.Shutdown()
 	}
 	if broadcaster != nil {
 		broadcaster.Close()

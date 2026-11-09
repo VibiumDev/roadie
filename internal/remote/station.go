@@ -1,4 +1,4 @@
-package main
+package remote
 
 import (
 	"context"
@@ -26,7 +26,7 @@ import (
 // rig.key (the rig's key), rig.json (the policy: stations and what each
 // may do) and rig-state.json (the hold state).
 
-func rigPath(name string) (string, error) {
+func RigPath(name string) (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -62,12 +62,12 @@ var rigAllowlist = rig.Allowlist{
 
 // defaultDeviceName names the device in its station address when
 // --device-name says nothing.
-const defaultDeviceName = "phone"
+const DefaultDeviceName = "phone"
 
 // checkDeviceName accepts a name that can live in a station address and a
 // URL: a lowercase word of up to 32 letters, digits, _ or -, starting
 // with a letter.
-func checkDeviceName(name string) error {
+func CheckDeviceName(name string) error {
 	if name == "" || len(name) > 32 {
 		return fmt.Errorf("--device-name %q: a word of 1 to 32 characters", name)
 	}
@@ -87,9 +87,9 @@ func checkDeviceName(name string) error {
 // can do with it, the pointer mode viewers should start in (--input, else
 // the platform's), and the toolbar buttons the shared viewer should show,
 // as the keyboard shortcuts the target takes.
-func deviceOffer(name string, plat platform.Platform, hasHID, hasAudio bool, input string, label, model, osVersion string) enroll.Offer {
+func DeviceOffer(name string, plat platform.Platform, hasHID, hasAudio bool, input string, label, model, osVersion string) enroll.Offer {
 	if name == "" {
-		name = defaultDeviceName
+		name = DefaultDeviceName
 	}
 	o := enroll.Offer{Name: name, Kind: "phone", Caps: []string{station.CapVideo, station.CapBidi, station.CapMJPEG}, Input: input, Extras: "/viewer/extras.js",
 		Label: strings.TrimSpace(label), Model: strings.TrimSpace(model), OSVersion: strings.TrimSpace(osVersion)}
@@ -116,16 +116,16 @@ func deviceOffer(name string, plat platform.Platform, hasHID, hasAudio bool, inp
 }
 
 // rigRunner is the running rig, for /health and shutdown.
-type rigRunner struct {
-	rig    *rig.Rig
+type RigRunner struct {
+	Rig    *rig.Rig
 	cancel context.CancelFunc
 	done   chan struct{}
 }
 
 // startRig connects to the stations in the policy, if any. handler is the
 // server's mux without the local login, which the gate replaces.
-func startRig(handler http.Handler, offer enroll.Offer, onEnd func(deviceID, holdID string)) (*rigRunner, error) {
-	policyPath, err := rigPath("rig.json")
+func StartRig(handler http.Handler, offer enroll.Offer, onEnd func(deviceID, holdID string)) (*RigRunner, error) {
+	policyPath, err := RigPath("rig.json")
 	if err != nil {
 		return nil, err
 	}
@@ -136,17 +136,17 @@ func startRig(handler http.Handler, offer enroll.Offer, onEnd func(deviceID, hol
 	if len(policy.Stations) == 0 {
 		return nil, nil
 	}
-	keyPath, _ := rigPath("rig.key")
+	keyPath, _ := RigPath("rig.key")
 	key, _, err := rig.LoadOrCreateKey(keyPath)
 	if err != nil {
 		return nil, err
 	}
-	statePath, _ := rigPath("rig-state.json")
+	statePath, _ := RigPath("rig-state.json")
 	r := &rig.Rig{Key: key, Policy: policy, Devices: []enroll.Offer{offer}, Handler: handler, Allow: rigAllowlist,
 		StatePath: statePath, Logf: log.Printf,
 		Gate: &rig.Gate{Policy: policy, Key: key.Public(), StatePath: statePath, OnEnd: onEnd, Logf: log.Printf}}
 	ctx, cancel := context.WithCancel(context.Background())
-	rr := &rigRunner{rig: r, cancel: cancel, done: make(chan struct{})}
+	rr := &RigRunner{Rig: r, cancel: cancel, done: make(chan struct{})}
 	go func() {
 		defer close(rr.done)
 		r.Run(ctx)
@@ -160,13 +160,13 @@ func startRig(handler http.Handler, offer enroll.Offer, onEnd func(deviceID, hol
 }
 
 // status is the station block of /health.
-func (rr *rigRunner) Status() map[string]any {
-	online := rr.rig.Online()
+func (rr *RigRunner) Status() map[string]any {
+	online := rr.Rig.Online()
 	if online == nil {
 		online = []string{}
 	}
 	var stations []map[string]any
-	for _, e := range rr.rig.Policy.Stations {
+	for _, e := range rr.Rig.Policy.Stations {
 		up := false
 		for _, n := range online {
 			if n == e.Name {
@@ -174,31 +174,31 @@ func (rr *rigRunner) Status() map[string]any {
 			}
 		}
 		st := map[string]any{"name": e.Name, "url": e.URL, "rig": e.RigID, "online": up, "record": e.Record}
-		for _, d := range rr.rig.Devices {
-			if hold, held := rr.rig.Gate.Current(station.DeviceID(e.RigID, d.Name)); held {
+		for _, d := range rr.Rig.Devices {
+			if hold, held := rr.Rig.Gate.Current(station.DeviceID(e.RigID, d.Name)); held {
 				st["hold"] = hold
 			}
 		}
 		stations = append(stations, st)
 	}
-	return map[string]any{"npub": rig.Npub(rr.rig.Key.Public()), "stations": stations}
+	return map[string]any{"npub": rig.Npub(rr.Rig.Key.Public()), "stations": stations}
 }
 
 // current says who holds one of this rig's devices now, and through
 // which station, for the hold recorder.
-func (rr *rigRunner) current() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
-	for _, e := range rr.rig.Policy.Stations {
-		for _, d := range rr.rig.Devices {
+func (rr *RigRunner) Current() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
+	for _, e := range rr.Rig.Policy.Stations {
+		for _, d := range rr.Rig.Devices {
 			id := station.DeviceID(e.RigID, d.Name)
-			if hold, held := rr.rig.Gate.Current(id); held {
-				return e, id, hold, rr.rig.Key, true
+			if hold, held := rr.Rig.Gate.Current(id); held {
+				return e, id, hold, rr.Rig.Key, true
 			}
 		}
 	}
 	return nil, "", "", nostr.SecretKey{}, false
 }
 
-func (rr *rigRunner) shutdown() {
+func (rr *RigRunner) Shutdown() {
 	rr.cancel()
 	select {
 	case <-rr.done:
@@ -209,12 +209,12 @@ func (rr *rigRunner) shutdown() {
 // enrollCommand is `roadie enroll [URL] --code CODE`: it joins a station
 // and writes the policy entry; the running service picks it up on its
 // next start.
-func enrollCommand(args []string) int {
+func EnrollCommand(args []string) int {
 	fs := flag.NewFlagSet("roadie enroll", flag.ContinueOnError)
 	code := fs.String("code", "", "the one-time code from the station (required)")
 	name := fs.String("name", "", "this rig's name (default: the host name)")
 	platformFlag := fs.String("platform", "", "the target's platform, as for the server: ios, android, mac, windows, linux")
-	deviceName := fs.String("device-name", defaultDeviceName, "the device's name in its station address, as for the server")
+	deviceName := fs.String("device-name", DefaultDeviceName, "the device's name in its station address, as for the server")
 	model := fs.String("model", "", "the device's model name, as for the server")
 	osVersion := fs.String("os-version", "", "the version of what the device runs, as for the server")
 	admin := fs.Bool("admin", false, "accept admin grants from this station (settings, resets)")
@@ -231,7 +231,7 @@ func enrollCommand(args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if err := checkDeviceName(*deviceName); err != nil {
+	if err := CheckDeviceName(*deviceName); err != nil {
 		fmt.Fprintln(os.Stderr, "roadie enroll:", err)
 		return 2
 	}
@@ -250,7 +250,7 @@ func enrollCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	keyPath, err := rigPath("rig.key")
+	keyPath, err := RigPath("rig.key")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -263,7 +263,7 @@ func enrollCommand(args []string) int {
 	if created {
 		fmt.Printf("New rig key: %s\n", rig.Npub(key.Public()))
 	}
-	policyPath, _ := rigPath("rig.json")
+	policyPath, _ := RigPath("rig.json")
 	policy, err := rig.LoadPolicy(policyPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -274,7 +274,7 @@ func enrollCommand(args []string) int {
 	}
 	entry, err := rig.Enroll(context.Background(), rig.EnrollOptions{
 		URL: url, Code: *code, Name: *name, Key: key, Admin: *admin,
-		Devices: []enroll.Offer{deviceOffer(*deviceName, plat, true, true, plat.DefaultInputMode(), "", *model, *osVersion)},
+		Devices: []enroll.Offer{DeviceOffer(*deviceName, plat, true, true, plat.DefaultInputMode(), "", *model, *osVersion)},
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "roadie enroll:", err)
