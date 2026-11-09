@@ -54,3 +54,13 @@ func glidePath(x0, y0, x1, y1 int) [][2]int {
 	path[steps-1] = [2]int{x1, y1}
 	return path
 }
+
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}

@@ -79,14 +79,6 @@ func (p gadgetPaths) udcAttr(udc, attr string) string {
 	return filepath.Join(p.sys, "class/udc", udc, attr)
 }
 
-func readTrim(path string) (string, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(strings.TrimRight(string(b), "\x00")), nil
-}
-
 // boundUDC is the controller the gadget is bound to; empty if it exists but
 // is unbound.
 func (p gadgetPaths) boundUDC() (string, error) {

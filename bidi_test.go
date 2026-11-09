@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"image"
 	"net/http/httptest"
 	"strings"
@@ -497,29 +496,6 @@ func TestBiDiKeyNeedsShift(t *testing.T) {
 		}
 	}
 }
-
-// keyHID records key presses and releases; the rest of HIDBackend is inert.
-type keyHID struct{ log []string }
-
-func (k *keyHID) Run()                       {}
-func (k *keyHID) Shutdown()                  {}
-func (k *keyHID) Backend() string            { return "test" }
-func (k *keyHID) Status() HIDStatus          { return HIDConnected }
-func (k *keyHID) BoardResponding() bool      { return true }
-func (k *keyHID) Port() string               { return "" }
-func (k *keyHID) Serial() string             { return "" }
-func (k *keyHID) Type(string) error          { return nil }
-func (k *keyHID) MouseMove(int, int) error   { return nil }
-func (k *keyHID) MouseClick(int) error       { return nil }
-func (k *keyHID) MousePress(int) error       { return nil }
-func (k *keyHID) MouseRelease(int) error     { return nil }
-func (k *keyHID) MouseScroll(int) error      { return nil }
-func (k *keyHID) Touch([]TouchContact) error { return nil }
-func (k *keyHID) SendAudio([]byte) error     { return nil }
-func (k *keyHID) ResetHID() error            { return nil }
-func (k *keyHID) ResetRelay() error          { return nil }
-func (k *keyHID) KeyPress(c int) error       { k.log = append(k.log, fmt.Sprintf("+%d", c)); return nil }
-func (k *keyHID) KeyRelease(c int) error     { k.log = append(k.log, fmt.Sprintf("-%d", c)); return nil }
 
 // A character typed with Shift gets one around it; one the client already
 // holds is left to the client.

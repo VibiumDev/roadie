@@ -382,3 +382,7 @@ func audioScore(p prop.Media) int {
 	}
 	return score
 }
+
+// maxConsecutiveErrors is the number of consecutive read errors before
+// the capture goroutine treats the device as disconnected.
+const maxConsecutiveErrors = 3

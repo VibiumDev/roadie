@@ -722,3 +722,9 @@ func ioregValue(line string) string {
 	}
 	return strings.Trim(strings.TrimSpace(parts[1]), `"`)
 }
+
+// usbDeviceLister names what an input backend presents to the target over
+// USB: what a USB reset replugs.
+type usbDeviceLister interface {
+	USBDevices() []string
+}

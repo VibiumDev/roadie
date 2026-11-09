@@ -786,12 +786,6 @@ func (s *Server) handleHIDRelease(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-// usbDeviceLister names what an input backend presents to the target over
-// USB: what a USB reset replugs.
-type usbDeviceLister interface {
-	USBDevices() []string
-}
-
 // usbDevices is what the target sees replugged by a USB reset, or nil when
 // the backend can't say.
 func (s *Server) usbDevices() []string {

@@ -738,34 +738,6 @@ func (fb *FrameBuffer) Clear() {
 	fb.mu.Unlock()
 }
 
-// deviceInfo holds both the friendly name and the internal label (UID) of a device.
-type deviceInfo struct {
-	Name  string // friendly name (e.g. "USB Video")
-	Label string // internal UID used for driver matching
-}
-
-// VideoNode returns the V4L2 node backing this device (e.g. "video0").
-//
-// The mediadevices camera driver builds Linux labels as "<discovered>;<node>",
-// where the first segment is whichever path it enumerated the device through.
-// USB dongles are found via /dev/v4l/by-id, so for them that segment is a
-// by-id name and only the trailing one is the node:
-//
-//	usb-Example_HDMI_Capture_B-video-index0;video2
-//	video10;video10
-//
-// Returns empty on other platforms or for labels that don't end in a node.
-func (d deviceInfo) VideoNode() string {
-	node := d.Label
-	if i := strings.LastIndex(node, ";"); i >= 0 {
-		node = node[i+1:]
-	}
-	if !strings.HasPrefix(node, "video") {
-		return ""
-	}
-	return node
-}
-
 // DetectDevice enumerates video devices and returns the best capture device
 // candidate. It skips built-in cameras (FaceTime, iPhone, MacBook, iMac,
 // integrated, built-in) and prefers external/USB/HDMI devices. If no device
@@ -979,10 +951,6 @@ func captureNodes(drivers []driver.Driver, dev deviceInfo) []driver.Driver {
 // but not used to find the picture: a dongle that has just started can send
 // it torn for a few seconds (3 s seen).
 const captureWarmup = 5 * time.Second
-
-// maxConsecutiveErrors is the number of consecutive read errors before
-// the capture goroutine treats the device as disconnected.
-const maxConsecutiveErrors = 3
 
 // maxConsecutiveBlack is the number of consecutive near-black frames before
 // the capture goroutine reports no signal.

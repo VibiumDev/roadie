@@ -800,16 +800,6 @@ func (s *Server) bidiToHID(pixelX, pixelY float64) (int, int) {
 	return clampInt(hidX, 0, 32767), clampInt(hidY, 0, 32767)
 }
 
-func clampInt(v, lo, hi int) int {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
-
 // Touch contact helpers.
 
 // touchContactID maps a pointer source ID to a contact index (0 or 1).
