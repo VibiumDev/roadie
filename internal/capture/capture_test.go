@@ -452,11 +452,24 @@ func TestCaptureNodesTriesTheWholeDevice(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("chose the metadata node: try %v, want %v", got, want)
 		}
+		// The V4L2 path tries the same nodes in the same order.
+		if nodes := nativeNodes(list, chose); !reflect.DeepEqual(nodes, []string{"video1", "video0"}) {
+			t.Errorf("chose the metadata node: V4L2 tries %v", nodes)
+		}
 		chose.Label = video.Info().Label
 		got = labels(captureNodes(list, chose))
 		want = labels([]driver.Driver{video, meta})
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("chose the video node: try %v, want %v", got, want)
 		}
+		if nodes := nativeNodes(list, chose); !reflect.DeepEqual(nodes, []string{"video0", "video1"}) {
+			t.Errorf("chose the video node: V4L2 tries %v", nodes)
+		}
+	}
+	if nodes := nativeNodes(nil, devices.DeviceInfo{Name: "gone", Label: "by-id-name;video7"}); !reflect.DeepEqual(nodes, []string{"video7"}) {
+		t.Errorf("a device the driver list lacks: V4L2 tries %v", nodes)
+	}
+	if nodes := nativeNodes(nil, devices.DeviceInfo{Name: "camera", Label: "0x1234"}); nodes != nil {
+		t.Errorf("a label without a node: V4L2 tries %v", nodes)
 	}
 }
