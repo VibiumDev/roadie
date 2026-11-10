@@ -358,3 +358,37 @@ func TestAudioCaptureEndsWithTheConnection(t *testing.T) {
 		t.Fatalf("%d listeners left after the client went away", n)
 	}
 }
+
+// A client on a slow link reads late. The audio waits for it: none is
+// lost, and each chunk still says when it was captured.
+func TestAudioCaptureWaitsForASlowReader(t *testing.T) {
+	s, _, conn := audioServer(t)
+	bidiCall(t, conn, 1, "session.new", map[string]any{})
+	bidiCall(t, conn, 2, "roadie:audio.capture.start", map[string]any{"chunkMs": 100})
+	// Two seconds play while the client reads nothing. The audio source
+	// keeps a third of a second for a listener that does not take it.
+	broadcast(s.AudioBroadcast, 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var times []float64
+	for len(times) < 19 {
+		_, raw, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("after %d chunks: %v", len(times), err)
+		}
+		var ev struct {
+			Params struct {
+				Sample int
+				Time   float64
+			}
+		}
+		json.Unmarshal(raw, &ev)
+		if ev.Params.Sample != len(times)*1600 {
+			t.Fatalf("chunk %d starts at sample %d", len(times), ev.Params.Sample)
+		}
+		times = append(times, ev.Params.Time)
+	}
+	if span := times[18] - times[0]; span < 1650 || span > 1950 {
+		t.Fatalf("19 chunks read late span %.0f ms of capture time, want about 1800: audio was lost or restamped", span)
+	}
+}

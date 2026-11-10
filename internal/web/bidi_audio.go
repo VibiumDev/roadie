@@ -234,11 +234,29 @@ func (s *Server) bidiAudioCaptureStart(conn *websocket.Conn, ctx context.Context
 	go s.bidiAudioCapture(conn, cctx, id, p.ChunkMs)
 }
 
+// bidiAudioBacklog is how much captured audio may wait for a slow socket,
+// in chunks. A link to a far station stalls for a moment now and then;
+// the audio source drops what a listener does not take within a third of
+// a second, so the capture takes it at once and the socket catches up.
+const bidiAudioBacklog = 30 * time.Second
+
 func (s *Server) bidiAudioCapture(conn *websocket.Conn, ctx context.Context, id string, chunkMs int) {
 	want := bidiAudioRate * chunkMs / 1000
+	// Chunks wait here for the socket. Each is stamped when it was
+	// captured, so a late one still says when it was heard.
+	queue := make(chan map[string]any, int(bidiAudioBacklog/time.Millisecond)/chunkMs)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case params := <-queue:
+				writeJSON(conn, ctx, map[string]any{"type": "event", "method": "roadie:audio.chunk", "params": params})
+			}
+		}
+	}()
 	var pending []int16
 	var scratch []int16
-	var out []byte
 	sent := 0
 	for ctx.Err() == nil {
 		params := s.AudioBroadcast.Params()
@@ -260,10 +278,24 @@ func (s *Server) bidiAudioCapture(conn *websocket.Conn, ctx context.Context, id 
 					// The newest sample was captured about now; the piece's
 					// first sample that much audio earlier.
 					first := arrived.Add(-time.Duration(len(pending)) * time.Second / bidiAudioRate)
-					out = pcm.Int16LE(out[:0], pending[:want])
-					writeJSON(conn, ctx, map[string]any{"type": "event", "method": "roadie:audio.chunk", "params": map[string]any{
-						"capture": id, "sample": sent, "time": audioAt(first), "data": base64.StdEncoding.EncodeToString(out),
-					}})
+					event := map[string]any{
+						"capture": id, "sample": sent, "time": audioAt(first),
+						"data": base64.StdEncoding.EncodeToString(pcm.Int16LE(nil, pending[:want])),
+					}
+					select {
+					case queue <- event:
+					default:
+						// The socket is the whole backlog behind. The oldest
+						// audio goes; its time shows the hole.
+						select {
+						case <-queue:
+						default:
+						}
+						select {
+						case queue <- event:
+						default:
+						}
+					}
 					sent += want
 					pending = pending[want:]
 				}
