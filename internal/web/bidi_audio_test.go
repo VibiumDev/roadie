@@ -297,7 +297,9 @@ func TestAudioCaptureStreamsStampedChunks(t *testing.T) {
 			t.Fatalf("chunk %d: %+v", i, c)
 		}
 		if i > 0 {
-			if step := c.Time - chunks[i-1].Time; step < 60 || step > 140 {
+			// The stamps follow the samples: chunks of 100 ms are stamped
+			// 100 ms apart, however unevenly their audio arrived.
+			if step := c.Time - chunks[i-1].Time; step < 92 || step > 108 {
 				t.Fatalf("chunk %d is stamped %.1f ms after the one before; chunks are 100 ms", i, step)
 			}
 		}
@@ -390,5 +392,41 @@ func TestAudioCaptureWaitsForASlowReader(t *testing.T) {
 	}
 	if span := times[18] - times[0]; span < 1650 || span > 1950 {
 		t.Fatalf("19 chunks read late span %.0f ms of capture time, want about 1800: audio was lost or restamped", span)
+	}
+}
+
+// Audio that goes missing shows as a jump in the stamps, so a client can
+// put what follows in its right place.
+func TestAudioCaptureStampsShowMissingAudio(t *testing.T) {
+	s, _, conn := audioServer(t)
+	bidiCall(t, conn, 1, "session.new", map[string]any{})
+	bidiCall(t, conn, 2, "roadie:audio.capture.start", map[string]any{"chunkMs": 100})
+	go func() {
+		broadcast(s.AudioBroadcast, 400*time.Millisecond)
+		time.Sleep(500 * time.Millisecond) // the source stalls: half a second never comes
+		broadcast(s.AudioBroadcast, 400*time.Millisecond)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var times []float64
+	for len(times) < 7 {
+		_, raw, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("after %d chunks: %v", len(times), err)
+		}
+		var ev struct{ Params struct{ Time float64 } }
+		json.Unmarshal(raw, &ev)
+		times = append(times, ev.Params.Time)
+	}
+	jumps := 0
+	for i := 1; i < len(times); i++ {
+		if step := times[i] - times[i-1]; step > 400 {
+			jumps++
+		} else if step < 92 || step > 108 {
+			t.Fatalf("step %d is %.1f ms: neither steady nor a jump (%v)", i, step, times)
+		}
+	}
+	if jumps != 1 {
+		t.Fatalf("%d jumps in %v, want the one half-second hole", jumps, times)
 	}
 }

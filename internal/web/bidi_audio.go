@@ -240,6 +240,10 @@ func (s *Server) bidiAudioCaptureStart(conn *websocket.Conn, ctx context.Context
 // a second, so the capture takes it at once and the socket catches up.
 const bidiAudioBacklog = 30 * time.Second
 
+// bidiAudioJump is how far a chunk's arrival may be from where the
+// samples put it before the difference is taken for missing audio.
+const bidiAudioJump = 150 * time.Millisecond
+
 func (s *Server) bidiAudioCapture(conn *websocket.Conn, ctx context.Context, id string, chunkMs int) {
 	want := bidiAudioRate * chunkMs / 1000
 	// Chunks wait here for the socket. Each is stamped when it was
@@ -258,6 +262,12 @@ func (s *Server) bidiAudioCapture(conn *websocket.Conn, ctx context.Context, id 
 	var pending []int16
 	var scratch []int16
 	sent := 0
+	// When a chunk's first sample was captured is worked out from when its
+	// audio arrived, which wobbles by tens of milliseconds with scheduling.
+	// The stamps follow the samples instead, and move to the arrival time
+	// only when it is far enough off to mean audio went missing.
+	var next time.Time
+	chunkLen := time.Duration(chunkMs) * time.Millisecond
 	for ctx.Err() == nil {
 		params := s.AudioBroadcast.Params()
 		ch, unsub := s.AudioBroadcast.Subscribe()
@@ -278,6 +288,10 @@ func (s *Server) bidiAudioCapture(conn *websocket.Conn, ctx context.Context, id 
 					// The newest sample was captured about now; the piece's
 					// first sample that much audio earlier.
 					first := arrived.Add(-time.Duration(len(pending)) * time.Second / bidiAudioRate)
+					if drift := first.Sub(next); !next.IsZero() && drift > -bidiAudioJump && drift < bidiAudioJump {
+						first = next.Add(drift / 16) // steady, with a slow pull toward the arrivals
+					}
+					next = first.Add(chunkLen)
 					event := map[string]any{
 						"capture": id, "sample": sent, "time": audioAt(first),
 						"data": base64.StdEncoding.EncodeToString(pcm.Int16LE(nil, pending[:want])),
@@ -305,6 +319,7 @@ func (s *Server) bidiAudioCapture(conn *websocket.Conn, ctx context.Context, id 
 		// The source changed format and dropped its listeners. Pick it up
 		// again; the chunk times show the gap.
 		pending = pending[:0]
+		next = time.Time{}
 		select {
 		case <-ctx.Done():
 		case <-time.After(100 * time.Millisecond):
