@@ -693,6 +693,10 @@ Roadie implements a minimal subset of BiDi — only the methods that map to hard
 | `roadie:screen.getViewport` | Returns the current viewport (cropped image) width and height |
 | `input.performActions` | Execute keyboard, mouse, touch and wheel actions. On an iPhone touch arrives as the pointer, one finger at a time; a gesture with more fingers is refused before any of it runs (see [`/api/hid/touch`](#post-apihidtouch)). A `wheel` source's `scroll` turns the wheel with the pointer at `x`, `y` (viewport origin only), then puts the pointer back; `deltaY` (vertical only) becomes notches of [the wheel](#post-apihidmousescroll): on an iPhone as many as scroll about that far, elsewhere one per 32nd of the viewport |
 | `input.releaseActions` | Release all held keys, buttons, and touches |
+| `roadie:audio.clock` | Returns `{now}`: Roadie's monotonic clock in milliseconds, the clock every audio time below is on |
+| `roadie:audio.play` | Play a clip into the target's microphone and answer when it has played out. See [Audio over BiDi](#audio-over-bidi) |
+| `roadie:audio.capture.start` | Start streaming what the target plays as `roadie:audio.chunk` events |
+| `roadie:audio.capture.stop` | Stop the capture |
 
 **Example session (using [websocat](https://github.com/vi/websocat)):**
 
@@ -727,6 +731,37 @@ websocat ws://localhost:8080/session
 **Viewport size:** `session.new` returns `roadie:viewport: {width, height}` in capabilities, and `browsingContext.captureScreenshot` includes it in the result. This tells you the coordinate space for `input.performActions` — pixel coordinates are relative to this viewport (the cropped screenshot). Roadie translates them to the 0–32767 HID absolute coordinate range internally.
 
 **Touch input:** Use pointer actions with `"parameters": {"pointerType": "touch"}`. Up to 2 simultaneous touch contacts are supported.
+
+#### Audio over BiDi
+
+The `roadie:audio` commands are a raw audio pipe on the session socket. Roadie knows nothing about speech: the client brings PCM and takes PCM. All audio is 16 kHz, mono, 16-bit little-endian (`s16le`), base64 in JSON. `session.new` announces what is there:
+
+```json
+"roadie:audio": {"play": true, "capture": true, "sampleRate": 16000, "channels": 1, "format": "s16le"}
+```
+
+`play` is true when the input backend has a microphone. `capture` is true when audio is coming from the target. All three commands need a session.
+
+**`roadie:audio.play`** sends one clip, at most 60 seconds, into the target's microphone. Roadie paces it at real time and answers when the clip has played out. One clip plays at a time. The socket keeps answering other commands meanwhile.
+
+```json
+{"id": 2, "method": "roadie:audio.play", "params": {"format": "s16le", "sampleRate": 16000, "channels": 1, "data": "<base64 PCM>"}}
+{"type": "success", "id": 2, "result": {"startTime": 81234607.2, "endTime": 81236917.2, "samples": 36960}}
+```
+
+`startTime` and `endTime` are when the first and the last sample left for the microphone. They are an estimate: the microphone's jitter buffer starts playing 40 ms after the first audio arrives, and the USB path adds a few milliseconds that Roadie does not measure. Audio sent while the target is not recording is dropped, as it is on [`/api/mic`](#ws-apimic).
+
+**`roadie:audio.capture.start`** takes `chunkMs` (20 to 1000, default 100) and answers `{capture, sampleRate, channels, format, startTime}`. Then one event arrives per chunk:
+
+```json
+{"type": "event", "method": "roadie:audio.chunk", "params": {"capture": "c1", "sample": 1600, "time": 81236980.0, "data": "<base64 PCM>"}}
+```
+
+`sample` counts the samples sent before this chunk. `time` is when the chunk's first sample was captured. When the source drops audio, `time` jumps and `sample` does not, so place chunks by `time`. A second `capture.start` replaces the first. The capture ends with `roadie:audio.capture.stop` (`{capture}`), with the session, or with the connection.
+
+**`roadie:audio.clock`** answers `{now}`. A client that needs Roadie's times on its own clock reads it a few times and keeps the reading with the shortest round trip.
+
+Messages on `/session` may be up to 4 MB, which is a 60-second clip.
 
 **Key input:** Key values follow the [WebDriver key mapping](https://w3c.github.io/webdriver/#keyboard-actions), with printable characters as literals and special keys as Unicode Private Use Area values (e.g., `"\uE007"` for Enter, `"\uE008"` for Shift).
 

@@ -103,8 +103,12 @@ func (s *Server) handleBiDi(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.CloseNow()
+	conn.SetReadLimit(bidiReadLimit)
 
-	ctx := r.Context()
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	sound := &bidiAudio{}
+	defer sound.close()
 	lim := rig.LimiterFrom(ctx) // through a station: the hold's pace
 	idle := time.AfterFunc(bidiIdleTimeout, func() {
 		log.Printf("bidi: no command for %s, closing the session", bidiIdleTimeout)
@@ -153,6 +157,14 @@ func (s *Server) handleBiDi(w http.ResponseWriter, r *http.Request) {
 			s.bidiCaptureScreenshot(conn, ctx, cmd)
 		case "roadie:screen.getViewport":
 			s.bidiGetViewport(conn, ctx, cmd)
+		case "roadie:audio.clock":
+			s.bidiAudioClock(conn, ctx, cmd)
+		case "roadie:audio.play":
+			s.bidiAudioPlay(conn, ctx, cmd, sound)
+		case "roadie:audio.capture.start":
+			s.bidiAudioCaptureStart(conn, ctx, cmd, sound)
+		case "roadie:audio.capture.stop":
+			s.bidiAudioCaptureStop(conn, ctx, cmd, sound)
 		case "input.performActions":
 			s.bidiPerformActions(conn, ctx, cmd)
 		case "input.releaseActions":
@@ -227,6 +239,7 @@ func (s *Server) bidiSessionNew(conn *websocket.Conn, ctx context.Context, cmd b
 	caps["roadie:device"] = s.Device
 	caps["roadie:resolution"] = fmt.Sprintf("%dx%d", s.Buf.Width(), s.Buf.Height())
 	caps["roadie:viewport"] = s.viewportSize()
+	caps["roadie:audio"] = s.audioCaps()
 
 	writeJSON(conn, ctx, bidiResult{
 		Type: "success",
