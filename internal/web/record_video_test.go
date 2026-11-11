@@ -85,6 +85,18 @@ func (f *fakeTap) Tap(sink rtc.SampleSink) func() {
 // recordAHold runs one hold with a video tap and returns the uploaded zip.
 func recordAHold(t *testing.T, tap *fakeTap, max int64, during func(r *recorder)) (*zip.Reader, string) {
 	t.Helper()
+	return recordAHoldWith(t, tap, nil, max, during)
+}
+
+func leftIn(dir string) []string {
+	left, _ := filepath.Glob(filepath.Join(dir, "*"))
+	return left
+}
+
+// recordAHoldWith runs one hold with what the host has, a video tap or a
+// sound source or both, and returns the uploaded zip.
+func recordAHoldWith(t *testing.T, tap *fakeTap, sound SoundSource, max int64, during func(r *recorder)) (*zip.Reader, string) {
+	t.Helper()
 	entry := &rig.StationEntry{Name: "st", Npub: "npub1test", URL: "https://st.example", RigID: "rig_1", Record: true}
 	key := nostr.Generate()
 	dir := t.TempDir()
@@ -93,7 +105,14 @@ func recordAHold(t *testing.T, tap *fakeTap, max int64, during func(r *recorder)
 	}, dir)
 	r.settle, r.burst = 20*time.Millisecond, 10*time.Millisecond
 	r.logf = t.Logf
-	r.SetVideo(tap, max)
+	if tap != nil {
+		r.SetVideo(tap, max)
+	} else {
+		r.SetVideo(nil, max)
+	}
+	if sound != nil {
+		r.SetSound(sound)
+	}
 	got := make(chan []byte, 1)
 	r.upload = func(ctx context.Context, e *rig.StationEntry, k nostr.SecretKey, rec rig.Recording) (map[string]any, error) {
 		data, _ := io.ReadAll(rec.Body)

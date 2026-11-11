@@ -4,10 +4,13 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/VibiumDev/roadie/aac"
 )
 
 // What a Roadie's encoder sends for an iPhone: 448x976 coded, cropped to
@@ -81,7 +84,7 @@ func TestWriterStoresTheStreamAsItComes(t *testing.T) {
 			t.Fatalf("unit %d: %v", i, err)
 		}
 	}
-	info, err := m.Finish()
+	info, err := m.Finish(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,8 +166,65 @@ func TestWriterRefusesAnotherStream(t *testing.T) {
 	if err := m.Add(unit(testSPS, []byte{0x28, 0xce, 0x3c, 0x81}, testIDR), 2*time.Second); !errors.Is(err, ErrChanged) {
 		t.Fatalf("a keyframe with another PPS: %v", err)
 	}
-	if info, err := m.Finish(); err != nil || info.Frames != 2 || info.Width != 444 {
+	if info, err := m.Finish(nil); err != nil || info.Frames != 2 || info.Width != 444 {
 		t.Errorf("%+v, %v; want 2 frames of the first stream", info, err)
+	}
+}
+
+func TestWriterAddsTheSound(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v.mp4")
+	m, err := Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 60; i++ {
+		au := unit(testSlice)
+		if i%30 == 0 {
+			au = unit(testSPS, testPPS, testIDR)
+		}
+		if err := m.Add(au, time.Duration(i)*time.Second/30); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Three seconds of a tone for two seconds of video: the rest is cut.
+	pcm := make([]int16, 3*aac.Rate)
+	for i := range pcm {
+		pcm[i] = int16(8000 * math.Sin(float64(i)*2*math.Pi*440/aac.Rate))
+	}
+	info, err := m.Finish(pcm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Sound || info.Frames != 60 {
+		t.Fatalf("info %+v; want sound and 60 frames", info)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(data)) != info.Bytes {
+		t.Errorf("the file is %d bytes, the info says %d", len(data), info.Bytes)
+	}
+	got := map[string][]byte{}
+	boxes(t, data, "", got)
+	// The walk keeps the last track of each kind: the sound's.
+	mdia := "moov/trak/mdia/"
+	if string(got[mdia+"hdlr"][8:12]) != "soun" {
+		t.Fatalf("the second track's handler is %q", got[mdia+"hdlr"][8:12])
+	}
+	mdhd := got[mdia+"mdhd"]
+	rate, length := binary.BigEndian.Uint32(mdhd[12:]), binary.BigEndian.Uint32(mdhd[16:])
+	if rate != aac.Rate {
+		t.Errorf("the sound's timescale is %d", rate)
+	}
+	// Two seconds of sound, in whole frames, with the encoder's delay.
+	if seconds := float64(length) / float64(rate); seconds < 2 || seconds > 2.2 {
+		t.Errorf("the sound runs %.2f s; want about 2", seconds)
+	}
+	off := binary.BigEndian.Uint32(got[mdia+"minf/stbl/stco"][8:])
+	first := binary.BigEndian.Uint32(got[mdia+"minf/stbl/stsz"][12:])
+	if int(off+first) > len(data) || off < 48 {
+		t.Errorf("the sound's first frame is at %d, %d bytes long, in a file of %d", off, first, len(data))
 	}
 }
 
@@ -175,7 +235,7 @@ func TestWriterWithNoVideo(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.Add(unit(testSlice), 0)
-	if _, err := m.Finish(); err == nil {
+	if _, err := m.Finish(nil); err == nil {
 		t.Error("a file with no keyframe finished without an error")
 	}
 	m.Discard()

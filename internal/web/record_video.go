@@ -16,7 +16,8 @@ import (
 // A hold's video: the H.264 the host already encodes for its viewers,
 // stored as it comes. The recorder is one more taker of the encoder's
 // output, so recording costs a copy and a write, not a second encode. With
-// no viewer connected the tap keeps the encoder running for the hold.
+// no viewer connected the tap keeps the encoder running for the hold. What
+// the device played goes into the file as its sound (see record_sound.go).
 
 // VideoTap is where the encoded picture comes from. rtc.Broadcaster is one.
 type VideoTap interface {
@@ -62,11 +63,13 @@ type videoUnit struct {
 	key  bool
 }
 
-// videoPart is one finished file. A hold has a second one when its
-// picture changed size, as a phone turned on its side does.
+// videoPart is one file. A hold has a second one when its picture changed
+// size, as a phone turned on its side does. A part stays open until the
+// hold ends, when the sound that goes with it is known.
 type videoPart struct {
 	path      string
 	startedAt time.Time
+	w         *mp4.Writer
 	info      mp4.Info
 	gaps      int64
 	note      string // why it stops before the hold does
@@ -155,28 +158,42 @@ func (v *holdVideo) add(u videoUnit) {
 	}
 }
 
-// closePart finishes the file being written.
+// closePart ends the file being written. It takes no more frames.
 func (v *holdVideo) closePart(note string) {
 	if v.cur == nil {
 		return
 	}
-	w, path := v.cur, v.curPath
+	v.bytes += v.cur.Bytes()
+	v.parts = append(v.parts, videoPart{path: v.curPath, startedAt: v.curAt, w: v.cur, gaps: v.gaps.Swap(0), note: note})
 	v.cur = nil
-	info, err := w.Finish()
-	if err != nil {
-		w.Discard()
-		v.logf("record: video: %v", err)
-		return
-	}
-	v.bytes += info.Bytes
-	v.parts = append(v.parts, videoPart{path: path, startedAt: v.curAt, info: info, gaps: v.gaps.Swap(0), note: note})
 }
 
-// finish ends the video and returns its files, which the caller removes.
-func (v *holdVideo) finish() []videoPart {
+// finish ends the video and writes each file's index. sound gives the
+// device's sound between two moments, or nil when there was none; it goes
+// into the file as its audio track. The caller removes the files.
+func (v *holdVideo) finish(ended time.Time, sound func(from, to time.Time) []int16) []videoPart {
 	close(v.quit)
 	<-v.done
-	return v.parts
+	var done []videoPart
+	for i, p := range v.parts {
+		until := ended
+		if i+1 < len(v.parts) {
+			until = v.parts[i+1].startedAt
+		}
+		var pcm []int16
+		if sound != nil {
+			pcm = sound(p.startedAt, until)
+		}
+		info, err := p.w.Finish(pcm)
+		if err != nil {
+			p.w.Discard()
+			v.logf("record: video: %v", err)
+			continue
+		}
+		p.w, p.info = nil, info
+		done = append(done, p)
+	}
+	return done
 }
 
 // videoEntry is one video in video/index.json, as Vibium's recording
@@ -190,6 +207,7 @@ type videoEntry struct {
 	Width      int    `json:"width"`
 	Height     int    `json:"height"`
 	MimeType   string `json:"mimeType"`
+	Audio      bool   `json:"audio,omitempty"`
 	Gaps       int64  `json:"gaps,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
@@ -204,7 +222,7 @@ func videoEntries(parts []videoPart, started time.Time) []videoEntry {
 		}
 		entries[i] = videoEntry{File: name, Context: "screen", StartedAt: p.startedAt.UnixMilli(),
 			OffsetMs: p.startedAt.Sub(started).Milliseconds(), DurationMs: p.info.Duration.Milliseconds(),
-			Width: p.info.Width, Height: p.info.Height, MimeType: "video/mp4", Gaps: p.gaps, Error: p.note}
+			Width: p.info.Width, Height: p.info.Height, MimeType: "video/mp4", Audio: p.info.Sound, Gaps: p.gaps, Error: p.note}
 	}
 	return entries
 }
