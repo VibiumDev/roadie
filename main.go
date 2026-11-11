@@ -483,6 +483,7 @@ func main() {
 		recorder.SetSound(ab)
 	}
 	settled.OnInput = recorder.Input
+	settled.OnAudio = recorder.Said
 	onHoldEnd := func(_, holdID string) {
 		if broadcaster != nil {
 			broadcaster.EndHold(holdID)

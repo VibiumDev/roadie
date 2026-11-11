@@ -12,10 +12,12 @@ import (
 	"github.com/VibiumDev/roadie/internal/audio"
 )
 
-// A hold's sound: what the device played while the hold was recorded, as
-// 16 kHz mono. It is kept twice in the recording: as audio/in-session.wav,
-// which the Record Player plays, and as the sound track of the video, so
-// the video file plays with its sound anywhere.
+// A hold's sound, as 16 kHz mono: what the device played while the hold
+// was recorded, and what was sent to its microphone, whether a viewer
+// spoke or a client played a clip. Each is kept twice in the recording: as
+// a WAV under audio/, which the Record Player plays, and mixed into the
+// sound track of the video, so the video file plays with its sound
+// anywhere.
 
 // SoundSource is the device's sound. audio.AudioBroadcaster is one.
 type SoundSource interface {
@@ -45,6 +47,7 @@ type holdSound struct {
 	logf    func(format string, args ...any)
 	quit    chan struct{}
 	done    chan struct{}
+	pushed  chan saidPiece // for sound given with push
 
 	// The writer's own until done closes.
 	f       *os.File
@@ -60,21 +63,85 @@ func startHoldSound(src SoundSource, path string, started time.Time, now func() 
 	return s
 }
 
-func (s *holdSound) run(src SoundSource) {
+// saidQueue is how many pieces of sound may wait for the disk. Past it
+// they are dropped, never the microphone held up.
+const saidQueue = 256
+
+// startSaidSound keeps the sound it is given with push: what goes to the
+// device's microphone.
+func startSaidSound(path string, started time.Time, now func() time.Time, logf func(string, ...any)) *holdSound {
+	s := &holdSound{path: path, started: started, now: now, logf: logf, quit: make(chan struct{}), done: make(chan struct{}),
+		pushed: make(chan saidPiece, saidQueue)}
+	go s.runPushed()
+	return s
+}
+
+type saidPiece struct {
+	samples []int16
+	at      time.Time
+}
+
+// push takes 16 kHz mono samples, 16-bit little-endian, as they are sent.
+func (s *holdSound) push(raw []byte) {
+	samples := make([]int16, len(raw)/2)
+	for i := range samples {
+		samples[i] = int16(binary.LittleEndian.Uint16(raw[i*2:]))
+	}
+	select {
+	case s.pushed <- saidPiece{samples, s.now()}:
+	default:
+	}
+}
+
+func (s *holdSound) runPushed() {
 	defer close(s.done)
+	if !s.open() {
+		return
+	}
+	defer s.close()
+	for {
+		select {
+		case <-s.quit:
+			for {
+				select {
+				case p := <-s.pushed:
+					s.add(p.samples, p.at)
+				default:
+					return
+				}
+			}
+		case p := <-s.pushed:
+			s.add(p.samples, p.at)
+		}
+	}
+}
+
+// open makes the spool file.
+func (s *holdSound) open() bool {
 	f, err := os.OpenFile(s.path, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o600)
 	if err != nil {
 		s.err = err
 		s.logf("record: sound: %v", err)
-		return
+		return false
 	}
 	s.f, s.w = f, bufio.NewWriterSize(f, 64<<10)
-	defer func() {
-		s.pad(s.at(s.now()) - s.samples)
-		if err := s.w.Flush(); err != nil && s.err == nil {
-			s.err = err
-		}
-	}()
+	return true
+}
+
+// close pads the sound to now and puts it on disk.
+func (s *holdSound) close() {
+	s.pad(s.at(s.now()) - s.samples)
+	if err := s.w.Flush(); err != nil && s.err == nil {
+		s.err = err
+	}
+}
+
+func (s *holdSound) run(src SoundSource) {
+	defer close(s.done)
+	if !s.open() {
+		return
+	}
+	defer s.close()
 	var scratch []int16
 	for {
 		params := src.Params()
@@ -180,6 +247,33 @@ func (s *holdSound) between(from, to time.Time) []int16 {
 		out[i] = int16(binary.LittleEndian.Uint16(raw[i*2:]))
 	}
 	return out
+}
+
+// mixSound gives the sound of several recordings between two moments as
+// one. Nil recordings count for nothing; with none it is nil.
+func mixSound(sounds ...*holdSound) func(from, to time.Time) []int16 {
+	var live []*holdSound
+	for _, s := range sounds {
+		if s != nil {
+			live = append(live, s)
+		}
+	}
+	if len(live) == 0 {
+		return nil
+	}
+	return func(from, to time.Time) []int16 {
+		out := live[0].between(from, to)
+		for _, s := range live[1:] {
+			more := s.between(from, to)
+			if len(more) > len(out) {
+				out, more = more, out
+			}
+			for i, v := range more {
+				out[i] = int16(min(max(int32(out[i])+int32(v), -32768), 32767))
+			}
+		}
+		return out
+	}
 }
 
 // writeWAV writes everything recorded as a WAV file.

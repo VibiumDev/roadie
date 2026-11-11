@@ -180,7 +180,8 @@ listed on the station's Records page next to who held the device and when.
 Manual sessions count as much as an agent's, and Roadie tells the station,
 whose Devices page notes "records sessions" under the host and whose viewer shows REC while a session is live, saying on hover what is recorded.
 
-A recorded hold also keeps a video of the screen and what the phone played:
+A recorded hold also keeps a video of the screen, what the phone played, and
+what was sent to its microphone, such as your voice when the viewer's Mic is on:
 
 - The Record Player shows the video in place of the screenshots, with its sound.
 - The video costs no second encode. It is what Roadie already sends its viewers.

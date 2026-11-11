@@ -281,9 +281,9 @@ func TestRecorderLeavesVideoToAViewerThatRecords(t *testing.T) {
 	// The viewer starts recording partway through the hold.
 	tap = &fakeTap{sps: tallSPS}
 	zr, dir = recordAHoldWith(t, tap, &fakeSound{tone: true}, 8<<20, func(r *recorder) {
-		time.Sleep(100 * time.Millisecond)
+		say(r, 100*time.Millisecond)
 		r.ViewerRecords()
-		time.Sleep(100 * time.Millisecond)
+		say(r, 100*time.Millisecond)
 	})
 	if got := hasMedia(zr); len(got) != 0 {
 		t.Errorf("kept %v after a viewer began recording", got)

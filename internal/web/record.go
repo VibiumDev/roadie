@@ -35,8 +35,9 @@ import (
 // start.
 //
 // On a host that encodes H.264 the recording also holds a video of the
-// screen for as long as it ran (see record_video.go), and on one that
-// hears the device, what it played (see record_sound.go).
+// screen for as long as it ran (see record_video.go), and with it the
+// sound: what the device played and what was sent to its microphone (see
+// record_sound.go).
 
 const roadieVersion = "dev"
 
@@ -93,8 +94,10 @@ type holdRecording struct {
 	ended    bool
 	lastIn   time.Time
 	endedAt  time.Time
+	media    bool // video and sound are kept, as far as the host has them
 	video    *holdVideo
-	sound    *holdSound
+	sound    *holdSound // what the device played
+	said     *holdSound // what went to its microphone
 }
 
 // recordStep is a burst of inputs that becomes one step with one frame.
@@ -137,10 +140,12 @@ func (r *recorder) ViewerRecords() {
 		if rec.video != nil {
 			videos = append(videos, rec.video)
 		}
-		if rec.sound != nil {
-			sounds = append(sounds, rec.sound)
+		for _, s := range []*holdSound{rec.sound, rec.said} {
+			if s != nil {
+				sounds = append(sounds, s)
+			}
 		}
-		rec.video, rec.sound = nil, nil
+		rec.media, rec.video, rec.sound, rec.said = false, nil, nil, nil
 	}
 	r.mu.Unlock()
 	for _, v := range videos {
@@ -154,11 +159,7 @@ func (r *recorder) ViewerRecords() {
 // startMedia begins a new recording's video and sound, as far as the host
 // can make them. Called with the lock held.
 func (r *recorder) startMedia(rec *holdRecording) {
-	film := r.video != nil && r.video.Available()
-	if r.videoMax <= 0 || (!film && r.sound == nil) {
-		return
-	}
-	if r.video != nil && r.video.ViewerRecording() {
+	if r.videoMax <= 0 || (r.video != nil && r.video.ViewerRecording()) {
 		return
 	}
 	if err := os.MkdirAll(r.dir, 0o700); err != nil {
@@ -169,13 +170,36 @@ func (r *recorder) startMedia(rec *holdRecording) {
 		r.logf("record: %s: no video: %d MB free at %s, and a video needs %d", rec.holdID, free>>20, r.dir, videoRoom*r.videoMax>>20)
 		return
 	}
+	rec.media = true
 	base := filepath.Join(r.dir, rec.holdID)
 	if r.sound != nil {
-		rec.sound = startHoldSound(r.sound, base+".pcm.part", rec.started, r.now, r.logf)
+		rec.sound = startHoldSound(r.sound, base+".heard.part", rec.started, r.now, r.logf)
 	}
-	if film {
+	if r.video != nil && r.video.Available() {
 		rec.video = startHoldVideo(r.video, base, rec.started, r.videoMax, r.now, r.logf)
 	}
+}
+
+// Said takes the sound that goes to the device's microphone: 16 kHz mono,
+// 16-bit little-endian, as it is sent. It is kept from the first piece on,
+// so a hold in which nothing is said costs nothing.
+func (r *recorder) Said(pcm []byte) {
+	_, _, holdID, _, ok := r.current()
+	if !ok {
+		return
+	}
+	r.mu.Lock()
+	rec := r.active[holdID]
+	if rec == nil || rec.ended || !rec.media {
+		r.mu.Unlock()
+		return
+	}
+	if rec.said == nil {
+		rec.said = startSaidSound(filepath.Join(r.dir, rec.holdID)+".said.part", rec.started, r.now, r.logf)
+	}
+	said := rec.said
+	r.mu.Unlock()
+	said.push(pcm)
 }
 
 func (r *recorder) ms(rec *holdRecording, t time.Time) int64 {
@@ -363,20 +387,22 @@ func (r *recorder) finish(rec *holdRecording) {
 // write puts the recording's zip and its sidecar on disk.
 func (r *recorder) write(rec *holdRecording) (base string, ok bool) {
 	// The sound ends first: the video's files take theirs from it.
-	var sound *holdSound
+	var heard, said *holdSound
 	if rec.sound != nil {
 		defer rec.sound.remove()
 		if rec.sound.finish() {
-			sound = rec.sound
+			heard = rec.sound
+		}
+	}
+	if rec.said != nil {
+		defer rec.said.remove()
+		if rec.said.finish() {
+			said = rec.said
 		}
 	}
 	var videos []videoPart
 	if rec.video != nil {
-		var between func(from, to time.Time) []int16
-		if sound != nil {
-			between = sound.between
-		}
-		videos = rec.video.finish(rec.endedAt, between)
+		videos = rec.video.finish(rec.endedAt, mixSound(heard, said))
 		defer removeParts(videos)
 	}
 	if err := os.MkdirAll(r.dir, 0o700); err != nil {
@@ -386,7 +412,7 @@ func (r *recorder) write(rec *holdRecording) (base string, ok bool) {
 	base = filepath.Join(r.dir, rec.holdID)
 	// The zip appears under its name whole, so a start after a crash never
 	// uploads half of one.
-	size, err := writeZip(base+".zip.part", rec.lines, rec.frames, videos, sound, rec.started)
+	size, err := writeZip(base+".zip.part", rec.lines, rec.frames, videos, heard, said, rec.started)
 	if err == nil {
 		err = os.Rename(base+".zip.part", base+".zip")
 	}
@@ -397,25 +423,31 @@ func (r *recorder) write(rec *holdRecording) (base string, ok bool) {
 	}
 	meta, _ := json.Marshal(recordingMeta{Station: rec.entry.Npub, DeviceID: rec.deviceID, HoldID: rec.holdID, Started: rec.started.UTC().Format(time.RFC3339)})
 	os.WriteFile(base+".json", meta, 0o600)
-	var filmed, heard time.Duration
+	var filmed time.Duration
 	for _, v := range videos {
 		filmed += v.info.Duration
 	}
-	if sound != nil {
-		heard = sound.duration()
+	sound := "no sound"
+	switch {
+	case heard != nil && said != nil:
+		sound = "sound heard and said"
+	case heard != nil:
+		sound = "sound heard"
+	case said != nil:
+		sound = "sound said"
 	}
-	r.logf("record: %s: %d steps, %d frames, %.0f s of video, %.0f s of sound, %d bytes; uploading to %s", rec.holdID, rec.calls, len(rec.frames), filmed.Seconds(), heard.Seconds(), size, rec.entry.Name)
+	r.logf("record: %s: %d steps, %d frames, %.0f s of video, %s, %d bytes; uploading to %s", rec.holdID, rec.calls, len(rec.frames), filmed.Seconds(), sound, size, rec.entry.Name)
 	return base, true
 }
 
 // writeZip writes a recording to path and returns its size.
-func writeZip(path string, lines []map[string]any, frames map[string][]byte, videos []videoPart, sound *holdSound, started time.Time) (int64, error) {
+func writeZip(path string, lines []map[string]any, frames map[string][]byte, videos []videoPart, heard, said *holdSound, started time.Time) (int64, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return 0, err
 	}
 	w := bufio.NewWriterSize(f, 256<<10)
-	err = writeTrace(w, lines, frames, videos, sound, started)
+	err = writeTrace(w, lines, frames, videos, heard, said, started)
 	if err == nil {
 		err = w.Flush()
 	}
@@ -500,7 +532,7 @@ func (r *recorder) Retry(policy *rig.Policy, key nostr.SecretKey) {
 // one JSON event per line, an empty trace.network, the frames under
 // resources/, the videos under video/ and the sound under audio/, each
 // with its index.
-func writeTrace(w io.Writer, lines []map[string]any, frames map[string][]byte, videos []videoPart, sound *holdSound, started time.Time) error {
+func writeTrace(w io.Writer, lines []map[string]any, frames map[string][]byte, videos []videoPart, heard, said *holdSound, started time.Time) error {
 	zw := zip.NewWriter(w)
 	f, err := zw.Create("trace.trace")
 	if err != nil {
@@ -544,22 +576,42 @@ func writeTrace(w io.Writer, lines []map[string]any, frames map[string][]byte, v
 			}
 		}
 	}
-	if sound != nil {
+	if heard != nil || said != nil {
+		// What the device played is a track. What went to its microphone is
+		// a clip played once, from the recording's start.
+		index := map[string]any{"version": 1}
+		wav := func(id string, s *holdSound) map[string]any {
+			return map[string]any{"id": id, "target": "session", "file": "audio/" + id + ".wav",
+				"sampleRate": soundRate, "channels": 1, "encoding": "pcm_s16le", "durationMs": s.duration().Milliseconds()}
+		}
+		if heard != nil {
+			track := wav("in-session", heard)
+			track["startMs"] = 0
+			index["tracks"] = []any{track}
+		}
+		if said != nil {
+			clip := wav("out-session", said)
+			clip["plays"] = []any{map[string]any{"startMs": 0, "endMs": said.duration().Milliseconds()}}
+			index["clips"] = []any{clip}
+		}
 		f, err := zw.Create("audio/index.json")
 		if err != nil {
 			return err
 		}
-		track := map[string]any{"id": "in-session", "target": "session", "file": "audio/in-session.wav",
-			"sampleRate": soundRate, "channels": 1, "encoding": "pcm_s16le", "startMs": 0, "durationMs": sound.duration().Milliseconds()}
-		if err := json.NewEncoder(f).Encode(map[string]any{"version": 1, "tracks": []any{track}}); err != nil {
+		if err := json.NewEncoder(f).Encode(index); err != nil {
 			return err
 		}
 		// Sound is mostly quiet, which packs to almost nothing.
-		if f, err = zw.Create("audio/in-session.wav"); err != nil {
-			return err
-		}
-		if err := sound.writeWAV(f); err != nil {
-			return err
+		for id, s := range map[string]*holdSound{"in-session": heard, "out-session": said} {
+			if s == nil {
+				continue
+			}
+			if f, err = zw.Create("audio/" + id + ".wav"); err != nil {
+				return err
+			}
+			if err := s.writeWAV(f); err != nil {
+				return err
+			}
 		}
 	}
 	return zw.Close()

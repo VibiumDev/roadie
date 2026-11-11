@@ -352,3 +352,19 @@ func (k *keyHID) ResetHID() error            { return nil }
 func (k *keyHID) ResetRelay() error          { return nil }
 func (k *keyHID) KeyPress(c int) error       { k.log = append(k.log, fmt.Sprintf("+%d", c)); return nil }
 func (k *keyHID) KeyRelease(c int) error     { k.log = append(k.log, fmt.Sprintf("-%d", c)); return nil }
+
+func TestSettledHIDTellsOfTheSoundItSends(t *testing.T) {
+	h := NewSettledHID(&keyHID{})
+	var heard [][]byte
+	h.OnAudio = func(pcm []byte) { heard = append(heard, append([]byte{}, pcm...)) }
+	// An empty piece asks whether sound can be sent at all.
+	if err := h.SendAudio(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SendAudio([]byte{1, 2, 3, 4}); err != nil {
+		t.Fatal(err)
+	}
+	if len(heard) != 1 || len(heard[0]) != 4 {
+		t.Fatalf("the listener heard %v", heard)
+	}
+}
