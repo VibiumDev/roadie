@@ -65,3 +65,40 @@ func TestTapRunsTheEncoderWithNoViewer(t *testing.T) {
 		}
 	}
 }
+
+func TestAViewerSaysItRecords(t *testing.T) {
+	b, err := New(&fakeSource{added: make(chan struct{}), gone: make(chan struct{})}, Options{
+		Logf:        t.Logf,
+		OpenEncoder: func(encoder.Config) (encoder.Encoder, string, error) { return nil, "", encoder.ErrUnavailable },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	told := 0
+	b.OnViewerRecording(func() { told++ })
+
+	gone := &Session{b: b}
+	gone.onControl([]byte(`{"type":"recording"}`))
+	if told != 0 || b.ViewerRecording() {
+		t.Fatal("a viewer that is not connected was heard")
+	}
+
+	s := &Session{b: b}
+	b.mu.Lock()
+	b.sessions[s] = struct{}{}
+	b.mu.Unlock()
+	if b.ViewerRecording() {
+		t.Fatal("a viewer that has said nothing counts as recording")
+	}
+	s.onControl([]byte(`{"type":"recording"}`))
+	if told != 1 || !b.ViewerRecording() {
+		t.Fatalf("told %d times, recording %v", told, b.ViewerRecording())
+	}
+	b.mu.Lock()
+	delete(b.sessions, s)
+	b.mu.Unlock()
+	if b.ViewerRecording() {
+		t.Fatal("a viewer that left still counts as recording")
+	}
+}

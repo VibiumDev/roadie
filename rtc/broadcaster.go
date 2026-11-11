@@ -108,6 +108,7 @@ type Broadcaster struct {
 	speakerDone  chan struct{} // the speaker loop runs while sessions exist
 	taps         map[int]SampleSink
 	tapN         int
+	onRecorded   func()
 
 	encMu     sync.Mutex
 	enc       encoder.Encoder
@@ -381,6 +382,40 @@ func (b *Broadcaster) Tap(sink SampleSink) (stop func()) {
 	}
 }
 
+// A viewer that keeps the stream says so on the control channel, as Vibium
+// does when it records a session. The host then need not film the same
+// thing a second time.
+
+// OnViewerRecording has fn called each time a viewer says it is recording.
+func (b *Broadcaster) OnViewerRecording(fn func()) {
+	b.mu.Lock()
+	b.onRecorded = fn
+	b.mu.Unlock()
+}
+
+// ViewerRecording says whether a connected viewer is recording the stream.
+func (b *Broadcaster) ViewerRecording() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for s := range b.sessions {
+		if s.records {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *Broadcaster) viewerRecords(s *Session) {
+	b.mu.Lock()
+	_, connected := b.sessions[s]
+	s.records = connected
+	fn := b.onRecorded
+	b.mu.Unlock()
+	if connected && fn != nil {
+		fn()
+	}
+}
+
 // feed takes the capture loop's frames while a viewer or a tap wants the
 // picture, and stops the encoder when none does.
 func (b *Broadcaster) feed() {
@@ -608,7 +643,7 @@ type Message struct {
 
 // controlMessage is what travels on the control data channel.
 type controlMessage struct {
-	Type   string          `json:"type"` // keyframe, bitrate, grant (from the viewer); stats (to it)
+	Type   string          `json:"type"` // keyframe, bitrate, grant, recording (from the viewer); stats (to it)
 	BPS    int             `json:"bps,omitempty"`
 	Status *Status         `json:"status,omitempty"`
 	Kbps   int             `json:"kbps,omitempty"`

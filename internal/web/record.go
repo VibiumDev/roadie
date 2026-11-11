@@ -125,11 +125,40 @@ func (r *recorder) SetSound(src SoundSource) {
 	r.sound = src
 }
 
+// ViewerRecords is told when a viewer of the device starts keeping the
+// stream itself, as Vibium does when it records a session. That recording
+// has the video and the sound, so the hold's own gives up what it has of
+// them and keeps its steps and frames.
+func (r *recorder) ViewerRecords() {
+	r.mu.Lock()
+	var videos []*holdVideo
+	var sounds []*holdSound
+	for _, rec := range r.active {
+		if rec.video != nil {
+			videos = append(videos, rec.video)
+		}
+		if rec.sound != nil {
+			sounds = append(sounds, rec.sound)
+		}
+		rec.video, rec.sound = nil, nil
+	}
+	r.mu.Unlock()
+	for _, v := range videos {
+		go v.drop()
+	}
+	for _, s := range sounds {
+		go s.drop()
+	}
+}
+
 // startMedia begins a new recording's video and sound, as far as the host
 // can make them. Called with the lock held.
 func (r *recorder) startMedia(rec *holdRecording) {
 	film := r.video != nil && r.video.Available()
 	if r.videoMax <= 0 || (!film && r.sound == nil) {
+		return
+	}
+	if r.video != nil && r.video.ViewerRecording() {
 		return
 	}
 	if err := os.MkdirAll(r.dir, 0o700); err != nil {

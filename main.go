@@ -475,6 +475,7 @@ func main() {
 	}, recDir)
 	if broadcaster != nil {
 		recorder.SetVideo(broadcaster, int64(*recordVideoMB)<<20)
+		broadcaster.OnViewerRecording(recorder.ViewerRecords)
 	} else {
 		recorder.SetVideo(nil, int64(*recordVideoMB)<<20)
 	}

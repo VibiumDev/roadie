@@ -42,9 +42,16 @@ type fakeTap struct {
 	sps     []byte
 	taps    int
 	stopped int
+	viewer  bool // a viewer is recording the stream
 }
 
 func (f *fakeTap) Available() bool { return true }
+
+func (f *fakeTap) ViewerRecording() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.viewer
+}
 
 func (f *fakeTap) Tap(sink rtc.SampleSink) func() {
 	f.mu.Lock()
@@ -245,6 +252,49 @@ func TestRecorderWithoutAnEncoderRecordsNoVideo(t *testing.T) {
 	for _, f := range zr.File {
 		if strings.HasPrefix(f.Name, "video/") {
 			t.Errorf("%s in a recording with video off", f.Name)
+		}
+	}
+}
+
+func TestRecorderLeavesVideoToAViewerThatRecords(t *testing.T) {
+	hasMedia := func(zr *zip.Reader) (names []string) {
+		for _, f := range zr.File {
+			if strings.HasPrefix(f.Name, "video/") || strings.HasPrefix(f.Name, "audio/") {
+				names = append(names, f.Name)
+			}
+		}
+		return names
+	}
+	// The viewer was recording before the hold's first input.
+	tap := &fakeTap{sps: tallSPS, viewer: true}
+	zr, dir := recordAHoldWith(t, tap, &fakeSound{tone: true}, 8<<20, func(*recorder) { time.Sleep(100 * time.Millisecond) })
+	if got := hasMedia(zr); len(got) != 0 {
+		t.Errorf("recorded %v next to a viewer that records", got)
+	}
+	if tap.taps != 0 {
+		t.Errorf("the encoder was tapped %d times", tap.taps)
+	}
+	if left := leftIn(dir); len(left) != 0 {
+		t.Errorf("left behind: %v", left)
+	}
+
+	// The viewer starts recording partway through the hold.
+	tap = &fakeTap{sps: tallSPS}
+	zr, dir = recordAHoldWith(t, tap, &fakeSound{tone: true}, 8<<20, func(r *recorder) {
+		time.Sleep(100 * time.Millisecond)
+		r.ViewerRecords()
+		time.Sleep(100 * time.Millisecond)
+	})
+	if got := hasMedia(zr); len(got) != 0 {
+		t.Errorf("kept %v after a viewer began recording", got)
+	}
+	if _, err := zr.Open("trace.trace"); err != nil {
+		t.Error(err)
+	}
+	// The dropped files go in their own time.
+	for deadline := time.Now().Add(2 * time.Second); len(leftIn(dir)) != 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("left behind: %v", leftIn(dir))
 		}
 	}
 }

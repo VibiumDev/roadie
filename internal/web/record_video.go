@@ -23,6 +23,8 @@ import (
 type VideoTap interface {
 	Available() bool
 	Tap(sink rtc.SampleSink) (stop func())
+	// ViewerRecording says a viewer is keeping the stream itself.
+	ViewerRecording() bool
 }
 
 // videoQueue is how many encoded frames may wait for the disk: 5 s at 30
@@ -194,6 +196,15 @@ func (v *holdVideo) finish(ended time.Time, sound func(from, to time.Time) []int
 		done = append(done, p)
 	}
 	return done
+}
+
+// drop ends the video and keeps none of it.
+func (v *holdVideo) drop() {
+	close(v.quit)
+	<-v.done
+	for _, p := range v.parts {
+		p.w.Discard()
+	}
 }
 
 // videoEntry is one video in video/index.json, as Vibium's recording

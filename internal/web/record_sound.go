@@ -160,6 +160,13 @@ func (s *holdSound) finish() (heard bool) {
 	return s.samples > 0 && s.peak > soundFloor
 }
 
+// drop ends the capture and keeps none of it.
+func (s *holdSound) drop() {
+	close(s.quit)
+	<-s.done
+	s.remove()
+}
+
 // between gives the samples from one moment to another.
 func (s *holdSound) between(from, to time.Time) []int16 {
 	first := min(max(s.at(from), 0), s.samples)
