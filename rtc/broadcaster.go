@@ -1,8 +1,9 @@
 // Package rtc sends the captured picture to browsers over WebRTC.
 //
 // A Broadcaster owns one H.264 track and one encoder, which runs only while
-// a viewer is connected: the first session taps the capture loop's raw
-// frames, the last one leaving stops the encoder again. It also owns one
+// a viewer is connected or a tap is taking the encoded picture: the first of
+// them taps the capture loop's raw frames, the last one leaving stops the
+// encoder again. It also owns one
 // speaker track, the phone's sound as G.722, encoded the same way, only
 // while someone is connected. Every session is a peer connection with the
 // two tracks, a "control" data channel for keyframe and bitrate requests
@@ -105,6 +106,8 @@ type Broadcaster struct {
 	micOwner     *Session
 	micCodec     string
 	speakerDone  chan struct{} // the speaker loop runs while sessions exist
+	taps         map[int]SampleSink
+	tapN         int
 
 	encMu     sync.Mutex
 	enc       encoder.Encoder
@@ -169,6 +172,7 @@ func New(src FrameSource, opts Options) (*Broadcaster, error) {
 		src:       src,
 		sessions:  map[*Session]struct{}{},
 		caps:      map[*Session]int{},
+		taps:      map[int]SampleSink{},
 		bitrate:   opts.StartBitrate,
 		stopStats: make(chan struct{}),
 	}
@@ -327,22 +331,12 @@ func (b *Broadcaster) Close() {
 func (b *Broadcaster) addSession(s *Session) {
 	b.mu.Lock()
 	b.sessions[s] = struct{}{}
-	first := len(b.sessions) == 1
-	b.mu.Unlock()
-	if first {
-		b.encMu.Lock()
-		if !b.sinking {
-			b.sinking = true
-			b.src.AddSink(b)
-		}
-		b.encMu.Unlock()
-		b.mu.Lock()
-		if b.speakerDone == nil {
-			b.speakerDone = make(chan struct{})
-			go b.speakerLoop(b.speakerDone)
-		}
-		b.mu.Unlock()
+	if b.speakerDone == nil {
+		b.speakerDone = make(chan struct{})
+		go b.speakerLoop(b.speakerDone)
 	}
+	b.mu.Unlock()
+	b.feed()
 }
 
 // removeSession forgets a session and stops encoding after the last one.
@@ -350,22 +344,59 @@ func (b *Broadcaster) removeSession(s *Session) {
 	b.mu.Lock()
 	delete(b.sessions, s)
 	delete(b.caps, s)
-	last := len(b.sessions) == 0
+	if len(b.sessions) == 0 && b.speakerDone != nil {
+		close(b.speakerDone)
+		b.speakerDone = nil
+	}
 	b.mu.Unlock()
-	if last {
-		b.encMu.Lock()
-		if b.sinking {
-			b.sinking = false
-			b.src.RemoveSink(b)
-		}
+	b.feed()
+}
+
+// SampleSink takes every encoded access unit: Annex-B, with its parameter
+// sets on keyframes, and the time its picture was captured. It runs in the
+// encoder's pump, so it must return at once, and it must not keep data.
+type SampleSink func(data []byte, keyframe bool, ts time.Duration)
+
+// Tap sends the encoded picture to sink until stop is called. A tap keeps
+// the encoder running as a viewer does, and its first unit is a keyframe
+// as soon as the encoder can make one.
+func (b *Broadcaster) Tap(sink SampleSink) (stop func()) {
+	b.mu.Lock()
+	b.tapN++
+	id := b.tapN
+	b.taps[id] = sink
+	b.mu.Unlock()
+	b.feed()
+	b.encMu.Lock()
+	b.wantKey = true
+	b.encMu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			b.mu.Lock()
+			delete(b.taps, id)
+			b.mu.Unlock()
+			b.feed()
+		})
+	}
+}
+
+// feed takes the capture loop's frames while a viewer or a tap wants the
+// picture, and stops the encoder when none does.
+func (b *Broadcaster) feed() {
+	b.encMu.Lock()
+	defer b.encMu.Unlock()
+	b.mu.Lock()
+	want := len(b.sessions) > 0 || len(b.taps) > 0
+	b.mu.Unlock()
+	switch {
+	case want && !b.sinking:
+		b.sinking = true
+		b.src.AddSink(b)
+	case !want && b.sinking:
+		b.sinking = false
+		b.src.RemoveSink(b)
 		b.closeEncoderLocked()
-		b.encMu.Unlock()
-		b.mu.Lock()
-		if b.speakerDone != nil {
-			close(b.speakerDone)
-			b.speakerDone = nil
-		}
-		b.mu.Unlock()
 	}
 }
 
@@ -461,6 +492,15 @@ func (b *Broadcaster) pump(enc encoder.Encoder, done chan struct{}) {
 		if err := b.track.WriteSample(media.Sample{Data: data, Duration: dur}); err != nil {
 			b.opts.Logf("webrtc: write sample: %v", err)
 		}
+		b.mu.Lock()
+		taps := make([]SampleSink, 0, len(b.taps))
+		for _, t := range b.taps {
+			taps = append(taps, t)
+		}
+		b.mu.Unlock()
+		for _, t := range taps {
+			t(data, s.Keyframe, s.Timestamp)
+		}
 		b.statMu.Lock()
 		b.frames++
 		b.bytes += len(data)
@@ -532,10 +572,14 @@ func (b *Broadcaster) statsLoop() {
 				target = c
 			}
 		}
-		n := len(b.sessions)
+		n, taps := len(b.sessions), len(b.taps)
 		b.mu.Unlock()
-		if n > 0 && target > 0 {
+		switch {
+		case n > 0 && target > 0:
 			b.setBitrate(target)
+		case n == 0 && taps > 0:
+			// No viewer's network to follow: a tap gets the starting rate.
+			b.setBitrate(b.opts.StartBitrate)
 		}
 		b.statMu.Lock()
 		if since := time.Since(b.statAt); since >= time.Second {
