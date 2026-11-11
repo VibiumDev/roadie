@@ -627,8 +627,9 @@ messages as it finds its addresses; the client sends
 Roadie's side. The offer carries one H.264 video track (Constrained
 Baseline, `profile-level-id=42e01f`, packetization mode 1; the stream itself
 is level 4.0 and SPS and PPS ride every keyframe) and a data channel named
-`control` on which the client may send `{"type":"keyframe"}` or
-`{"type":"bitrate","bps":N}` (a cap, 0 to lift it), and Roadie sends
+`control` on which the client may send `{"type":"keyframe"}`,
+`{"type":"bitrate","bps":N}` (a cap, 0 to lift it) or `{"type":"recording"}`
+(it keeps the stream, so a recorded hold need not film it too), and Roadie sends
 `{"type":"stats","status":{...},"kbps":N}` once a second with the `webrtc`
 object from `/health` and the bits sent in the last second.
 
@@ -861,9 +862,23 @@ Files, next to the local token in Roadie's config directory (`~/.config/roadie` 
 | `rig.key` | The rig's secp256k1 key, made on first use; its npub is in `/health` |
 | `rig.json` | The policy: the stations accepted, and per station the allowed scopes (`view`, `input`, `bidi`), whether `admin` grants are taken, whether holds are recorded (`record`), `max_session` and optional `hours` (`"09:00-18:00"`). Written by `roadie enroll`, edited by hand; nothing remote can change it |
 | `rig-state.json` | The hold state: the current hold per device and the highest sequence seen, so a restart cannot be made to accept an older hold |
-| `recordings/` | Hold recordings an upload could not deliver, as `<hold>.zip` with a sidecar naming the station, device and hold; sent again at the next start |
+| `recordings/` | Hold recordings an upload could not deliver, as `<hold>.zip` with a sidecar naming the station, device and hold; sent again at the next start. While a hold is recorded its video and sound are kept here as `.part` files, which the next start removes if a crash left them |
 
 **Recording a hold.** With `record` set for a station (`roadie enroll --record`, or the field in `rig.json`), every hold from that station is recorded in Vibium's recording format: a frame of the screen as the hold found it, then one step per burst of input (inputs less than 250 ms apart are one step, listed in the step's parameters up to sixteen with the count) with a frame of what the screen showed 400 ms after the burst, and a frame as the hold left it. A step names its first input (`Keyboard.type ×2`, `Touch`, `Pointer.click`). After 600 frames or 64 MB the steps keep coming without frames. When the hold ends the zip is written under `recordings/`, uploaded to that station's Record Store under the rig key with the device and hold named in the authorization (`PUT /upload`, see the station's API reference), and removed once the station has it; the station's file event records it against the hold. `/health` shows `record` per station. Roadie says so in its announcement to that station, whose Devices page notes "records sessions" under the host and whose viewer shows REC while a session is live, with what is recorded as the hover text, so a person holding the device knows.
+
+**Video and sound in a recording.** A recorded hold also keeps a video of the screen and what the device played.
+
+- The video is the H.264 that Roadie encodes for its viewers, stored as it comes in `video/screen.mp4`. Nothing is encoded twice. It needs an encoder (`--encoder`); a host without one records steps and frames as before.
+- With no viewer connected, Roadie runs the encoder for the recorded hold.
+- The video starts with the hold's first input and ends with the hold.
+- A picture that changes size, as a phone turned on its side does, starts another file: `video/screen-2.mp4`.
+- The video's quality is the viewers'. One encoder serves both, and its bitrate follows the slowest viewer's connection.
+- The sound is 16 kHz mono. It is in the zip twice: as `audio/in-session.wav`, which the Record Player plays, and as the video file's own AAC track, so the file plays with its sound anywhere.
+- A hold in which nothing was heard has no sound in its recording.
+- `--record-video-mb` is the most video one hold keeps, 128 MB by default. Past it the steps and frames go on, and the video's entry says where it stopped. `0` records no video and no sound. Sound stops after 25 minutes.
+- The disk needs three times that limit free when a hold starts. With less, the hold is recorded without video and sound.
+- A viewer that keeps the stream itself sends `{"type":"recording"}` on the control channel. Vibium does when it records a session. Roadie then leaves the video and the sound out of its own recording of that hold, so the session is stored once.
+- `video/index.json` and `audio/index.json` follow Vibium's recording format.
 
 Through the tunnel the station reaches only an allowlist of endpoints, each with the scope a grant must carry, and every request presents a hold grant, either in `Authorization: Hold <base64url event>` for plain requests or in the first message of a WebSocket. Today that is:
 
@@ -918,5 +933,6 @@ Input from a viewer that does not know the capture's crop, such as the station's
 | `--encoder` | auto | H.264 encoder for WebRTC: `auto` (the Pi 4's hardware encoder when present, else ffmpeg with the host's best codec), `v4l2m2m`, `ffmpeg`, `ffmpeg:<codec>` (`libx264`, `h264_videotoolbox`, `h264_vaapi`, `h264_nvenc`, `h264_qsv`, `h264_v4l2m2m`), or `none` |
 | `--rtc-udp` | the HTTP port's number | UDP port for WebRTC media (one port for every viewer) |
 | `--relay-fps` | 5 | Frame rate cap for the MJPEG stream when it goes through a station, so a remote viewer cannot eat the uplink |
+| `--record-video-mb` | 128 | The most video a recorded hold keeps, in megabytes; `0` records no video and no sound (see [Recording a hold](#vibium-station)) |
 | `--cpuprofile` | | Write a CPU profile to this file until exit, for `go tool pprof` |
 | `--list-devices` | | List video and audio devices, then exit |
