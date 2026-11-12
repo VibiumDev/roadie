@@ -111,7 +111,7 @@ func TestRecorderRecordsAHold(t *testing.T) {
 		t.Fatal("no upload")
 	}
 	rec := up.recs[0]
-	if rec.HoldID != "hld_1" || rec.DeviceID != "rig_1/phone" || rec.Name != "hld_1.zip" || rec.Type != "application/zip" || rec.Size != int64(len(up.data[0])) {
+	if rec.HoldID != "hld_1" || rec.DeviceID != "rig_1/phone" || rec.Name != "rec_1.zip" || rec.Type != "application/zip" || rec.Size != int64(len(up.data[0])) {
 		t.Fatalf("upload: %+v", rec)
 	}
 	lines, files := readTrace(t, up.data[0])
@@ -202,7 +202,7 @@ func TestRecorderKeepsAndRetriesAFailedUpload(t *testing.T) {
 	r.End("hld_2")
 	<-tries
 	time.Sleep(20 * time.Millisecond)
-	if _, err := os.Stat(filepath.Join(dir, "hld_2.zip")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "rec_2.zip")); err != nil {
 		t.Fatal("a failed upload should leave the zip")
 	}
 	fail = false

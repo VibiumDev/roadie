@@ -171,7 +171,7 @@ func (r *recorder) startMedia(rec *holdRecording) {
 		return
 	}
 	rec.media = true
-	base := filepath.Join(r.dir, rec.holdID)
+	base := filepath.Join(r.dir, recordName(rec.holdID))
 	if r.sound != nil {
 		rec.sound = startHoldSound(r.sound, base+".heard.part", rec.started, r.now, r.logf)
 	}
@@ -195,7 +195,7 @@ func (r *recorder) Said(pcm []byte) {
 		return
 	}
 	if rec.said == nil {
-		rec.said = startSaidSound(filepath.Join(r.dir, rec.holdID)+".said.part", rec.started, r.now, r.logf)
+		rec.said = startSaidSound(filepath.Join(r.dir, recordName(rec.holdID))+".said.part", rec.started, r.now, r.logf)
 	}
 	said := rec.said
 	r.mu.Unlock()
@@ -367,6 +367,12 @@ func (r *recorder) EndAll() {
 	r.writing.Wait()
 }
 
+// recordName is a recording's file name without its extension: rec_ and
+// the digits of its hold's id, so the two are easy to pair.
+func recordName(holdID string) string {
+	return "rec_" + strings.TrimPrefix(holdID, "hld_")
+}
+
 // recordingMeta rides next to a zip that waits for its upload.
 type recordingMeta struct {
 	Station  string `json:"station"` // the entry's npub
@@ -409,7 +415,7 @@ func (r *recorder) write(rec *holdRecording) (base string, ok bool) {
 		r.logf("record: %s: %v", rec.holdID, err)
 		return "", false
 	}
-	base = filepath.Join(r.dir, rec.holdID)
+	base = filepath.Join(r.dir, recordName(rec.holdID))
 	// The zip appears under its name whole, so a start after a crash never
 	// uploads half of one.
 	size, err := writeZip(base+".zip.part", rec.lines, rec.frames, videos, heard, said, rec.started)
@@ -484,7 +490,7 @@ func (r *recorder) send(base string, entry *rig.StationEntry, key nostr.SecretKe
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	desc, err := r.upload(ctx, entry, key, rig.Recording{Body: f, Size: size, SHA256: hex.EncodeToString(sum.Sum(nil)),
-		Name: holdID + ".zip", Type: "application/zip", DeviceID: deviceID, HoldID: holdID})
+		Name: recordName(holdID) + ".zip", Type: "application/zip", DeviceID: deviceID, HoldID: holdID})
 	if err != nil {
 		r.logf("record: %s: %v (kept at %s.zip for the next start)", holdID, err, base)
 		return
