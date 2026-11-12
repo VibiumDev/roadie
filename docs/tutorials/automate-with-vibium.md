@@ -227,7 +227,10 @@ import { browser } from 'vibium'
 const bro = await browser.start()                      // launches a browser
 const page = await bro.page()
 await page.setViewport({ width: 1000, height: 1100 })  // room for the whole picture
-await page.go('http://roadie.local:8080/drive')
+// A browser that has not signed in is sent to /login, so sign in first.
+await page.go('http://roadie.local:8080/login?next=/drive')
+await page.find({ css: 'input[name=token]' }).fill(process.env.VIBIUM_CONNECT_API_KEY)
+await page.find({ css: 'button' }).click()
 
 // AC 1 + 2 = on the Calculator, already open
 for (const [x, y] of [[174, 454], [70, 756], [380, 756], [174, 756], [380, 860]]) {
