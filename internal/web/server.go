@@ -1,8 +1,10 @@
 package web
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/VibiumDev/roadie/internal/audio"
 	"github.com/VibiumDev/roadie/internal/capture"
@@ -149,7 +151,89 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("/viewer/", s.handleViewerAsset)
 	mux.HandleFunc("/favicon.png", serveIcon)
 	mux.HandleFunc("/apple-touch-icon.png", serveIcon)
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+		mux.ServeHTTP(w, r)
+	})
+}
+
+// maxBody is the most a request body may hold. The JSON the API takes is
+// a few hundred bytes, and the longest text /api/hid/type takes fits many
+// times over.
+const maxBody = 64 << 10
+
+// Typed text is bounded, and goes to the target a piece at a time, so a
+// hold that ends or a client that leaves stops it within a piece.
+const (
+	maxTypeText = 4096 // characters in one "type"
+	// typePiece is two of the relay board's own 29-character pieces, and
+	// typeGap the wait that board wants between its own, so it gets a long
+	// text at the pace it always has.
+	typePiece = 58
+)
+
+var typeGap = 50 * time.Millisecond
+
+var errTypeTooLong = fmt.Errorf("text is at most %d characters; send more as another request", maxTypeText)
+
+// pacer is the rate a station's hold is kept to (the rig's limiter).
+type pacer interface {
+	WaitN(ctx context.Context, n int) error
+}
+
+// holdPace is the pace of the hold a relayed request came on, or nil for a
+// request that did not come through a station.
+func holdPace(ctx context.Context) pacer {
+	if lim := rig.LimiterFrom(ctx); lim != nil {
+		return lim
+	}
+	return nil
+}
+
+// sleepCtx waits d, or until ctx ends.
+func sleepCtx(ctx context.Context, d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+	case <-ctx.Done():
+	}
+}
+
+// typeText types text on the target a piece at a time. Each piece waits
+// its turn on the hold's pace, a character a token, and none is sent once
+// ctx has ended.
+func (s *Server) typeText(ctx context.Context, pace pacer, text string) error {
+	if len(text) > maxTypeText {
+		return errTypeTooLong
+	}
+	// The gadget rejects a text with a character it has no key for before
+	// typing any of it. In pieces, that takes asking first.
+	if s.HID.Backend() == hid.BackendLinuxGadget {
+		if err := hid.Typeable(text); err != nil {
+			return err
+		}
+	}
+	for i := 0; ; i += typePiece {
+		if i > 0 {
+			sleepCtx(ctx, typeGap)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		piece := text[i:min(i+typePiece, len(text))]
+		if pace != nil {
+			if err := pace.WaitN(ctx, len(piece)); err != nil {
+				return err
+			}
+		}
+		if err := s.HID.Type(piece); err != nil {
+			return err
+		}
+		if i+typePiece >= len(text) {
+			return nil
+		}
+	}
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -1679,8 +1763,12 @@ func (s *Server) handleHIDType(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if err := s.HID.Type(body.Text); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := s.typeText(r.Context(), holdPace(r.Context()), body.Text); err != nil {
+		code := http.StatusInternalServerError
+		if errors.Is(err, errTypeTooLong) {
+			code = http.StatusBadRequest
+		}
+		http.Error(w, err.Error(), code)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1853,10 +1941,16 @@ func releasesOnly(cmd string, contacts []hid.TouchContact) bool {
 	return false
 }
 
-// hidCommand runs one input command from a viewer, the JSON /api/hid/ws
-// takes, whichever transport carried it: the WebSocket, or the "hid" data
-// channel of a WebRTC session.
-func (s *Server) HidCommand(data []byte) {
+// HidCommand runs one input command from a viewer, the JSON /api/hid/ws
+// takes, as the "hid" data channel of a WebRTC session carries it. ctx ends
+// with the session.
+func (s *Server) HidCommand(ctx context.Context, data []byte) {
+	s.hidCommand(ctx, nil, data)
+}
+
+// hidCommand runs one input command from a viewer, whichever transport
+// carried it. pace is the hold's, when the command came through a station.
+func (s *Server) hidCommand(ctx context.Context, pace pacer, data []byte) {
 	if s.HID == nil {
 		return
 	}
@@ -1909,7 +2003,9 @@ func (s *Server) HidCommand(data []byte) {
 		}
 		s.HID.MouseRelease(msg.Buttons)
 	case "type":
-		s.HID.Type(msg.Text)
+		if err := s.typeText(ctx, pace, msg.Text); errors.Is(err, errTypeTooLong) {
+			log.Printf("hid: type dropped: %v", err)
+		}
 	case "key_press":
 		s.HID.KeyPress(msg.Keycode)
 	case "key_release":
@@ -1985,6 +2081,6 @@ func (s *Server) handleHIDWebSocket(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		s.HidCommand(data)
+		s.hidCommand(ctx, holdPace(ctx), data)
 	}
 }

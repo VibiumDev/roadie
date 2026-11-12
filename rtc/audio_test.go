@@ -103,7 +103,8 @@ func TestSessionAudioAndInput(t *testing.T) {
 	defer b.Close()
 	hidGot := make(chan []byte, 4)
 	micGot := make(chan []byte, 64)
-	b.SetInput(func(m []byte) { hidGot <- m }, func(p []byte) error { micGot <- p; return nil })
+	hidCtx := make(chan context.Context, 4)
+	b.SetInput(func(ctx context.Context, m []byte) { hidCtx <- ctx; hidGot <- m }, func(p []byte) error { micGot <- p; return nil })
 
 	m := &webrtc.MediaEngine{}
 	if err := m.RegisterDefaultCodecs(); err != nil {
@@ -270,6 +271,16 @@ func TestSessionAudioAndInput(t *testing.T) {
 	case <-hidOpen:
 	default:
 	}
+	// The context input came with ends when the session does, so what it
+	// started, a long text being typed, stops there.
+	ctx := <-hidCtx
+	if ctx.Err() != nil {
+		t.Error("the input's context ended before its session")
+	}
+	s.Close()
+	if ctx.Err() == nil {
+		t.Error("the input's context outlived its session")
+	}
 }
 
 // noFrames is a capture with nothing to show, for sessions that come and go.
@@ -294,7 +305,7 @@ func TestViewGrantSessionTakesNoInput(t *testing.T) {
 	hidGot := make(chan string, 16)
 	micGot := make(chan struct{}, 1024)
 	heard := make(chan struct{}, 16)
-	b.SetInput(func(m []byte) { hidGot <- string(m) }, func([]byte) error {
+	b.SetInput(func(_ context.Context, m []byte) { hidGot <- string(m) }, func([]byte) error {
 		select {
 		case micGot <- struct{}{}:
 		default:

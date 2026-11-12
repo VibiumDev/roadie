@@ -13,6 +13,7 @@
 package rtc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -101,7 +102,7 @@ type Broadcaster struct {
 	// connection being created; see newPeerConnection.
 	newEstimator cc.BandwidthEstimator
 	caps         map[*Session]int // bitrate caps asked for over control
-	hidHandler   func([]byte)
+	hidHandler   func(context.Context, []byte)
 	micSink      func([]byte) error
 	micOwner     *Session
 	micCodec     string

@@ -430,6 +430,9 @@ All HID endpoints require the relay board to be connected via USB serial, or
 with `--hid-backend linux-gadget`, the gadget's device nodes to be open.
 Returns `503` if HID is not available.
 
+A request body, here and on every other endpoint, holds at most 64 KiB. A
+larger one gets `400`.
+
 The two backends accept the same commands with the same meaning. With the
 gadget, a command that cannot reach the phone returns `500` with the reason
 (for instance, no phone attached), text with characters a US keyboard cannot
@@ -475,6 +478,8 @@ where the port path does not embed the board's serial number.
 
 ### `POST /api/hid/type`
 Type text on the target device. Text longer than 29 characters is automatically chunked.
+
+One request types at most 4096 characters. A longer text gets `400` and none of it is typed, so send it as several requests. The text goes to the target a piece at a time. When the request ends early, because the client left or its hold on a station ended, typing stops at the end of the piece under way.
 
 **Request:**
 ```json
@@ -633,6 +638,7 @@ WebSocket for real-time HID control. Accepts the same JSON command format used b
 ```
 
 No server-to-client messages. Connection auto-reconnects on the `/test` page.
+A `type` holds at most 4096 characters, as on [`/api/hid/type`](#post-apihidtype); a longer one is dropped.
 While [`/api/rotate`](#post-apirotate) turns the screen, messages are dropped
 unless they only let go of something (`key_release`, `mouse_release`, a
 `touch` with no finger down). `tap` is a whole tap in one command — a touch down at the point, a 60 ms hold and the lift — for viewers on links where the gap between separate down and up messages would stretch; `mouse_click` is the same for the mouse.
@@ -714,7 +720,7 @@ Roadie implements a minimal subset of BiDi — only the methods that map to hard
 | `browsingContext.getTree` | Returns a single context (`"screen"`) representing the target display |
 | `browsingContext.captureScreenshot` | Returns a base64-encoded JPEG of the current frame. Right after input, it first waits for the screen to show it: at least 300 ms, then until the picture stops changing (at most 2 s after the input) |
 | `roadie:screen.getViewport` | Returns the current viewport (cropped image) width and height |
-| `input.performActions` | Execute keyboard, mouse, touch and wheel actions. On an iPhone touch arrives as the pointer, one finger at a time; a gesture with more fingers is refused before any of it runs (see [`/api/hid/touch`](#post-apihidtouch)). A `wheel` source's `scroll` turns the wheel with the pointer at `x`, `y` (viewport origin only), then puts the pointer back; `deltaY` (vertical only) becomes notches of [the wheel](#post-apihidmousescroll): on an iPhone as many as scroll about that far, elsewhere one per 32nd of the viewport |
+| `input.performActions` | Execute keyboard, mouse, touch and wheel actions. On an iPhone touch arrives as the pointer, one finger at a time; a gesture with more fingers is refused before any of it runs (see [`/api/hid/touch`](#post-apihidtouch)). A `wheel` source's `scroll` turns the wheel with the pointer at `x`, `y` (viewport origin only), then puts the pointer back; `deltaY` (vertical only) becomes notches of [the wheel](#post-apihidmousescroll): on an iPhone as many as scroll about that far, elsewhere one per 32nd of the viewport. One message holds at most 20,000 actions, and one `pause` or `pointerMove` lasts at most 60 s (`duration` 60000); more is refused whole with `invalid argument` before any of it runs. Actions not yet run are dropped when, through a station, the hold ends |
 | `input.releaseActions` | Release all held keys, buttons, and touches |
 | `roadie:audio.clock` | Returns `{now}`: Roadie's monotonic clock in milliseconds, the clock every audio time below is on |
 | `roadie:audio.play` | Play a clip into the target's microphone and answer when it has played out. See [Audio over BiDi](#audio-over-bidi) |
@@ -920,7 +926,7 @@ Through the tunnel the station reaches only an allowlist of endpoints, each with
 - the HID REST under `/api/hid/` and `/api/rotate` (`input`)
 - `/api/settings`, `/api/crop` and the resets (`admin`, which the rig policy grants only with `roadie enroll --admin`)
 
-Each hold is limited to 120 requests and messages a second (burst 240), one stream, one audio and one mic socket, one BiDi socket and two HID sockets; a hold that ends closes every connection admitted on it. A grant through a station with a TURN server names it (`stun` and `turn` tags), and Roadie's peer connection uses those servers, so the WebRTC path works across NATs. The grant is checked on the Pi, which accepts it only when it is:
+Each hold is limited to 120 requests and messages a second (burst 240), one stream, one audio and one mic socket, one BiDi socket and two HID sockets; a hold that ends closes every connection admitted on it. Text typed with `type` counts a character at a time against that limit, and each BiDi action but a `pause` counts as one. A grant through a station with a TURN server names it (`stun` and `turn` tags), and Roadie's peer connection uses those servers, so the WebRTC path works across NATs. The grant is checked on the Pi, which accepts it only when it is:
 
 - signed by a station in the policy
 - for this rig and device

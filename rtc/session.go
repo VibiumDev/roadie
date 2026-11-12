@@ -44,6 +44,9 @@ type Session struct {
 
 	closeOnce sync.Once
 	done      chan struct{}
+	// ctx ends with the session, so input it sent stops with it.
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // ServeSignal is the signaling endpoint: a WebSocket whose first message is
@@ -164,6 +167,7 @@ func (b *Broadcaster) newSession(send func(Message) error, ice []webrtc.ICEServe
 	}
 	s := &Session{b: b, pc: pc, estimator: est, send: send, done: make(chan struct{})}
 	s.input.Store(input)
+	s.ctx, s.cancel = context.WithCancel(context.Background())
 
 	tr, err := pc.AddTransceiverFromTrack(b.track, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendonly})
 	if err != nil {
@@ -200,7 +204,7 @@ func (b *Broadcaster) newSession(send func(Message) error, ice []webrtc.ICEServe
 	}
 	hid.OnMessage(func(m webrtc.DataChannelMessage) {
 		if s.input.Load() {
-			b.handleHID(m.Data)
+			b.handleHID(s.ctx, m.Data)
 		}
 	})
 
@@ -339,6 +343,7 @@ func (s *Session) sendStats() {
 func (s *Session) Close() {
 	s.closeOnce.Do(func() {
 		close(s.done)
+		s.cancel()
 		s.pc.Close()
 		s.b.removeSession(s)
 	})

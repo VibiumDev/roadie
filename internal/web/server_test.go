@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/VibiumDev/roadie/internal/audio"
 	"github.com/VibiumDev/roadie/internal/capture"
 	"github.com/VibiumDev/roadie/internal/hid"
@@ -618,5 +619,111 @@ func TestStreamAsBytes(t *testing.T) {
 		if !strings.HasPrefix(w.Body.String(), "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ") {
 			t.Errorf("%s: body isn't the framed stream: %q", tc.url, w.Body.String()[:min(80, w.Body.Len())])
 		}
+	}
+}
+
+// tokenLog is a hold's pace that only counts what it is asked for.
+type tokenLog struct{ asked []int }
+
+func (p *tokenLog) WaitN(_ context.Context, n int) error { p.asked = append(p.asked, n); return nil }
+
+// One "type" holds at most maxTypeText characters and goes to the target in
+// pieces, so it can be stopped; a request body past maxBody is not read in.
+func TestTypeIsBounded(t *testing.T) {
+	defer func(d time.Duration) { typeGap = d }(typeGap)
+	typeGap = 0
+	s, mux := newTestServer()
+	h := &typedHID{}
+	s.HID = h
+	post := func(text string) int {
+		body, _ := json.Marshal(map[string]string{"text": text})
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("POST", "/api/hid/type", strings.NewReader(string(body))))
+		return w.Code
+	}
+	// A short text is one piece, as it always was.
+	if c := post("hello world"); c != 200 {
+		t.Fatalf("short text: %d", c)
+	}
+	if got := h.typed(); len(got) != 1 || got[0] != "hello world" {
+		t.Errorf("short text typed as %q", got)
+	}
+	// The longest text arrives whole, in pieces.
+	text := strings.Repeat("0123456789", maxTypeText/10+1)[:maxTypeText]
+	if c := post(text); c != 200 {
+		t.Fatalf("%d characters: %d", len(text), c)
+	}
+	pieces := h.typed()
+	if strings.Join(pieces, "") != text || len(pieces) != (maxTypeText+typePiece-1)/typePiece {
+		t.Errorf("%d characters typed as %d pieces", len(text), len(pieces))
+	}
+	for _, p := range pieces {
+		if len(p) > typePiece {
+			t.Errorf("a piece of %d characters", len(p))
+		}
+	}
+	// One character more is refused, and none of it typed.
+	if c := post(text + "x"); c != http.StatusBadRequest {
+		t.Errorf("%d characters: %d", len(text)+1, c)
+	}
+	// So is a body too large to be an honest request, whatever it says.
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("POST", "/api/hid/type", strings.NewReader(`{"text":"hi","pad":"`+strings.Repeat("a", maxBody)+`"}`)))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("a body over %d bytes: %d", maxBody, w.Code)
+	}
+	// The viewer's socket and data channel take the same command, and have
+	// nowhere to say no: the text is dropped.
+	long, _ := json.Marshal(map[string]string{"cmd": "type", "text": text + "x"})
+	s.HidCommand(context.Background(), long)
+	if got := h.typed(); len(got) != 0 {
+		t.Errorf("typed %d pieces of what was refused", len(got))
+	}
+	s.HidCommand(context.Background(), []byte(`{"cmd":"type","text":"hi"}`))
+	if got := h.typed(); len(got) != 1 || got[0] != "hi" {
+		t.Errorf("the data channel typed %q", got)
+	}
+}
+
+// A text being typed stops when its request ends, a hold's or a client's:
+// the piece under way is the last.
+func TestTypeStopsWithItsRequest(t *testing.T) {
+	defer func(d time.Duration) { typeGap = d }(typeGap)
+	typeGap = 0
+	s, _ := newTestServer()
+	ctx, cancel := context.WithCancel(context.Background())
+	h := &typedHID{onType: cancel} // the request ends while the first piece is typed
+	s.HID = h
+	err := s.typeText(ctx, nil, strings.Repeat("a", 10*typePiece))
+	if got := h.typed(); !errors.Is(err, context.Canceled) || len(got) != 1 {
+		t.Errorf("typed %d pieces after the request ended: %v", len(got), err)
+	}
+
+	// Through a station each piece waits its turn on the hold's pace, a
+	// character a token.
+	h.onType = nil
+	pace := &tokenLog{}
+	if err := s.typeText(context.Background(), pace, strings.Repeat("a", 200)); err != nil {
+		t.Fatal(err)
+	}
+	total := 0
+	for _, n := range pace.asked {
+		total += n
+		if n > typePiece {
+			t.Errorf("asked the hold's pace for %d tokens at once", n)
+		}
+	}
+	if total != 200 || len(h.typed()) != len(pace.asked) {
+		t.Errorf("200 characters cost %d tokens in %d waits", total, len(pace.asked))
+	}
+
+	// The gadget rejects a text it cannot type before typing any of it,
+	// and in pieces it still does.
+	h.backend = hid.BackendLinuxGadget
+	if err := s.typeText(context.Background(), nil, strings.Repeat("a", 3*typePiece)+"\u00e9"); err == nil {
+		t.Error("a text with no key for one character was typed")
+	}
+	if got := h.typed(); len(got) != 0 {
+		t.Errorf("typed %d pieces before the character with no key", len(got))
 	}
 }
