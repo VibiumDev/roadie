@@ -5,13 +5,15 @@
 - Python 3.10+
 - Both QT Py RP2040 boards and USB-C data cables
 
-Run the one-time setup first:
+On a Pi set up with `machine-setup --boards`, skip this: the script already
+made the virtualenv and installed the udev rules. Anywhere else, run the
+one-time setup first:
 
 ```bash
 make setup
 ```
 
-This creates a Python virtualenv and installs dependencies. On Linux, it also installs udev rules for serial port access.
+This creates a Python virtualenv with `circup` and `pyserial`. On Linux, it also installs two udev rules and the packages the browser tests need. Serial port access comes from the `dialout` group.
 
 ## Flash the HID Board
 

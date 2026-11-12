@@ -23,7 +23,7 @@ or two of Roadie answering again.
 To check that it's serving:
 
 ```bash
-curl -s http://localhost:8080/health
+curl -s -H "Authorization: Bearer $(sudo -u roadie roadie token)" http://localhost:8080/health
 ```
 
 ## The log
@@ -84,6 +84,7 @@ account:
 ```bash
 sudo -u roadie roadie token            # prints it; makes one on the first run
 sudo -u roadie roadie token --rotate   # a new one; every browser signs in again
+sudo -u roadie roadie token --path     # where the token file is
 ```
 
 Run as yourself, `roadie token` stops with that reminder rather than make a
@@ -170,12 +171,21 @@ A [Vibium Station](https://github.com/VibiumDev/station) lets you reach
 this Roadie from anywhere without opening a port: Roadie dials out to it
 and keeps a tunnel, and the station signs holds that Roadie checks itself.
 
-On the station's Settings page make an enrollment code, then on the Pi:
+On the station's Settings page, under **Enroll a rig**, press **New
+enrollment code**. A code works once and lasts 15 minutes. The page lists
+every open code with the command for the rig. Hold **Cancel** to end one.
+The page shows the command without `sudo -u roadie`. Where Roadie runs as
+the service, add it, as below. The station's address must start with
+`https://`. On the Pi:
 
 ```bash
 sudo -u roadie roadie enroll https://station.example --code ABCD-1234-7F3A --name "pi in the lab" --platform ios
 sudo systemctl restart roadie
+curl -s -H "Authorization: Bearer $(sudo -u roadie roadie token)" http://localhost:8080/health
 ```
+
+The last command checks the link: in the `station` block, `online` is true
+once the tunnel is up.
 
 On the same network the URL can be left out. The code's last group is the
 station key's fingerprint, which `roadie enroll` checks before it sends
@@ -193,15 +203,23 @@ what was sent to its microphone, such as your voice when the viewer's Mic is on:
 
 - The Record Player shows the video in place of the screenshots, with its sound.
 - The video costs no second encode. It is what Roadie already sends its viewers.
-- One hold keeps at most 128 MB of video. `--record-video-mb` changes that, and `0` turns video and sound off.
+- One hold keeps at most 128 MB of video. `--record-video-mb` in `/etc/default/roadie` changes that, and `0` turns video and sound off.
 - A session that Vibium records, such as a station's jam, has its video in Vibium's own recording. Roadie's recording of that hold then has none.
 
 The [API reference](../../API.md) has the details under "Video and sound in a recording".
+
+The device's `--label`, `--device-name`, `--model` and `--os-version` go in
+`/etc/default/roadie`. The service tells the station what they say each time
+it connects.
 
 What the station may do is yours to edit in
 `/var/lib/roadie/.config/roadie/rig.json`:
 the scopes (`view`, `input`, `bidi`), `admin`, `record`, `max_session` and
 `hours`.
+The file belongs to the `roadie` account, and only that account can read it.
+Edit it as that account, for example with
+`sudo -u roadie nano /var/lib/roadie/.config/roadie/rig.json`, then
+`sudo systemctl restart roadie`.
 `/health` shows the `station` block with the tunnel's state and the hold
 held, and the service log says when it connects. To leave a station, remove
 its entry from the file and restart; to be rid of a rig the station's owner
@@ -237,8 +255,8 @@ It needs the groups the service runs with (`roadie`, `audio`, `video`,
 
 ## Put a new build in place
 
-[`machine-setup`](configure-os.md#updating), run again, pulls, builds and
-restarts. To install what you have built yourself:
+[`machine-setup`](configure-os.md#updating), run again after a `git pull`,
+builds and restarts. To install what you have built yourself:
 
 ```bash
 make && sudo install -m 755 roadie /usr/local/bin/roadie && sudo systemctl restart roadie

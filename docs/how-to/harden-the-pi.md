@@ -55,7 +55,8 @@ phone that is sending a great deal shows up there.
 
 ## The choices that are yours
 
-`setup/harden` makes them, one subcommand each. `setup/harden status`
+`setup/harden` in the checkout makes them, one subcommand each.
+`~/Projects/roadie/setup/harden status`
 shows the current state first: whether SSH takes passwords, whether a
 key could get in, which unneeded services run and what is listening.
 
@@ -76,14 +77,14 @@ ssh-copy-id you@roadie-01.local        # or: sudo tailscale set --ssh (on the Pi
 Then, on the Pi:
 
 ```bash
-sudo setup/harden ssh-keys-only
+sudo ~/Projects/roadie/setup/harden ssh-keys-only
 ```
 
 Open a new terminal and log in. If that works, confirm within the five
 minutes:
 
 ```bash
-sudo setup/harden ssh-keys-only --keep
+sudo ~/Projects/roadie/setup/harden ssh-keys-only --keep
 ```
 
 If it does not, do nothing: the timer puts password logins back, and the
@@ -99,8 +100,8 @@ never uses, and some of them listen on every address: `rpcbind` and
 `bluetooth`. Stopping and disabling them is reversible:
 
 ```bash
-sudo setup/harden services          # off
-sudo setup/harden services --undo   # on again
+sudo ~/Projects/roadie/setup/harden services          # off
+sudo ~/Projects/roadie/setup/harden services --undo   # on again
 ```
 
 The desktop's VNC server stays unless you add `--vnc`, since on a Pi with
@@ -110,7 +111,7 @@ what makes `roadie-01.local` resolve.
 ### The hardware watchdog
 
 The Pi 4 has a hardware watchdog that reboots the board when nothing
-pets it. With `sudo setup/harden watchdog`, systemd takes on that job,
+pets it. With `sudo ~/Projects/roadie/setup/harden watchdog`, systemd takes on that job,
 so a Pi whose init hangs comes back by itself within fifteen seconds
 rather than waiting for someone to pull the plug. It does not react to a
 hung roadie; the service's own watchdog covers that. `--undo` turns it
@@ -123,9 +124,13 @@ addressed to the Pi and drops everything else, including SSH and
 Roadie's own port, and it forwards only to the Internet. From the LAN,
 the Pi answers on SSH, on Roadie's port (which needs the token, or the
 tailnet, to do anything) and on whatever you left running: before the
-services step above, that includes `rpcbind` and VNC. `setup/harden
-status` lists what is listening, and `nmap -p- <pi>` from another
-machine on the LAN is the check that counts.
+services step above, that includes `rpcbind` and VNC.
+`~/Projects/roadie/setup/harden status` lists what is listening, and
+`nmap -p- <pi>` from another machine on the LAN is the check that counts.
+
+If you add a firewall on the Pi, allow TCP and UDP on Roadie's port from
+the LAN. WebRTC media uses UDP on the same number as the HTTP port, unless
+`--rtc-udp` names another.
 
 ## A read-only root filesystem
 

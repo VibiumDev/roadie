@@ -79,7 +79,9 @@ You also need a host computer to run the `roadie` server — a Raspberry Pi 4 (2
 and configures everything — for the boards, or with the Pi itself as the
 phone's USB devices.
 
-**Prerequisites:** macOS or Linux, Go 1.21+, Python 3.10+
+**Prerequisites:** macOS or Linux, Go 1.21 or newer, a C compiler, Python 3.10+.
+The build uses Go 1.27.4, which `go.mod` names. An older Go downloads it on
+the first build, so that build needs internet access.
 
 A Raspberry Pi is the usual development machine, but nothing assumes a
 particular display: `make setup` installs what the browser test needs to run
@@ -113,7 +115,7 @@ To drive more than one device from the same host, see
 - **HID control**: absolute mouse, multi-touch digitizer, and keyboard input via USB, controllable over HTTP/WebSocket
 - **Interactive viewer**: `/drive` page with live feed and full HID control (mouse, touch, keyboard) directly on the stream
 - **WebRTC**: the viewer's default where the host can encode H.264 (the Pi 4's hardware encoder, or VideoToolbox, VAAPI, NVENC or libx264 through ffmpeg elsewhere). One peer connection carries the picture, the phone's sound as G.722, your microphone back, and input, at a fraction of MJPEG's bandwidth and CPU, and the viewer falls back to MJPEG and the WebSockets by itself
-- **Vibium Station**: `roadie enroll` joins a [station](https://github.com/VibiumDev/station) that brokers access from anywhere over an outbound tunnel, with signed holds the Pi checks itself. The station's viewer is this same shared shell, with Roadie's extras loaded through the relay. `--label "Dev iPhone 15"` names the device on the station's pages, `--device-name iphone_1` sets the name in its station address (`rig/<name>`, `phone` by default), `--model "iPhone 15 Pro Max"` and `--os-version 26.6` say what the device is and runs, and `--platform` tells it what the device runs With `--record`, every hold is recorded on the Pi and kept in the station's Record Store.
+- **Vibium Station**: `roadie enroll` joins a [station](https://github.com/VibiumDev/station) that brokers access from anywhere over an outbound tunnel, with signed holds the Pi checks itself. The station's viewer is this same shared shell, with Roadie's extras loaded through the relay. `--label "Dev iPhone 15"` names the device on the station's pages, `--device-name iphone_1` sets the name in its station address (`rig/<name>`, `phone` by default), `--model "iPhone 15 Pro Max"` and `--os-version 26.6` say what the device is and runs, and `--platform` tells it what the device runs. Enrolled with `roadie enroll --record`, every hold is recorded on the Pi and kept in the station's Record Store.
 - **Local login**: `--auth token` (a local admin token, a one-field `/login` page, `Authorization: Bearer` for agents) or `--auth tailscale` (whoever your tailnet says); without `--auth`, Roadie listens on localhost only
 - **HTTPS**: `--tls-cert` and `--tls-key` serve TLS directly, reloading the files when they change; or put `tailscale serve` in front for a `*.ts.net` name with no certificate files ([how](docs/how-to/run-roadie.md#https))
 - **Auto-detection**: finds external capture devices, skips built-in cameras
@@ -122,7 +124,7 @@ To drive more than one device from the same host, see
 - **Runtime settings**: adjust quality, FPS, and resolution on the fly from the viewer
 - **Audio streaming**: optional PCM audio over WebSocket
 - **Voice input**: microphone button in the viewer streams your voice to the target, which hears it as a USB microphone — works in live phone calls
-- **Bonjour/mDNS**: discoverable as `roadie.local` on your network
+- **Bonjour/mDNS**: discoverable as `roadie.local` on your network when it listens beyond localhost (with `--auth`)
 - **Multiple targets**: run one instance per target on a single host, each pinned to its own capture dongle and relay board, with a `/grid` page to view and drive them together
 - **Platform-aware input**: `--platform` adapts pointer mapping and input mode to Android, iOS, macOS, Windows, or Linux targets
 - **Two HID backends**: the RP2040 boards, or a Raspberry Pi 4's USB-C port as a composite USB gadget (input, audio both ways, and USB Ethernet) with `--hid-backend linux-gadget`

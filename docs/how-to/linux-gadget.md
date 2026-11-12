@@ -23,6 +23,15 @@ The phone, acting as USB host, also puts 5 V on that cable. Never join the
 two supplies: use a **USB-C power/data splitter whose data side has VBUS
 cut** (the kind sold for PiKVM on the Pi 4).
 
+Besides the Pi, its supply and the phone, the wiring takes:
+
+- HDMI-to-USB capture dongle, on one of the Pi's USB-A ports
+- USB-C hub with HDMI out, a USB-A port, and USB-C power delivery
+- HDMI male-to-male adapter, between the hub and the dongle
+- USB-C power/data splitter, as above
+- Cable from the hub's USB-A port to the splitter's data input
+- Charger for the hub's power delivery input
+
 ```
                   ┌── HDMI ──────────> capture dongle ──> Pi USB-A (video, as before)
 phone ── USB-C ───┤   PD hub
@@ -65,7 +74,8 @@ The relay and HID board can stay on the Pi's USB-A ports; gadget mode
 ignores them. Power on.
 
 Nothing needs starting after boot: the gadget, the phone's network and
-roadie come up by themselves. Open `http://<pi>.local:8080/drive`, and check:
+roadie come up by themselves. Open `http://<pi>.local:8080/drive`, sign in
+with the token `sudo -u roadie roadie token` prints, and check:
 
 ```bash
 roadie-mode           # mode gadget, gadget up, phone attached
@@ -93,7 +103,7 @@ keyboard, audio and network. Arguments live in `/etc/default/roadie` (see
 [How to Run Roadie](run-roadie.md) for starting, stopping and its log):
 
 ```bash
-ROADIE_ARGS="--hid-backend linux-gadget --platform android --port 8080"
+ROADIE_ARGS="--hid-backend linux-gadget --platform android --port 8080 --auth token"
 ```
 
 ### Switching backends
@@ -121,9 +131,11 @@ that matters.
 `roadie-mode` with no argument also warns when the pieces disagree, such as
 boards mode with the gadget still up.
 
-On a Pi that also runs the board tests: `roadie.service` holds port 8080
-in either mode, and the tests use whatever roadie answers there. Stop it
-first (`sudo systemctl stop roadie`) to have the tests start their own.
+On a Pi that also runs the board tests: the tests send no token, so they
+do not use a service that runs with `--auth token`, and `roadie.service`
+holds the capture dongle in either mode. Stop it before the tests
+(`sudo systemctl stop roadie`) and start it afterwards
+(`sudo systemctl start roadie`).
 
 ## Settings
 
@@ -132,7 +144,7 @@ first (`sudo systemctl stop roadie`) to have the tests start their own.
 Roadie's own arguments, for `roadie.service`:
 
 ```bash
-ROADIE_ARGS="--hid-backend linux-gadget --platform android --port 8080"
+ROADIE_ARGS="--hid-backend linux-gadget --platform android --port 8080 --auth token"
 ```
 
 For an iPhone, change `--platform android` to `--platform ios`, which
@@ -145,9 +157,12 @@ The installer writes this file only when it doesn't exist, so it can be
 written first to start out on an iPhone:
 
 ```bash
-echo 'ROADIE_ARGS="--hid-backend linux-gadget --platform ios --port 8080"' | sudo tee /etc/default/roadie
+echo 'ROADIE_ARGS="--hid-backend linux-gadget --platform ios --port 8080 --auth token"' | sudo tee /etc/default/roadie
 make gadget-install
 ```
+
+Without `--auth token` Roadie listens on localhost only. On a Pi set up by
+`machine-setup`, edit the file instead, so `--name` and `--auth token` stay.
 
 ### The gadget: `/etc/roadie/gadget.conf`
 
@@ -269,7 +284,7 @@ Roadie never re-enumerates on its own after an application error.
 | API: "cannot open keyboard: permission denied" | `ls -l /dev/hidg*` | User in group `roadie`, re-login or `systemctl restart roadie` |
 | No mic on the phone | `adb shell dumpsys audio \| grep -i usb` | `AUDIO=uac1` if the phone mishandles UAC2 |
 | Mic audio stutters | `journalctl -u roadie \| grep 'USB audio'` (drops, xruns) | Network jitter between browser and Pi |
-| No sound in the viewer | `curl :8080/health` has `audio`? | Phone playing? `AUDIO_SPEAKER=1`? |
+| No sound in the viewer | `curl -s -H "Authorization: Bearer $(sudo -u roadie roadie token)" localhost:8080/health` has `audio`? | Phone playing? `AUDIO_SPEAKER=1`? |
 | Desktop Pi: "device busy" on the sound card | `fuser -v /dev/snd/*` | udev rule keeps PipeWire off `UAC2Gadget`; reinstall it |
 | Phone shows no Ethernet | `adb shell ip link` names it `eth0`? | Host MAC must not be locally administered (see below) |
 | Phone has Ethernet, no internet | `sudo roadie-phone-net status phone0`, `sudo nft list table inet roadie_phone` | Uplink name (`UPSTREAM_IF`), host firewall forward policy |
@@ -304,7 +319,7 @@ Roadie never re-enumerates on its own after an application error.
 | Command | Covers | Needs |
 |---|---|---|
 | `make test-unit` | Report encoding vs. the descriptor files, state and cleanup rules, retries, reconnects, device mapping, audio buffering, resampling, ALSA ABI | nothing |
-| `go test -run TestALSALoopback` | the ALSA client against the real kernel, including silence on underrun | `sudo modprobe snd-aloop` |
+| `go test ./internal/alsa -run TestALSALoopback` | the ALSA client against the real kernel, including silence on underrun | `sudo modprobe snd-aloop` |
 | `make test-gadget` | installed gadget: functions, descriptors, nodes, permissions, sound card, interface | the gadget up |
 | `make test-gadget-loopback` | the gadget through this Pi's own USB host stack (kernel `dummy_hcd`): HID through hid-multitouch, DHCP/DNS/NAT/isolation, roadie restart/kill/replug | kernel headers, sudo; no phone. Run once per boot: reloading `dummy_hcd` can leave the kernel unable to bind it again until a reboot |
 | `make test-phone-net` | the phone network on a virtual link: DHCP, DNS, NAT, isolation, the SMTP and rate guards, router guard, closed while stopped | sudo |
@@ -325,7 +340,7 @@ Record pass/fail and notes for each.
 2. **Enumeration.** `adb shell getevent -lp` lists three "Vibium Roadie"
    devices; the touchscreen has `INPUT_PROP_DIRECT`.
 3. **Keyboard.** In a text field:
-   `curl -X POST localhost:8080/api/hid/type -d '{"text":"Hello, Roadie 123!"}'`
+   `curl -X POST -H "Authorization: Bearer $(sudo -u roadie roadie token)" localhost:8080/api/hid/type -d '{"text":"Hello, Roadie 123!"}'`
    types exactly that.
 4. **Mouse.** `/drive?input=mouse`: pointer follows clicks, click opens an
    app, wheel scrolls.
@@ -372,10 +387,15 @@ Record pass/fail and notes for each.
 ## Uninstall and rollback
 
 ```bash
-sudo gadget/uninstall           # stop, remove units, gadget, firewall, boot block
-sudo reboot                     # USB-C back to a plain power input
-sudo gadget/uninstall --purge   # also /etc/roadie, leases, binary, group
+sudo ~/Projects/roadie/gadget/uninstall           # stop, remove units, gadget, firewall, boot block
+sudo reboot                                       # USB-C back to a plain power input
+sudo ~/Projects/roadie/gadget/uninstall --purge   # also /etc/roadie, /etc/default/roadie, leases, the binary,
+                                                  # and the roadie account and group with /var/lib/roadie
 ```
+
+After a purge the Pi is no longer enrolled. Its token, rig key and policy,
+and saved crops are gone with `/var/lib/roadie`, so it enrolls again as a
+new rig.
 
 Only Roadie's own files, its nftables table, the two forwarding sysctls it
 set (restored to their previous values) and its marked `config.txt` block

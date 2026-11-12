@@ -27,9 +27,13 @@ of the video device name; `--relay` matches a substring of the relay board's USB
 serial number (or of its port path):
 
 ```bash
-./roadie --name android --port 8080 --video "Capture A" --relay A1B2C3D4E5F60001 --platform android &
-./roadie --name iphone  --port 8081 --video "Capture B" --relay A1B2C3D4E5F60002 --platform ios &
+./roadie --name android --port 8080 --video "Capture A" --relay A1B2C3D4E5F60001 --platform android --auth token &
+./roadie --name iphone  --port 8081 --video "Capture B" --relay A1B2C3D4E5F60002 --platform ios --auth token &
 ```
+
+`--auth token` is what lets other machines in; without it Roadie listens on
+localhost only. Both instances run as you and share one token, which
+`./roadie token` prints. Sign in once at each address.
 
 `--platform` tells Roadie what it is driving: `android`, `ios` (also `iphone`
 or `ipad`), `mac`, `windows`, or `linux`. Nothing in a capture stream or a USB

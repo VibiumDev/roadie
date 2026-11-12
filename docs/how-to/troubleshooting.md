@@ -1,5 +1,15 @@
 # Troubleshooting
 
+The `curl` commands here send Roadie's token, which the service on a Pi
+asks for (`--auth token`). Set it once in your shell:
+
+```bash
+AUTH="Authorization: Bearer $(sudo -u roadie roadie token)"
+```
+
+A Roadie started by hand without `--auth` asks for no token. There, leave
+`-H "$AUTH"` out.
+
 ## Board Flashing
 
 **"CIRCUITPY not mounted"**
@@ -112,7 +122,7 @@ the report is dropped before it reaches the target.
 
 Resetting the HID board also clears it, by re-enumerating the keyboard:
 ```bash
-curl -X POST http://localhost:8080/api/usb/reset
+curl -X POST -H "$AUTH" http://localhost:8080/api/usb/reset
 ```
 That is the heavier option; the modifier tap is instant and does not interrupt
 the session.
@@ -123,7 +133,7 @@ known cause). Releasing the buttons or clicking again doesn't end it;
 re-enumerating the mouse does. Hold **Reset** next to **USB** (or, with the
 boards, **HID**) in the viewer's settings panel, or:
 ```bash
-curl -X POST http://localhost:8080/api/usb/reset
+curl -X POST -H "$AUTH" http://localhost:8080/api/usb/reset
 ```
 The phone sees Roadie's devices unplugged and plugged back in (with the Pi as
 its USB devices, its audio and network too), and the half-done swipe
@@ -136,7 +146,7 @@ reads the pointer that way. That happens when it is turned without Roadie
 Access's Rotate Device, Tab R), or Roadie restarts, while a screen that can't
 turn, such as the home screen, is up. Turn it upright with Rotate:
 ```bash
-curl -X POST http://localhost:8080/api/rotate -d '{"to": "portrait"}'
+curl -X POST -H "$AUTH" http://localhost:8080/api/rotate -d '{"to": "portrait"}'
 ```
 Its first click into the menu misses too; Roadie sees that and tries the
 other way. If the phone was turned Right or upside down, that doesn't help:
@@ -151,7 +161,7 @@ run of notches no more than about 100 ms apart, three or more (see
 [`/api/hid/mouse/scroll`](../../API.md#post-apihidmousescroll)). If a longer
 run doesn't scroll either, reset Roadie's USB:
 ```bash
-curl -X POST http://localhost:8080/api/usb/reset
+curl -X POST -H "$AUTH" http://localhost:8080/api/usb/reset
 ```
 
 ## Device Reset
@@ -159,16 +169,16 @@ curl -X POST http://localhost:8080/api/usb/reset
 **Glitchy HDMI signal (wrong colors, static on first connection)**
 Use the Video Reset button in the settings panel, or:
 ```bash
-curl -X POST http://localhost:8080/api/capture/reset
+curl -X POST -H "$AUTH" http://localhost:8080/api/capture/reset
 ```
-This performs a USB unbind/rebind on the capture dongle, forcing HDMI re-negotiation. Requires `make setup` to install the udev rule.
+This performs a USB unbind/rebind on the capture dongle, forcing HDMI re-negotiation. Requires the capture dongle's udev rule, which `machine-setup` and `make setup` both install.
 
 **HID or relay board unresponsive**
 Reset the boards from the settings panel (hold **Reset** next to **HID** or
 **Relay**), or:
 ```bash
-curl -X POST http://localhost:8080/api/usb/reset    # reboot the HID board
-curl -X POST http://localhost:8080/api/relay/reset   # reset relay board
+curl -X POST -H "$AUTH" http://localhost:8080/api/usb/reset    # reboot the HID board
+curl -X POST -H "$AUTH" http://localhost:8080/api/relay/reset   # reset relay board
 ```
 
 With the Pi as the phone's USB devices there are no boards: the panel shows
@@ -199,7 +209,7 @@ HID relay is still not answering after a restart and a USB reset — unplug and 
 That last message means it needs hands. Nothing else does.
 
 **"permission denied" on capture reset**
-Run `make setup` to install the udev rule that grants access to USB unbind/rebind. You may need to unplug/replug the capture dongle once after installing the rule.
+The udev rule that grants access to USB unbind/rebind is missing. `machine-setup` installs it, and so does `make setup`. You may need to unplug/replug the capture dongle once after installing the rule.
 
 ## Reaching the Viewer
 
