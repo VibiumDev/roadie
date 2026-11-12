@@ -29,6 +29,8 @@ type Session struct {
 	// check a refreshed grant goes through.
 	hold  string
 	check func(ev nostr.Event) (token.Grant, error)
+	// records is set once the viewer has said it keeps the stream.
+	records bool
 
 	mu         sync.Mutex
 	haveRemote bool
@@ -274,6 +276,8 @@ func (s *Session) onControl(data []byte) {
 	switch m.Type {
 	case "keyframe":
 		s.b.requestKeyframe()
+	case "recording":
+		s.b.viewerRecords(s)
 	case "bitrate":
 		s.b.mu.Lock()
 		s.b.caps[s] = m.BPS

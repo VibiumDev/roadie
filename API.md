@@ -627,8 +627,9 @@ messages as it finds its addresses; the client sends
 Roadie's side. The offer carries one H.264 video track (Constrained
 Baseline, `profile-level-id=42e01f`, packetization mode 1; the stream itself
 is level 4.0 and SPS and PPS ride every keyframe) and a data channel named
-`control` on which the client may send `{"type":"keyframe"}` or
-`{"type":"bitrate","bps":N}` (a cap, 0 to lift it), and Roadie sends
+`control` on which the client may send `{"type":"keyframe"}`,
+`{"type":"bitrate","bps":N}` (a cap, 0 to lift it) or `{"type":"recording"}`
+(it keeps the stream, so a recorded hold need not film it too), and Roadie sends
 `{"type":"stats","status":{...},"kbps":N}` once a second with the `webrtc`
 object from `/health` and the bits sent in the last second.
 
@@ -693,6 +694,10 @@ Roadie implements a minimal subset of BiDi — only the methods that map to hard
 | `roadie:screen.getViewport` | Returns the current viewport (cropped image) width and height |
 | `input.performActions` | Execute keyboard, mouse, touch and wheel actions. On an iPhone touch arrives as the pointer, one finger at a time; a gesture with more fingers is refused before any of it runs (see [`/api/hid/touch`](#post-apihidtouch)). A `wheel` source's `scroll` turns the wheel with the pointer at `x`, `y` (viewport origin only), then puts the pointer back; `deltaY` (vertical only) becomes notches of [the wheel](#post-apihidmousescroll): on an iPhone as many as scroll about that far, elsewhere one per 32nd of the viewport |
 | `input.releaseActions` | Release all held keys, buttons, and touches |
+| `roadie:audio.clock` | Returns `{now}`: Roadie's monotonic clock in milliseconds, the clock every audio time below is on |
+| `roadie:audio.play` | Play a clip into the target's microphone and answer when it has played out. See [Audio over BiDi](#audio-over-bidi) |
+| `roadie:audio.capture.start` | Start streaming what the target plays as `roadie:audio.chunk` events |
+| `roadie:audio.capture.stop` | Stop the capture |
 
 **Example session (using [websocat](https://github.com/vi/websocat)):**
 
@@ -727,6 +732,37 @@ websocat ws://localhost:8080/session
 **Viewport size:** `session.new` returns `roadie:viewport: {width, height}` in capabilities, and `browsingContext.captureScreenshot` includes it in the result. This tells you the coordinate space for `input.performActions` — pixel coordinates are relative to this viewport (the cropped screenshot). Roadie translates them to the 0–32767 HID absolute coordinate range internally.
 
 **Touch input:** Use pointer actions with `"parameters": {"pointerType": "touch"}`. Up to 2 simultaneous touch contacts are supported.
+
+#### Audio over BiDi
+
+The `roadie:audio` commands are a raw audio pipe on the session socket. Roadie knows nothing about speech: the client brings PCM and takes PCM. All audio is 16 kHz, mono, 16-bit little-endian (`s16le`), base64 in JSON. `session.new` announces what is there:
+
+```json
+"roadie:audio": {"play": true, "capture": true, "sampleRate": 16000, "channels": 1, "format": "s16le"}
+```
+
+`play` is true when the input backend has a microphone. `capture` is true when audio is coming from the target. All three commands need a session.
+
+**`roadie:audio.play`** sends one clip, at most 60 seconds, into the target's microphone. Roadie paces it at real time and answers when the clip has played out. One clip plays at a time. The socket keeps answering other commands meanwhile.
+
+```json
+{"id": 2, "method": "roadie:audio.play", "params": {"format": "s16le", "sampleRate": 16000, "channels": 1, "data": "<base64 PCM>"}}
+{"type": "success", "id": 2, "result": {"startTime": 81234607.2, "endTime": 81236917.2, "samples": 36960}}
+```
+
+`startTime` and `endTime` are when the first and the last sample left for the microphone. They are an estimate: the microphone's jitter buffer starts playing 40 ms after the first audio arrives, and the USB path adds a few milliseconds that Roadie does not measure. Audio sent while the target is not recording is dropped, as it is on [`/api/mic`](#ws-apimic).
+
+**`roadie:audio.capture.start`** takes `chunkMs` (20 to 1000, default 100) and answers `{capture, sampleRate, channels, format, startTime}`. Then one event arrives per chunk:
+
+```json
+{"type": "event", "method": "roadie:audio.chunk", "params": {"capture": "c1", "sample": 1600, "time": 81236980.0, "data": "<base64 PCM>"}}
+```
+
+`sample` counts the samples sent before this chunk. `time` is when the chunk's first sample was captured. When the source drops audio, `time` jumps and `sample` does not, so place chunks by `time`. A second `capture.start` replaces the first. The capture ends with `roadie:audio.capture.stop` (`{capture}`), with the session, or with the connection.
+
+**`roadie:audio.clock`** answers `{now}`. A client that needs Roadie's times on its own clock reads it a few times and keeps the reading with the shortest round trip.
+
+Messages on `/session` may be up to 4 MB, which is a 60-second clip.
 
 **Key input:** Key values follow the [WebDriver key mapping](https://w3c.github.io/webdriver/#keyboard-actions), with printable characters as literals and special keys as Unicode Private Use Area values (e.g., `"\uE007"` for Enter, `"\uE008"` for Shift).
 
@@ -826,9 +862,27 @@ Files, next to the local token in Roadie's config directory (`~/.config/roadie` 
 | `rig.key` | The rig's secp256k1 key, made on first use; its npub is in `/health` |
 | `rig.json` | The policy: the stations accepted, and per station the allowed scopes (`view`, `input`, `bidi`), whether `admin` grants are taken, whether holds are recorded (`record`), `max_session` and optional `hours` (`"09:00-18:00"`). Written by `roadie enroll`, edited by hand; nothing remote can change it |
 | `rig-state.json` | The hold state: the current hold per device and the highest sequence seen, so a restart cannot be made to accept an older hold |
-| `recordings/` | Hold recordings an upload could not deliver, as `<hold>.zip` with a sidecar naming the station, device and hold; sent again at the next start |
+| `recordings/` | Hold recordings an upload could not deliver, as `<hold>.zip` with a sidecar naming the station, device and hold; sent again at the next start. While a hold is recorded its video and sound are kept here as `.part` files, which the next start removes if a crash left them |
 
 **Recording a hold.** With `record` set for a station (`roadie enroll --record`, or the field in `rig.json`), every hold from that station is recorded in Vibium's recording format: a frame of the screen as the hold found it, then one step per burst of input (inputs less than 250 ms apart are one step, listed in the step's parameters up to sixteen with the count) with a frame of what the screen showed 400 ms after the burst, and a frame as the hold left it. A step names its first input (`Keyboard.type ×2`, `Touch`, `Pointer.click`). After 600 frames or 64 MB the steps keep coming without frames. When the hold ends the zip is written under `recordings/`, uploaded to that station's Record Store under the rig key with the device and hold named in the authorization (`PUT /upload`, see the station's API reference), and removed once the station has it; the station's file event records it against the hold. `/health` shows `record` per station. Roadie says so in its announcement to that station, whose Devices page notes "records sessions" under the host and whose viewer shows REC while a session is live, with what is recorded as the hover text, so a person holding the device knows.
+
+**Video and sound in a recording.** A recorded hold also keeps a video of the screen, what the device played, and what was sent to its microphone.
+
+- The video is the H.264 that Roadie encodes for its viewers, stored as it comes in `video/screen.mp4`. Nothing is encoded twice. It needs an encoder (`--encoder`); a host without one records steps and frames as before.
+- With no viewer connected, Roadie runs the encoder for the recorded hold.
+- The video starts with the hold's first input and ends with the hold.
+- A picture that changes size, as a phone turned on its side does, starts another file: `video/screen-2.mp4`.
+- The video's quality is the viewers'. One encoder serves both, and its bitrate follows the slowest viewer's connection.
+- The sound is 16 kHz mono, and has two sides:
+  - What the device played is `audio/in-session.wav`, a track in `audio/index.json`.
+  - What went to the device's microphone is `audio/out-session.wav`, a clip played once from the recording's start. That is a viewer's microphone, the sound of `/api/mic`, and any clip a client plays with `roadie:audio.play`.
+- The Record Player plays both files. The video file carries the two mixed as its own AAC track, so it plays with its sound anywhere.
+- A side on which nothing sounded is left out. A hold with no sound at all has no `audio/` in its recording.
+- The microphone side starts with the first sound sent after the hold's first input.
+- `--record-video-mb` is the most video one hold keeps, 128 MB by default. Past it the steps and frames go on, and the video's entry says where it stopped. `0` records no video and no sound. Sound stops after 25 minutes.
+- The disk needs three times that limit free when a hold starts. With less, the hold is recorded without video and sound.
+- A viewer that keeps the stream itself sends `{"type":"recording"}` on the control channel. Vibium does when it records a session. Roadie then leaves the video and both sides of the sound out of its own recording of that hold, so the session is stored once.
+- `video/index.json` and `audio/index.json` follow Vibium's recording format.
 
 Through the tunnel the station reaches only an allowlist of endpoints, each with the scope a grant must carry, and every request presents a hold grant, either in `Authorization: Hold <base64url event>` for plain requests or in the first message of a WebSocket. Today that is:
 
@@ -883,5 +937,6 @@ Input from a viewer that does not know the capture's crop, such as the station's
 | `--encoder` | auto | H.264 encoder for WebRTC: `auto` (the Pi 4's hardware encoder when present, else ffmpeg with the host's best codec), `v4l2m2m`, `ffmpeg`, `ffmpeg:<codec>` (`libx264`, `h264_videotoolbox`, `h264_vaapi`, `h264_nvenc`, `h264_qsv`, `h264_v4l2m2m`), or `none` |
 | `--rtc-udp` | the HTTP port's number | UDP port for WebRTC media (one port for every viewer) |
 | `--relay-fps` | 5 | Frame rate cap for the MJPEG stream when it goes through a station, so a remote viewer cannot eat the uplink |
+| `--record-video-mb` | 128 | The most video a recorded hold keeps, in megabytes; `0` records no video and no sound (see [Recording a hold](#vibium-station)) |
 | `--cpuprofile` | | Write a CPU profile to this file until exit, for `go tool pprof` |
 | `--list-devices` | | List video and audio devices, then exit |

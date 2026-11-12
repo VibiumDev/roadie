@@ -958,6 +958,28 @@ func captureNodes(drivers []driver.Driver, dev devices.DeviceInfo) []driver.Driv
 	return nodes
 }
 
+// nativeNodes returns the V4L2 nodes to try for dev, in captureNodes'
+// order. A device the driver list does not hold has its own node alone.
+func nativeNodes(drivers []driver.Driver, dev devices.DeviceInfo) []string {
+	var nodes []string
+	add := func(label string) {
+		node := devices.DeviceInfo{Label: label}.VideoNode()
+		for _, have := range nodes {
+			if have == node {
+				return
+			}
+		}
+		if node != "" {
+			nodes = append(nodes, node)
+		}
+	}
+	add(dev.Label)
+	for _, d := range captureNodes(drivers, dev) {
+		add(d.Info().Label)
+	}
+	return nodes
+}
+
 // captureWarmup is how long after a capture starts its frames are shown
 // but not used to find the picture: a dongle that has just started can send
 // it torn for a few seconds (3 s seen).

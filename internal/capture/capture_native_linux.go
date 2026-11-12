@@ -12,6 +12,7 @@ import (
 
 	"github.com/VibiumDev/roadie/internal/devices"
 	"github.com/VibiumDev/roadie/v4l2"
+	"github.com/pion/mediadevices/pkg/driver"
 )
 
 // Native capture on Linux: the dongle's YUYV frames straight from V4L2's
@@ -21,12 +22,28 @@ import (
 // costs: about a third of a core at 1080p30. The frames stay the driver's
 // until released, so FrameBuffer copies the last one when capture stops.
 
-// openNativeCapture starts YUYV capture on the device's V4L2 node.
+// openNativeCapture starts YUYV capture on the first of the device's V4L2
+// nodes that streams video. The node the device was found by may be its
+// metadata node.
 func openNativeCapture(dev devices.DeviceInfo, width, height, fps int) (frameReader, error) {
-	node := dev.VideoNode()
-	if node == "" {
-		return nil, errNoNativeCapture
+	all := driver.GetManager().Query(func(driver.Driver) bool { return true })
+	err := errNoNativeCapture
+	for _, node := range nativeNodes(all, dev) {
+		r, nodeErr := openNativeNode(dev, node, width, height, fps)
+		if nodeErr == nil {
+			return r, nil
+		}
+		if errors.Is(nodeErr, v4l2.ErrNotCapture) {
+			nodeErr = fmt.Errorf("%w: %v", errNoNativeCapture, nodeErr)
+		}
+		if errors.Is(err, errNoNativeCapture) {
+			err = nodeErr
+		}
 	}
+	return nil, err
+}
+
+func openNativeNode(dev devices.DeviceInfo, node string, width, height, fps int) (frameReader, error) {
 	cap, err := v4l2.OpenCapture("/dev/" + node)
 	if err != nil {
 		return nil, err

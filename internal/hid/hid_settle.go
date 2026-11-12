@@ -62,6 +62,19 @@ type settledHID struct {
 	// onInput, when set, hears every input that went through: what it
 	// was and its parameters. The hold recorder listens here.
 	OnInput func(kind string, params map[string]any)
+	// OnAudio, when set, hears the sound that went to the target's
+	// microphone, as SendAudio took it. It must return at once and must
+	// not keep pcm.
+	OnAudio func(pcm []byte)
+}
+
+// SendAudio plays sound into the target's microphone and tells the listener.
+func (h *settledHID) SendAudio(pcm []byte) error {
+	err := h.HIDBackend.SendAudio(pcm)
+	if err == nil && len(pcm) > 0 && h.OnAudio != nil {
+		h.OnAudio(pcm)
+	}
+	return err
 }
 
 // report tells the listener about one input.

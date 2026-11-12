@@ -3,6 +3,7 @@
 package v4l2
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -29,6 +30,10 @@ type Frame struct {
 	Timestamp time.Duration // kernel monotonic, as Now
 }
 
+// ErrNotCapture says a node cannot stream video: a capture device's
+// metadata node, for one.
+var ErrNotCapture = errors.New("not a streaming capture device")
+
 // OpenCapture opens a capture node and checks it can stream.
 func OpenCapture(path string) (*Capture, error) {
 	dev, err := Open(path)
@@ -42,7 +47,7 @@ func OpenCapture(path string) (*Capture, error) {
 	}
 	if cap.Caps()&CapVideoCapture == 0 || cap.Caps()&CapStreaming == 0 {
 		dev.Close()
-		return nil, fmt.Errorf("%s: not a streaming capture device", path)
+		return nil, fmt.Errorf("%s: %w", path, ErrNotCapture)
 	}
 	return &Capture{dev: dev}, nil
 }

@@ -1,6 +1,6 @@
 module github.com/VibiumDev/roadie
 
-go 1.27.3
+go 1.27.4
 
 require (
 	fiatjaf.com/nostr v0.0.0-20261026145325-252a038facda

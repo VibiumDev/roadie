@@ -180,6 +180,16 @@ listed on the station's Records page next to who held the device and when.
 Manual sessions count as much as an agent's, and Roadie tells the station,
 whose Devices page notes "records sessions" under the host and whose viewer shows REC while a session is live, saying on hover what is recorded.
 
+A recorded hold also keeps a video of the screen, what the phone played, and
+what was sent to its microphone, such as your voice when the viewer's Mic is on:
+
+- The Record Player shows the video in place of the screenshots, with its sound.
+- The video costs no second encode. It is what Roadie already sends its viewers.
+- One hold keeps at most 128 MB of video. `--record-video-mb` changes that, and `0` turns video and sound off.
+- A session that Vibium records, such as a station's jam, has its video in Vibium's own recording. Roadie's recording of that hold then has none.
+
+The [API reference](../../API.md) has the details under "Video and sound in a recording".
+
 What the station may do is yours to edit in
 `/var/lib/roadie/.config/roadie/rig.json`:
 the scopes (`view`, `input`, `bidi`), `admin`, `record`, `max_session` and
