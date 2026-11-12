@@ -120,8 +120,9 @@ A microphone check page. Opens the browser's microphone, converts it to
 button uses, with a level meter and a status line.
 
 Served by roadie so that it is same-origin with `/api/mic`, which refuses
-connections from other origins. `make test-audio-browser` drives this page;
-it is also useful on its own for checking a microphone by hand.
+connections from other origins. The page streams only to the Roadie that
+served it, whatever its address says. `make test-audio-browser` drives this
+page; it is also useful on its own for checking a microphone by hand.
 
 Optional `?report=<url>` makes the page GET that URL once it is streaming,
 which is how the test knows audio is actually flowing before it listens.

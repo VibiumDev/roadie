@@ -41,3 +41,22 @@ func TestSuggestCommand(t *testing.T) {
 		}
 	}
 }
+
+// The soundcheck page opens the visitor's microphone as soon as it loads.
+// Where it sends it must not come from the page's address, or a link could
+// have it streamed to any host.
+func TestSoundcheckPageStreamsToItsOwnHostOnly(t *testing.T) {
+	page := string(soundcheckPage)
+	if n := strings.Count(page, "new WebSocket("); n != 1 {
+		t.Fatalf("the page opens %d WebSockets, want the one to /api/mic", n)
+	}
+	if !strings.Contains(page, "const target = location.host;") || !strings.Contains(page, "new WebSocket('ws://' + target + '/api/mic')") {
+		t.Error("the microphone's WebSocket is not built from location.host alone")
+	}
+	// The address may say where to report progress, and nothing else.
+	for _, line := range strings.Split(page, "\n") {
+		if strings.Contains(line, "params.get(") && !strings.Contains(line, "params.get('report')") {
+			t.Errorf("the page reads its address for more than the report URL: %s", strings.TrimSpace(line))
+		}
+	}
+}
