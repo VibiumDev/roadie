@@ -154,7 +154,7 @@ func TestRecorderRecordsAHold(t *testing.T) {
 		}
 	}
 	// Delivered: nothing left on disk.
-	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
+	if left := settled(dir); len(left) != 0 {
 		t.Fatalf("left behind: %v", left)
 	}
 	// An input after the end starts a new recording, not a late step.
@@ -287,7 +287,7 @@ func TestRecorderKeepsAndRetriesAFailedUpload(t *testing.T) {
 	if got := <-tries; got != "hld_2" {
 		t.Fatalf("retry sent %q", got)
 	}
-	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
+	if left := settled(dir); len(left) != 0 {
 		t.Fatalf("left behind after the retry: %v", left)
 	}
 }

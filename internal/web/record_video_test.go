@@ -100,6 +100,16 @@ func leftIn(dir string) []string {
 	return left
 }
 
+// settled is what is still in dir once the recorder has had its moment:
+// an upload answers before the recorder removes the zip it sent.
+func settled(dir string) []string {
+	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if left := leftIn(dir); len(left) == 0 || time.Now().After(deadline) {
+			return left
+		}
+	}
+}
+
 // recordAHoldWith runs one hold with what the host has, a video tap or a
 // sound source or both, and returns the uploaded zip.
 func recordAHoldWith(t *testing.T, tap *fakeTap, sound SoundSource, max int64, during func(r *recorder)) (*zip.Reader, string) {
@@ -197,7 +207,7 @@ func TestRecorderKeepsAVideoOfTheHold(t *testing.T) {
 	if tap.taps != 1 || tap.stopped != 1 {
 		t.Errorf("the encoder was tapped %d times and released %d", tap.taps, tap.stopped)
 	}
-	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
+	if left := settled(dir); len(left) != 0 {
 		t.Errorf("left behind: %v", left)
 	}
 }
@@ -274,7 +284,7 @@ func TestRecorderLeavesVideoToAViewerThatRecords(t *testing.T) {
 	if tap.taps != 0 {
 		t.Errorf("the encoder was tapped %d times", tap.taps)
 	}
-	if left := leftIn(dir); len(left) != 0 {
+	if left := settled(dir); len(left) != 0 {
 		t.Errorf("left behind: %v", left)
 	}
 
@@ -291,10 +301,7 @@ func TestRecorderLeavesVideoToAViewerThatRecords(t *testing.T) {
 	if _, err := zr.Open("trace.trace"); err != nil {
 		t.Error(err)
 	}
-	// The dropped files go in their own time.
-	for deadline := time.Now().Add(2 * time.Second); len(leftIn(dir)) != 0; time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatalf("left behind: %v", leftIn(dir))
-		}
+	if left := settled(dir); len(left) != 0 {
+		t.Fatalf("left behind: %v", left)
 	}
 }
