@@ -14,10 +14,10 @@
   var hostFetch = shell.fetch;
   function row(labelText, html, title) {
     var r = document.createElement('div');
-    r.style.cssText = 'display:flex; align-items:center; gap:8px; margin-top:8px;';
+    r.className = 'qrow';
     if (title) r.title = title;
     var l = document.createElement('label');
-    l.style.minWidth = '55px';
+    l.className = 'qlabel';
     l.textContent = labelText;
     r.appendChild(l);
     var span = document.createElement('span');
@@ -29,12 +29,12 @@
 
   // --- The capture's own settings: quality (the MJPEG stream's JPEG),
   // frame rate and size, kept by the host and remembered by this browser.
-  var qualityRow = row('Quality', '<input id="qrange" type="range" min="30" max="95" style="width:120px; vertical-align:middle;"><span id="qval" style="min-width:2em; text-align:right;"></span>', 'JPEG quality of the MJPEG stream');
+  var qualityRow = row('Quality', '<input id="qrange" type="range" min="30" max="95"><span id="qval" class="qval"></span>', 'JPEG quality of the MJPEG stream');
   qualityRow.id = 'qualityRow';
   qualityRow.style.marginTop = '0'; qualityRow.style.marginBottom = '8px';
-  var fpsRow = row('FPS', '<select id="fpsSelect" style="border-radius:4px; padding:2px 6px; font-family:monospace;"><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="30">30</option></select>');
+  var fpsRow = row('FPS', '<select id="fpsSelect"><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="30">30</option></select>');
   fpsRow.style.marginTop = '0'; fpsRow.style.marginBottom = '8px';
-  var sizeRow = row('Size', '<select id="resSelect" style="border-radius:4px; padding:2px 6px; font-family:monospace;"><option value="1920x1080">1080p</option><option value="1280x720">720p</option><option value="640x480">480p</option></select>');
+  var sizeRow = row('Size', '<select id="resSelect"><option value="1920x1080">1080p</option><option value="1280x720">720p</option><option value="640x480">480p</option></select>');
   sizeRow.style.marginTop = '0';
   shell.addRow(qualityRow, 'top', true);
   shell.addRow(fpsRow, 'top');
@@ -74,13 +74,13 @@
 
   // --- The crop: auto, off, or the one saved for the way the device is
   // turned. Chosen and kept by the host, not in this browser.
-  var cropRow = row('Crop', '<div class="seg" style="display:flex; gap:0;"><button id="cropAutoBtn" title="Trim whatever is black at the edges" style="padding:2px 10px; border-radius:4px 0 0 4px; font-family:monospace; cursor:pointer;">Auto</button><button id="cropOffBtn" title="Show the whole frame" style="padding:2px 10px; border-radius:0; font-family:monospace; cursor:pointer;">Off</button><button id="cropSavedBtn" title="Use the crop saved for the way the device is turned" style="padding:2px 10px; border-radius:0 4px 4px 0; font-family:monospace; cursor:pointer;">Saved</button></div>');
+  var cropRow = row('Crop', '<div class="seg"><button id="cropAutoBtn" title="Trim whatever is black at the edges">Auto</button><button id="cropOffBtn" title="Show the whole frame">Off</button><button id="cropSavedBtn" title="Use the crop saved for the way the device is turned">Saved</button></div>');
   var cropRow2 = document.createElement('div');
-  cropRow2.style.cssText = 'display:flex; align-items:center; gap:8px; margin:6px 0 0 63px;';
-  cropRow2.innerHTML = '<button id="cropSaveBtn" title="Save the crop of what is on screen now, for the way the device is turned. Show something bright to its edges first, such as a white page." class="btn2" style="padding:2px 10px; border-radius:4px; font-family:monospace; cursor:pointer;">Save</button><button id="cropClearBtn" title="Forget the saved crops" class="btn2" style="padding:2px 10px; border-radius:4px; font-family:monospace; cursor:pointer;">Clear</button>';
+  cropRow2.className = 'qrow sub';
+  cropRow2.innerHTML = '<button id="cropSaveBtn" title="Save the crop of what is on screen now, for the way the device is turned. Show something bright to its edges first, such as a white page." class="btn2">Save</button><button id="cropClearBtn" title="Forget the saved crops" class="btn2">Clear</button>';
   var cropStatus = document.createElement('div');
   cropStatus.id = 'cropStatus'; cropStatus.className = 'err'; cropStatus.hidden = true;
-  cropStatus.style.cssText = 'margin:4px 0 0 63px; font-size:0.9em; max-width:260px; white-space:normal;';
+  cropStatus.classList.add('qnote');
   shell.addRow(cropRow, 'middle'); shell.addRow(cropRow2, 'middle'); shell.addRow(cropStatus, 'middle');
   var cropBtns = {auto: $('cropAutoBtn'), off: $('cropOffBtn'), saved: $('cropSavedBtn')};
   var cropSaveBtn = $('cropSaveBtn'), cropClearBtn = $('cropClearBtn');
@@ -126,15 +126,14 @@
   if (shell.admin()) {
     var gadget = dev.hidBackend === 'linux-gadget';
     var head = document.createElement('div');
-    head.className = 'divider';
-    head.style.cssText = 'display:flex; align-items:center; gap:8px; margin-top:8px; padding-top:8px;';
-    head.innerHTML = '<label style="min-width:55px;">Resets</label><button id="resetHelpBtn" aria-controls="resetHelp" aria-expanded="false" title="What each reset does" class="qhelp" style="width:20px; height:20px; padding:0; border-radius:50%; font-family:monospace; font-size:0.85em; cursor:pointer;">?</button>';
+    head.className = 'qrow divider';
+    head.innerHTML = '<label class="qlabel">Resets</label><button id="resetHelpBtn" aria-controls="resetHelp" aria-expanded="false" title="What each reset does" class="qhelp">?</button>';
     var help = document.createElement('div');
     help.id = 'resetHelp'; help.className = 'hint'; help.hidden = true;
-    help.style.cssText = 'margin:6px 0 0 63px; font-size:0.9em; max-width:260px; white-space:normal;';
-    var videoReset = row('Video', '<button id="resetVideoBtn" class="danger" style="padding:2px 10px; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>');
-    var hidReset = row(gadget ? 'USB' : 'HID', '<button id="resetHIDBtn" class="danger" style="padding:2px 10px; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>');
-    var relayReset = row('Relay', '<button id="resetRelayBtn" class="danger" style="padding:2px 10px; border-radius:4px; font-family:monospace; cursor:pointer; position:relative; overflow:hidden;"></button>');
+    help.classList.add('qnote');
+    var videoReset = row('Video', '<button id="resetVideoBtn" class="danger"></button>');
+    var hidReset = row(gadget ? 'USB' : 'HID', '<button id="resetHIDBtn" class="danger"></button>');
+    var relayReset = row('Relay', '<button id="resetRelayBtn" class="danger"></button>');
     shell.addRow(head, 'bottom'); shell.addRow(help, 'bottom'); shell.addRow(videoReset, 'bottom'); shell.addRow(hidReset, 'bottom');
     if (!gadget) shell.addRow(relayReset, 'bottom');
     function setupResetBtn(id, url) {
