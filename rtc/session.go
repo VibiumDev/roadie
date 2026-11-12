@@ -49,7 +49,9 @@ func (b *Broadcaster) ServeSignal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no H.264 encoder on this host", http.StatusServiceUnavailable)
 		return
 	}
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	// The default same-origin check: a page on another origin must not get
+	// the picture or the input channel. A station's relay sends no Origin.
+	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
 	}

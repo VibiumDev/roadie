@@ -1,7 +1,9 @@
 package web
 
 import (
+	"context"
 	"errors"
+	"github.com/VibiumDev/roadie/internal/audio"
 	"github.com/VibiumDev/roadie/internal/capture"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +11,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/coder/websocket"
 )
 
 func okHandler() http.Handler {
@@ -263,8 +268,10 @@ func TestAuthModes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		req.Host = "localhost:8080"
 		rec := httptest.NewRecorder()
-		a.Wrap(okHandler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+		a.Wrap(okHandler()).ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Errorf("mode %q got %d", mode, rec.Code)
 		}
@@ -278,6 +285,147 @@ func TestAuthModes(t *testing.T) {
 	for in, want := range map[string]bool{"": false, "127.0.0.1": true, "localhost": true, "::1": true, "0.0.0.0": false, "10.1.10.104": false} {
 		if got := IsLoopbackAddr(in); got != want {
 			t.Errorf("isLoopbackAddr(%q) = %v", in, got)
+		}
+	}
+}
+
+// A page on another site rides on whatever lets its visitor in: the cookie,
+// the tailnet address, or nothing where nothing is asked. In every mode a
+// request that changes something, or opens a socket, is refused when its
+// Origin is not the host it was sent to.
+func TestOtherOriginsAreRefused(t *testing.T) {
+	token, _ := newTokenAuth(t)
+	unset, _ := NewAuth(AuthUnset, "")
+	none, _ := NewAuth(AuthNone, "")
+	tailnet, _ := NewAuth(AuthTailscale, "")
+	tailnet.whois = func(string) (string, []string, error) { return "member", nil, nil }
+	const host, evil = "localhost:8080", "https://evil.example"
+	for name, a := range map[string]*Auth{"unset": unset, "none": none, "tailscale": tailnet, "token": token} {
+		h := a.Wrap(okHandler())
+		do := func(method, origin string, socket bool) int {
+			req := httptest.NewRequest(method, "/api/hid/type", strings.NewReader(`{"text":"x"}`))
+			req.Host = host
+			req.Header.Set("Content-Type", "text/plain") // what a form on another site can send
+			if a.Mode == AuthToken {
+				req.AddCookie(&http.Cookie{Name: sessionCookie, Value: a.sessionValue()})
+			}
+			if origin != "" {
+				req.Header.Set("Origin", origin)
+			}
+			if socket {
+				req.Header.Set("Upgrade", "websocket")
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			return rec.Code
+		}
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions} {
+			if c := do(method, evil, false); c != http.StatusForbidden {
+				t.Errorf("%s: %s from %s got %d", name, method, evil, c)
+			}
+		}
+		if c := do(http.MethodGet, evil, true); c != http.StatusForbidden {
+			t.Errorf("%s: a WebSocket from %s got %d", name, evil, c)
+		}
+		// A sandboxed frame or a file says "null", and another port of
+		// this host is another origin.
+		for _, origin := range []string{"null", "http://localhost:9999", "http://localhost"} {
+			if c := do(http.MethodPost, origin, false); c != http.StatusForbidden {
+				t.Errorf("%s: POST from %q got %d", name, origin, c)
+			}
+		}
+		// This origin, and a client that is no browser and sends none.
+		for _, origin := range []string{"http://" + host, "https://" + host, "http://LOCALHOST:8080", ""} {
+			if c := do(http.MethodPost, origin, false); c != http.StatusOK {
+				t.Errorf("%s: POST from %q got %d", name, origin, c)
+			}
+			if c := do(http.MethodGet, origin, true); c != http.StatusOK {
+				t.Errorf("%s: a WebSocket from %q got %d", name, origin, c)
+			}
+		}
+		// A read is left alone: the browser keeps the answer from the page.
+		if c := do(http.MethodGet, evil, false); c != http.StatusOK {
+			t.Errorf("%s: GET from %s got %d", name, evil, c)
+		}
+	}
+	// A bearer token is not something a browser sends by itself, so it
+	// gets in from anywhere, and the sockets' own check never sees its
+	// Origin.
+	var seen http.Header
+	h := token.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { seen = r.Header.Clone() }))
+	for _, socket := range []bool{false, true} {
+		req := httptest.NewRequest(http.MethodPost, "/api/hid/type", nil)
+		req.Host = host
+		req.Header.Set("Authorization", "Bearer "+token.token)
+		req.Header.Set("Origin", evil)
+		if socket {
+			req.Method = http.MethodGet
+			req.Header.Set("Upgrade", "websocket")
+		}
+		rec := httptest.NewRecorder()
+		seen = nil
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || seen == nil || seen.Get("Origin") != "" {
+			t.Errorf("bearer from %s (socket %v): %d, Origin passed on: %q", evil, socket, rec.Code, seen.Get("Origin"))
+		}
+	}
+}
+
+// Without --auth Roadie serves this machine only. A page elsewhere can
+// point a name of its own at 127.0.0.1, so any other Host is refused.
+func TestUnsetModeAnswersToLocalhostOnly(t *testing.T) {
+	get := func(a *Auth, host string) int {
+		req := httptest.NewRequest(http.MethodGet, "/snapshot", nil)
+		req.Host = host
+		rec := httptest.NewRecorder()
+		a.Wrap(okHandler()).ServeHTTP(rec, req)
+		return rec.Code
+	}
+	unset, _ := NewAuth(AuthUnset, "")
+	for host, want := range map[string]int{
+		"localhost:8080": 200, "localhost": 200, "LocalHost:8080": 200, "127.0.0.1:8080": 200, "127.0.0.2:8080": 200, "[::1]:8080": 200, "[::1]": 200,
+		"rebind.evil.example:8080": 403, "localhost.evil.example": 403, "192.168.1.5:8080": 403, "roadie.local:8080": 403, "": 403,
+	} {
+		if c := get(unset, host); c != want {
+			t.Errorf("Host %q got %d, want %d", host, c, want)
+		}
+	}
+	// The other modes serve whatever name the machine is reached by.
+	none, _ := NewAuth(AuthNone, "")
+	if c := get(none, "roadie.local:8080"); c != 200 {
+		t.Errorf("--auth none, Host roadie.local: %d", c)
+	}
+}
+
+// The sockets check Origin themselves too, so the rule holds wherever the
+// mux is served: behind Wrap, and through a station's tunnel, whose relay
+// sends no Origin.
+func TestSocketsRefuseAnotherOrigin(t *testing.T) {
+	resetBidiState()
+	s, mux := newTestServer()
+	s.HID = &keyHID{}
+	s.AudioBroadcast = audio.NewAudioBroadcaster()
+	s.AudioBroadcast.SetParams(audio.AudioParams{SampleRate: 48000, Channels: 2, Format: "f32-interleaved"})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	base := "ws" + strings.TrimPrefix(ts.URL, "http")
+	for _, path := range []string{"/api/hid/ws", "/session", "/audio", "/api/mic"} {
+		from := &websocket.DialOptions{HTTPHeader: http.Header{"Origin": {"https://evil.example"}}}
+		if c, resp, err := websocket.Dial(ctx, base+path, from); err == nil {
+			c.CloseNow()
+			t.Errorf("%s opened from another origin", path)
+		} else if resp == nil || resp.StatusCode != http.StatusForbidden {
+			t.Errorf("%s from another origin: %v", path, err)
+		}
+		for _, opts := range []*websocket.DialOptions{nil, {HTTPHeader: http.Header{"Origin": {ts.URL}}}} {
+			c, _, err := websocket.Dial(ctx, base+path, opts)
+			if err != nil {
+				t.Errorf("%s with %+v: %v", path, opts, err)
+				continue
+			}
+			c.CloseNow()
 		}
 	}
 }

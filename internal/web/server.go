@@ -860,9 +860,9 @@ func (s *Server) handleAudio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true, // allow any origin for local network use
-	})
+	// The default same-origin check, as for /api/mic: a page on another
+	// origin must not listen in.
+	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		log.Printf("audio websocket accept: %v", err)
 		return
@@ -1945,9 +1945,9 @@ func (s *Server) handleHIDWebSocket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "HID not available", http.StatusServiceUnavailable)
 		return
 	}
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true,
-	})
+	// The default same-origin check, as for /api/mic: a page on another
+	// origin must not send input.
+	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		log.Printf("HID websocket accept: %v", err)
 		return

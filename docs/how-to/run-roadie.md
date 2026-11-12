@@ -69,6 +69,14 @@ Roadie's command line says who may use its pages and API:
 | `tailscale` | Whoever the local `tailscaled` says a connection belongs to: anyone on your tailnet, or only the logins and tags in `--allow you@example.com,tag:ci`. Nothing to type; connections from the LAN that are not from the tailnet are refused. |
 | `none` | Everyone who can reach the port, with a warning at every start. |
 
+In every mode a web page on another site cannot borrow a visitor's way in.
+Roadie refuses a request that changes something, and any WebSocket, when the
+browser says it comes from another origin. Scripts and agents send no
+`Origin` header and are not affected. Without `--auth`, Roadie also answers
+only when it is addressed as `localhost`, `127.0.0.1` or `[::1]`. The
+[API reference](../../API.md#requests-from-another-origin) has the rule in
+full.
+
 The token lives in `/var/lib/roadie/.config/roadie/token`, readable by the
 `roadie` account only, so the commands that show or replace it run as that
 account:

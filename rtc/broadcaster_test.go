@@ -1,12 +1,17 @@
 package rtc
 
 import (
+	"context"
 	"image"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/VibiumDev/roadie/encoder"
+	"github.com/coder/websocket"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -192,4 +197,35 @@ func TestSessionLoopback(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Error("the encoder was not closed")
 	}
+}
+
+// The signaling socket is closed to a page on another origin: behind it
+// are the picture, the sound and the input channel.
+func TestSignalRefusesAnotherOrigin(t *testing.T) {
+	b, err := New(&fakeSource{added: make(chan struct{}), gone: make(chan struct{})}, Options{
+		Logf:        t.Logf,
+		OpenEncoder: func(encoder.Config) (encoder.Encoder, string, error) { return nil, "", encoder.ErrUnavailable },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	ts := httptest.NewServer(http.HandlerFunc(b.ServeSignal))
+	defer ts.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+	from := &websocket.DialOptions{HTTPHeader: http.Header{"Origin": {"https://evil.example"}}}
+	if c, resp, err := websocket.Dial(ctx, url, from); err == nil {
+		c.CloseNow()
+		t.Fatal("opened from another origin")
+	} else if resp == nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("from another origin: %v", err)
+	}
+	// A client that is no browser sends no Origin.
+	c, _, err := websocket.Dial(ctx, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.CloseNow()
 }

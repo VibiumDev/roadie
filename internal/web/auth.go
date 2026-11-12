@@ -156,7 +156,14 @@ func equalSecret(a, b string) bool {
 // Wrap checks every request but the login pages.
 func (a *Auth) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if a.Mode == AuthUnset || a.Mode == AuthNone || r.URL.Path == "/login" || r.URL.Path == "/logout" || r.URL.Path == "/favicon.png" || r.URL.Path == "/apple-touch-icon.png" {
+		// Without --auth only this machine is served, under its own name.
+		// A page elsewhere can point a name of its own at 127.0.0.1 and
+		// would then pass as this origin.
+		if a.Mode == AuthUnset && !localHost(r.Host) {
+			http.Error(w, "Forbidden: without --auth Roadie answers to localhost only", http.StatusForbidden)
+			return
+		}
+		if r.URL.Path == "/login" || r.URL.Path == "/logout" || r.URL.Path == "/favicon.png" || r.URL.Path == "/apple-touch-icon.png" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -165,18 +172,47 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 			a.refuse(w, r, err)
 			return
 		}
-		// A browser's cookie goes along with cross-site WebSocket requests
-		// too, so those must come from this origin.
-		if via == "cookie" && strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
-			if o := r.Header.Get("Origin"); o != "" {
-				if u, err := url.Parse(o); err != nil || !strings.EqualFold(u.Host, r.Host) {
-					http.Error(w, "cross-origin WebSocket refused", http.StatusForbidden)
-					return
-				}
-			}
+		// A browser sends what lets it in with the requests a page on
+		// another site makes too: its cookie, its tailnet address, or
+		// nothing where nothing is asked. So a request that changes
+		// something, or opens a socket, must come from this origin. A bearer
+		// token is never sent that way, so its Origin does not count, and
+		// the sockets' own check must not see it. Clients that are not
+		// browsers send no Origin.
+		if via == "bearer" {
+			r.Header.Del("Origin")
+		} else if writesOrUpgrades(r) && crossOrigin(r) {
+			http.Error(w, "cross-origin request refused", http.StatusForbidden)
+			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// localHost says whether a Host header names this machine itself.
+func localHost(hostport string) bool {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil {
+		host = strings.Trim(hostport, "[]")
+	}
+	return IsLoopbackAddr(strings.ToLower(host))
+}
+
+// writesOrUpgrades says whether a request is more than a read: any method
+// but GET and HEAD, or a WebSocket.
+func writesOrUpgrades(r *http.Request) bool {
+	return (r.Method != http.MethodGet && r.Method != http.MethodHead) || strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+}
+
+// crossOrigin says whether a request names an Origin other than the host it
+// was sent to.
+func crossOrigin(r *http.Request) bool {
+	o := r.Header.Get("Origin")
+	if o == "" {
+		return false
+	}
+	u, err := url.Parse(o)
+	return err != nil || !strings.EqualFold(u.Host, r.Host)
 }
 
 var errUnauthorized = errors.New("unauthorized")

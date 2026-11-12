@@ -95,9 +95,9 @@ func (s *Server) bidiDrop(conn *websocket.Conn) {
 }
 
 func (s *Server) handleBiDi(w http.ResponseWriter, r *http.Request) {
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true,
-	})
+	// The default same-origin check, as for /api/mic: a page on another
+	// origin must not drive the target or read its screen.
+	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		log.Printf("bidi websocket accept: %v", err)
 		return

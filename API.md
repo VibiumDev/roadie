@@ -69,6 +69,25 @@ address in ten minutes are refused with `429`. `/logout` clears the cookie.
 signs every browser out. With the other `--auth` modes `/login` just goes to
 `/`.
 
+### Requests from another origin
+
+A request that changes something, or opens a WebSocket, is refused with
+`403` when its `Origin` header names another host than the one it was sent
+to. That is every method but `GET` and `HEAD`, and every WebSocket. It holds
+in every `--auth` mode, so a page on another site cannot use a visitor's
+cookie, tailnet address or place on the network to drive the target.
+
+- Roadie's own pages are not affected. Each `/grid` panel is a frame on its
+  own Roadie, so its requests go to its own origin.
+- Clients that are not browsers send no `Origin` and are not affected: curl,
+  scripts, Vibium, a station's relay.
+- A request with a valid `Authorization: Bearer` token is taken from any
+  origin.
+- A proxy in front of Roadie must pass the `Host` header on unchanged.
+- Without `--auth`, the `Host` header must also be `localhost` or a loopback
+  address such as `127.0.0.1` or `[::1]`, with any port. Any other name gets
+  `403`.
+
 ### `GET /grid`
 Grid of several Roadie instances, one iframe per target. Carries no video itself —
 each panel loads its stream straight from its own Roadie, so frames travel
