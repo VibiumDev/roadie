@@ -210,10 +210,12 @@ Update settings. All fields are optional — only provided fields are changed. C
 |-------|-------|-------------|
 | `quality` | 30-95 | JPEG compression quality |
 | `fps` | 10-30 | Capture framerate |
-| `width` | | Capture width (must be set with `height`) |
-| `height` | | Capture height (must be set with `width`) |
+| `width` | 1920, 1280 or 640 | Capture width (must be set with `height`) |
+| `height` | 1080, 720 or 480 | Capture height (must be set with `width`): `1920`x`1080`, `1280`x`720` or `640`x`480` |
 | `autocrop` | `true`/`false` | Choose auto-crop (trim constant black bars) or no crop: the two-way form of [`/api/crop`](#get-put-post-delete-apicrop)'s choice, which also offers a saved crop. Kept across restarts. `GET` answers `true` only while auto-crop is chosen |
 | `glide` | `true`/`false` | Glide the pointer to each new spot instead of jumping (see [`/api/hid/mouse/move`](#post-apihidmousemove)). Off unless `--glide` was given; a change lasts until restart. `409` from an input that can't |
+
+An `fps` or a size outside these gets `400`, and nothing in the request is applied. The value in use is always accepted, so a frame rate or size set by a flag can be sent back as it is. `quality` outside its range is brought to the nearest end.
 
 **Response:**
 ```json

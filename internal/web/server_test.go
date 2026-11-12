@@ -318,6 +318,48 @@ func TestAPISettingsPut(t *testing.T) {
 	}
 }
 
+// The frame rate and the size go straight to the capture, so numbers it
+// was never meant to take are refused, and a refused request changes
+// nothing.
+func TestAPISettingsRefusesOddNumbers(t *testing.T) {
+	s, mux := newTestServer()
+	put := func(body string) int {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("PUT", "/api/settings", strings.NewReader(body)))
+		return w.Code
+	}
+	for _, body := range []string{
+		`{"fps":-7}`, `{"fps":0}`, `{"fps":9}`, `{"fps":31}`, `{"fps":1000000}`,
+		`{"width":-1,"height":99999999}`, `{"width":0,"height":0}`, `{"width":1280,"height":721}`, `{"width":1080,"height":1920}`,
+		`{"quality":50,"fps":-7}`, `{"quality":50,"width":1,"height":1}`,
+	} {
+		if c := put(body); c != http.StatusBadRequest {
+			t.Errorf("%s: %d", body, c)
+		}
+	}
+	if s.Buf.FPS() != 30 || s.Buf.Width() != 1920 || s.Buf.Height() != 1080 || s.Buf.Quality() != 80 {
+		t.Errorf("refused requests left fps %d, %dx%d, quality %d", s.Buf.FPS(), s.Buf.Width(), s.Buf.Height(), s.Buf.Quality())
+	}
+	// What the pages offer, and the rates between.
+	for _, body := range []string{`{"fps":10}`, `{"fps":15}`, `{"fps":20}`, `{"fps":25}`, `{"fps":30}`,
+		`{"width":1280,"height":720}`, `{"width":640,"height":480}`, `{"width":1920,"height":1080}`, `{"quality":60,"fps":15,"width":1280,"height":720}`} {
+		if c := put(body); c != http.StatusOK {
+			t.Errorf("%s: %d", body, c)
+		}
+	}
+	if s.Buf.FPS() != 15 || s.Buf.Width() != 1280 || s.Buf.Height() != 720 || s.Buf.Quality() != 60 {
+		t.Errorf("after the last request: fps %d, %dx%d, quality %d", s.Buf.FPS(), s.Buf.Width(), s.Buf.Height(), s.Buf.Quality())
+	}
+	// What is in use, as flags may have set it, can be sent back as it is:
+	// a browser that remembers its settings does.
+	s.Buf.SetFPS(60)
+	s.Buf.SetWidth(1600)
+	s.Buf.SetHeight(1200)
+	if c := put(`{"quality":70,"fps":60,"width":1600,"height":1200}`); c != http.StatusOK || s.Buf.Quality() != 70 || s.Buf.FPS() != 60 {
+		t.Errorf("the values in use sent back: %d, quality %d, fps %d", c, s.Buf.Quality(), s.Buf.FPS())
+	}
+}
+
 func TestSettingsPage(t *testing.T) {
 	_, mux := newTestServer()
 	code, hdr, body := get(t, mux, "/settings")

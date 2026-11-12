@@ -671,6 +671,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	enc.Encode(resp)
 }
 
+// What /api/settings takes for the capture: the frame rates the API has
+// always named, and the sizes the settings page and the viewer offer.
+const minFPS, maxFPS = 10, 30
+
+var captureSizes = map[image.Point]bool{{X: 1920, Y: 1080}: true, {X: 1280, Y: 720}: true, {X: 640, Y: 480}: true}
+
 // glider is the input wrapper's glide switch (settledHID).
 type glider interface {
 	Glide() bool
@@ -713,6 +719,19 @@ func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		// A frame rate or size goes straight to the capture and to every
+		// stream's pacing, so only what the capture is known to take is
+		// accepted. What is in use now, set by a flag perhaps, may always
+		// be sent back.
+		if body.FPS != nil && *body.FPS != s.Buf.FPS() && (*body.FPS < minFPS || *body.FPS > maxFPS) {
+			http.Error(w, fmt.Sprintf("fps is %d to %d", minFPS, maxFPS), http.StatusBadRequest)
+			return
+		}
+		if body.Width != nil && body.Height != nil && (*body.Width != s.Buf.Width() || *body.Height != s.Buf.Height()) &&
+			!captureSizes[image.Pt(*body.Width, *body.Height)] {
+			http.Error(w, "width and height are 1920x1080, 1280x720 or 640x480", http.StatusBadRequest)
 			return
 		}
 		if body.Glide != nil {
