@@ -85,7 +85,7 @@ func main() {
 	width := flag.Int("width", 1920, "capture width")
 	height := flag.Int("height", 1080, "capture height")
 	fps := flag.Int("fps", 30, "capture framerate")
-	quality := flag.Int("quality", 80, "JPEG compression quality (1-100)")
+	quality := flag.Int("quality", 80, "JPEG compression quality (30-95)")
 	name := flag.String("name", "roadie", "Bonjour service name")
 	inputMode := flag.String("input", "", "default pointer mode for viewers: mouse or touch (empty: viewer decides)")
 	platformName := flag.String("platform", "", "target OS: android, ios, mac, windows, linux (tunes pointer mapping and input mode)")

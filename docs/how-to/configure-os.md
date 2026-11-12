@@ -28,6 +28,13 @@ bash machine-setup --gadget    # this Pi's USB-C port is the phone's keyboard, m
 bash machine-setup --boards    # the RP2040 relay and HID boards
 ```
 
+The script sets Roadie up for an Android phone. For an iPhone, add
+`--platform ios`:
+
+```bash
+bash machine-setup --gadget --platform ios
+```
+
 Run it as your normal user, not with `sudo`; the script uses `sudo` where
 it needs to, and the service it installs runs as its own `roadie` account. A first run takes around
 ten minutes, most of it upgrading packages and fetching Go. It reboots at
@@ -54,8 +61,9 @@ To try a branch, put its name in the URL instead of `main` and pass
 Every run, both kinds:
 
 - Upgrades installed packages (skip with `--no-upgrade`).
-- Installs packages: `git`, `make`, `build-essential`, `golang-go`, `curl`,
-  `python3-venv`, `v4l-utils`, `alsa-utils`. Go fetches the exact toolchain
+- Installs packages: `git`, `make`, `build-essential`, `golang-go`,
+  `ca-certificates`, `curl`, `python3`, `python3-venv`, `v4l-utils`,
+  `alsa-utils`. Go fetches the exact toolchain
   `go.mod` names (checksum-verified) on the first build.
 - Clones Roadie into `~/Projects/roadie`, or fast-forwards it to the latest
   `main`; a checkout with local changes is left alone. Builds it.
@@ -67,7 +75,7 @@ Every run, both kinds:
 - Installs the capture dongle's udev rule (for `POST /api/capture/reset`).
 - Writes `/etc/default/roadie` with your options, the first time only:
   ```bash
-  ROADIE_ARGS="--hid-backend linux-gadget --platform android --name roadie-01 --port 8080"
+  ROADIE_ARGS="--hid-backend linux-gadget --platform android --name roadie-01 --port 8080 --auth token"
   ```
   After that it keeps the file, apart from `--hid-backend`, which follows
   `--gadget` or `--boards`.
@@ -105,9 +113,12 @@ Roadie, read its log, or change its flags, see
 
 ## 5. Next
 
-- `--gadget`: power the Pi through a USB-C splitter and wire the phone —
+- `--gadget`: run `sudo poweroff` and unplug the Pi. Then power it through a
+  USB-C splitter and wire the phone —
   [Wiring and power](linux-gadget.md#wiring-and-power) — then work through
   the [hardware checklist](linux-gadget.md#hardware-validation-checklist).
+  An iPhone also needs AssistiveTouch on:
+  [Connect a Phone](connect-a-phone.md#iphone).
 - `--boards`: [flash the boards](flash-boards.md) and
   [connect the phone](connect-a-phone.md).
 - Either way: [Harden the Pi](harden-the-pi.md) closes what the script
@@ -128,13 +139,15 @@ Recable the phone's hub to match; see
 
 ## Updating
 
-Run the script again, with the same options:
+Pull, then run the script again, with the same options:
 
 ```bash
+git -C ~/Projects/roadie pull --ff-only
 bash ~/Projects/roadie/setup/machine-setup --gadget
 ```
 
-It pulls, rebuilds and restarts Roadie without rebooting (unless the system
+Run from the checkout, the script builds what is checked out and does not
+pull. It rebuilds and restarts Roadie without rebooting (unless the system
 asks for a reboot), and keeps your settings in `/etc/default/roadie` and
 `/etc/roadie`.
 

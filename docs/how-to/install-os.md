@@ -48,7 +48,9 @@ Click **NEXT** after each screen.
   becomes Roadie's name: `http://roadie-01.local:8080`.
 - **Localisation**: your time zone and keyboard (optional).
 - **User**: any username and a strong password; keep it in a password
-  manager. Roadie runs as whoever runs the set-up script in step 2.
+  manager. This is the account you log in with and run the set-up script
+  as. Roadie itself runs as its own `roadie` account, which the script
+  creates.
 - **Wi-Fi**: leave blank and use Ethernet, especially on a phone host.
   Fill it in only for a bench Pi with no cable.
 - **Remote access**: turn on **SSH**. For more than one Pi, choose

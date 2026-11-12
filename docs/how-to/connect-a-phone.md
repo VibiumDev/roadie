@@ -78,7 +78,7 @@ button 5 and clicks through it, in a few seconds. To set the phone up once:
    Buttons**. When it asks for a button, have Roadie press button 5:
 
    ```bash
-   curl -X POST localhost:8080/api/hid/mouse/click -d '{"buttons": 16}'
+   curl -X POST -H "Authorization: Bearer $(sudo -u roadie roadie token)" localhost:8080/api/hid/mouse/click -d '{"buttons": 16}'
    ```
 
 2. Choose **Open Menu**.
@@ -103,6 +103,11 @@ defaults to touch input.
 make test-e2e-iphone
 make test-e2e-android
 ```
+
+The tests send no token, so they do not use a service that runs with
+`--auth token`, and the service holds the capture dongle. Where Roadie runs
+as a service, stop it before the tests (`sudo systemctl stop roadie`) and
+start it afterwards (`sudo systemctl start roadie`).
 
 Each opens the test page on the phone using the keyboard, then drives input
 through roadie and checks what the page received. See

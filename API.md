@@ -956,6 +956,11 @@ Input from a viewer that does not know the capture's crop, such as the station's
 | `--relay` | (auto-detect) | Relay board serial number substring, for picking between boards |
 | `--platform` | | Target OS: `android`, `ios`, `mac`, `windows`, `linux`. Tunes pointer mapping and the default input mode |
 | `--input` | (viewer decides) | Default pointer mode for viewers: `mouse` or `touch` |
+| `--glide` | off | Glide the pointer to each new spot along an arc instead of jumping; also a switch on `/settings` |
+| `--label` | (its kind, `phone`) | The device's name for people on a station, such as `"Dev iPhone 15"` |
+| `--device-name` | phone | The device's name in its station address, `rig/<name>`: a lowercase word of up to 32 letters, digits, `_` or `-`, starting with a letter |
+| `--model` | | The device's model name, such as `"iPhone 15 Pro Max"`, shown on a station and told to agents |
+| `--os-version` | | The version of what the device runs, such as `"26.6"`, shown on a station and told to agents |
 | `--hid-backend` | rp2040 | Input hardware: `rp2040` (relay and HID boards) or `linux-gadget` (this Pi's USB-C port; see [docs/how-to/linux-gadget.md](docs/how-to/linux-gadget.md)) |
 | `--bind` | 127.0.0.1 without `--auth`, else every address | Address to listen on. `127.0.0.1` behind `tailscale serve`, which is when `--auth tailscale` trusts the `Tailscale-User-Login` header serve adds |
 | `--auth` | | Who may use the pages and API: `token` (the local admin token; `roadie token` prints it), `tailscale` (whoever the local tailscaled says the connection belongs to), or `none` (no checks, with a warning at every start). Unset, Roadie listens on localhost only |
