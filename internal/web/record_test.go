@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -159,6 +160,82 @@ func TestRecorderRecordsAHold(t *testing.T) {
 	// An input after the end starts a new recording, not a late step.
 	if r.active["hld_1"] != nil {
 		t.Fatal("ended recording still active")
+	}
+}
+
+// A station chooses the hold's id, and the id names the recording's files.
+// An id that is not a plain file name is not recorded, so nothing is
+// written or removed outside the recordings directory.
+func TestRecorderKeepsToItsDirectory(t *testing.T) {
+	entry := &rig.StationEntry{Name: "st", Npub: "npub1test", URL: "https://st.example", RigID: "rig_1", Record: true}
+	key := nostr.Generate()
+	// The layout Roadie has: the policy beside the recordings.
+	conf := filepath.Join(t.TempDir(), "roadie")
+	dir := filepath.Join(conf, "recordings")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	policy := filepath.Join(conf, "rig.json")
+	os.WriteFile(policy, []byte(`{"stations":[]}`), 0o600)
+	hold := ""
+	r := NewRecorder(newFakeFrames(t), func() (*rig.StationEntry, string, string, nostr.SecretKey, bool) {
+		return entry, "rig_1/phone", hold, key, true
+	}, dir)
+	r.settle, r.burst = 20*time.Millisecond, 10*time.Millisecond
+	var logged []string
+	r.logf = func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }
+	sent := make(chan rig.Recording, 4)
+	r.upload = func(ctx context.Context, e *rig.StationEntry, k nostr.SecretKey, rec rig.Recording) (map[string]any, error) {
+		sent <- rec
+		return map[string]any{"url": "https://st.example/x.zip"}, nil
+	}
+	for _, hold = range []string{
+		"hld_/../../rig", "hld_/../../../elsewhere/victim", "../../rig", "hld_a/b", `hld_a\b`, "hld_a b", "hld_a\x00b", "hld_*", "hld_" + strings.Repeat("a", 300),
+	} {
+		r.Input("type", map[string]any{"text": "x"})
+		r.Input("type", map[string]any{"text": "y"})
+		r.Said(make([]byte, 640))
+		if len(r.active) != 0 {
+			t.Errorf("hold id %q is being recorded", hold)
+		}
+		r.End(hold)
+		if len(logged) == 0 || !strings.Contains(logged[len(logged)-1], "not a file name") || strings.Count(strings.Join(logged, "\n"), fmt.Sprintf("%q", hold)) != 1 {
+			t.Errorf("hold id %q: want it logged once, got %q", hold, logged)
+		}
+	}
+	r.writing.Wait()
+	select {
+	case rec := <-sent:
+		t.Errorf("uploaded %+v", rec)
+	default:
+	}
+	// Only what was there is there: the empty directory and the policy.
+	var found []string
+	filepath.WalkDir(filepath.Dir(conf), func(path string, d os.DirEntry, err error) error {
+		if !d.IsDir() {
+			found = append(found, path)
+		}
+		return nil
+	})
+	if len(found) != 1 || found[0] != policy {
+		t.Errorf("files after the strange holds: %v", found)
+	}
+	if data, _ := os.ReadFile(policy); string(data) != `{"stations":[]}` {
+		t.Errorf("the policy file now reads %q", data)
+	}
+
+	// An ordinary id is recorded as ever, dots and dashes included.
+	for _, hold = range []string{"hld_9f3c0a11", "hold-2.b"} {
+		r.Input("type", map[string]any{"text": "x"})
+		r.End(hold)
+		select {
+		case rec := <-sent:
+			if rec.HoldID != hold || rec.Name != recordName(hold)+".zip" {
+				t.Errorf("upload for %q: %+v", hold, rec)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("hold id %q was not recorded", hold)
+		}
 	}
 }
 
