@@ -4,15 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"fiatjaf.com/nostr"
 	"github.com/VibiumDev/roadie/internal/capture"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
+	"github.com/VibiumDev/station"
+	"github.com/VibiumDev/station/rig"
+	"github.com/VibiumDev/station/token"
 	"github.com/coder/websocket"
 )
 
@@ -504,7 +510,7 @@ func TestBiDiKeyNeedsShift(t *testing.T) {
 func TestBiDiShiftedCharacters(t *testing.T) {
 	press := func(s *Server, sess *bidiSession, typ, v string) {
 		t.Helper()
-		if err := s.executeBiDiAction(sess, "key", "", "kbd", bidiAction{Type: typ, Value: v}); err != nil {
+		if err := s.executeBiDiAction(context.Background(), sess, "key", "", "kbd", bidiAction{Type: typ, Value: v}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -552,7 +558,7 @@ func TestBiDiScroll(t *testing.T) {
 	inner.log = nil
 	scroll := func(src string, a bidiAction) error {
 		a.Type = "scroll"
-		return s.executeBiDiAction(&bidiSession{}, src, "", "wheel", a)
+		return s.executeBiDiAction(context.Background(), &bidiSession{}, src, "", "wheel", a)
 	}
 
 	// A 1920x1080 viewport: 135 px is four notches; 5 px, less than one.
@@ -793,5 +799,110 @@ func TestBiDiIdleSessionEnds(t *testing.T) {
 	}))
 	if resp.Type != "success" {
 		t.Fatalf("session.new after the idle end: %s: %s", resp.Type, resp.Message)
+	}
+}
+
+// What one message may hold is checked before any of it reaches the
+// target: so many actions, and a pause or a move so long.
+func TestBiDiRefusesTooMuchInOneMessage(t *testing.T) {
+	resetBidiState()
+	s, mux := newTestServer()
+	keys := func(n int) bidiActionSource {
+		return bidiActionSource{Type: "key", ID: "k", Actions: make([]bidiAction, n)}
+	}
+	lasting := func(typ string, ms int) []bidiActionSource {
+		return []bidiActionSource{{Type: "pointer", ID: "p", Actions: []bidiAction{{Type: typ, Duration: ms}}}}
+	}
+	if err := s.checkBiDiActions([]bidiActionSource{keys(bidiMaxActions - 1), keys(1)}); err != nil {
+		t.Errorf("%d actions: %v", bidiMaxActions, err)
+	}
+	if err := s.checkBiDiActions([]bidiActionSource{keys(bidiMaxActions), keys(1)}); err == nil {
+		t.Errorf("%d actions passed", bidiMaxActions+1)
+	}
+	for _, typ := range []string{"pause", "pointerMove"} {
+		if err := s.checkBiDiActions(lasting(typ, bidiMaxDurationMs)); err != nil {
+			t.Errorf("a %s of %d ms: %v", typ, bidiMaxDurationMs, err)
+		}
+		if err := s.checkBiDiActions(lasting(typ, bidiMaxDurationMs+1)); err == nil {
+			t.Errorf("a %s of %d ms passed", typ, bidiMaxDurationMs+1)
+		}
+	}
+
+	// Over the socket the refusal comes at once, and no key was pressed.
+	h := &countHID{}
+	s.HID = h
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+	conn := bidiDial(t, ts)
+	bidiSend(t, conn, map[string]any{"id": 1, "method": "session.new", "params": map[string]any{}})
+	resp := parseBidiResp(t, bidiSend(t, conn, map[string]any{"id": 2, "method": "input.performActions", "params": map[string]any{
+		"context": "screen", "actions": []map[string]any{{"type": "key", "id": "k", "actions": []map[string]any{
+			{"type": "keyDown", "value": "a"}, {"type": "pause", "duration": 3600000}, {"type": "keyUp", "value": "a"},
+		}}}}}))
+	if resp.Type != "error" || resp.Error != "invalid argument" || h.presses.Load() != 0 {
+		t.Errorf("an hour's pause: %+v, %d keys pressed", resp, h.presses.Load())
+	}
+
+	// A pause under way ends with its context.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	s.executeBiDiAction(ctx, &bidiSession{}, "key", "", "k", bidiAction{Type: "pause", Duration: bidiMaxDurationMs})
+	if time.Since(start) > time.Second {
+		t.Errorf("a pause outlived its context by %s", time.Since(start))
+	}
+}
+
+// Through a station, the actions of a message stop reaching the target
+// when its hold ends, though the message held many more.
+func TestBiDiActionsEndWithTheHold(t *testing.T) {
+	resetBidiState()
+	s, mux := newTestServer()
+	h := &countHID{}
+	s.HID = h
+	stationKey, rigKey := nostr.Generate(), nostr.Generate()
+	gate := &rig.Gate{Key: rigKey.Public(), Devices: func() []string { return []string{"rig_1/phone"} }, Logf: t.Logf,
+		Policy: &rig.Policy{Stations: []*rig.StationEntry{{Name: "st", Npub: rig.Npub(stationKey.Public()), RigID: "rig_1", Scopes: []string{"view", "bidi"}}}}}
+	// The rule Roadie's allowlist has for /session.
+	ts := httptest.NewServer(gate.Middleware(rig.Allowlist{{Path: "/session", Scope: station.ScopeBidi, Max: 2}}, mux))
+	defer ts.Close()
+	grant, err := token.SignGrant(stationKey, token.Grant{Rig: rigKey.Public(), RigID: "rig_1", DeviceID: "rig_1/phone",
+		Subject: "agent", HoldID: "hld_1", Seq: 1, Scopes: []station.Scope{station.ScopeView, station.ScopeBidi}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, ts.URL+"/session", &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": {token.Header(grant)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+	conn.Write(ctx, websocket.MessageText, []byte(`{"id":1,"method":"session.new","params":{}}`))
+	conn.Read(ctx)
+
+	// One message: 300 keys, 10 ms apart.
+	const keys = 300
+	var acts []string
+	for i := 0; i < keys; i++ {
+		acts = append(acts, `{"type":"keyDown","value":"a"}`, `{"type":"keyUp","value":"a"}`, `{"type":"pause","duration":10}`)
+	}
+	conn.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(
+		`{"id":2,"method":"input.performActions","params":{"context":"screen","actions":[{"type":"key","id":"k","actions":[%s]}]}}`, strings.Join(acts, ","))))
+	for h.presses.Load() < 20 {
+		if ctx.Err() != nil {
+			t.Fatalf("only %d keys pressed", h.presses.Load())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	rev, _ := token.SignRevocation(stationKey, token.Revocation{Rig: rigKey.Public(), HoldID: "hld_1"})
+	if err := gate.Revoke(rev); err != nil {
+		t.Fatal(err)
+	}
+	at := h.presses.Load()
+	time.Sleep(500 * time.Millisecond)
+	// The key under way when the hold ended may still land; no other does.
+	if later := h.presses.Load(); later > at+1 || later >= keys {
+		t.Errorf("%d keys pressed when the hold ended, %d half a second later", at, later)
 	}
 }

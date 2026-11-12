@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"fiatjaf.com/nostr"
+	"github.com/VibiumDev/station"
 	"github.com/VibiumDev/station/rig"
 	"github.com/VibiumDev/station/token"
 	"github.com/coder/websocket"
@@ -29,6 +31,10 @@ type Session struct {
 	// check a refreshed grant goes through.
 	hold  string
 	check func(ev nostr.Event) (token.Grant, error)
+	// input says the viewer may drive the target and speak into it: a
+	// local viewer, or one whose latest grant carries the input scope. A
+	// grant to watch gets the picture and the sound only.
+	input atomic.Bool
 	// records is set once the viewer has said it keeps the stream.
 	records bool
 
@@ -38,6 +44,9 @@ type Session struct {
 
 	closeOnce sync.Once
 	done      chan struct{}
+	// ctx ends with the session, so input it sent stops with it.
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // ServeSignal is the signaling endpoint: a WebSocket whose first message is
@@ -49,7 +58,9 @@ func (b *Broadcaster) ServeSignal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no H.264 encoder on this host", http.StatusServiceUnavailable)
 		return
 	}
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	// The default same-origin check: a page on another origin must not get
+	// the picture or the input channel. A station's relay sends no Origin.
+	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
 	}
@@ -79,6 +90,7 @@ func (b *Broadcaster) ServeSignal(w http.ResponseWriter, r *http.Request) {
 	// hello. On the LAN there is no check and no grant.
 	var hold string
 	var ice []webrtc.ICEServer
+	input := true
 	check := rig.FirstMessageCheck(ctx)
 	if check != nil {
 		var ev nostr.Event
@@ -92,13 +104,14 @@ func (b *Broadcaster) ServeSignal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		hold = grant.HoldID
+		input = grant.HasScope(station.ScopeInput)
 		// The grant names the station's STUN and TURN servers, with the
 		// hold's credentials, so this side can be reached across NATs.
 		for _, srv := range grant.ICE {
 			ice = append(ice, webrtc.ICEServer{URLs: srv.URLs, Username: srv.Username, Credential: srv.Credential})
 		}
 	}
-	s, err := b.newSession(send, ice)
+	s, err := b.newSession(send, ice, input)
 	if err != nil {
 		send(Message{Type: "error", Error: err.Error()})
 		return
@@ -140,7 +153,8 @@ func (b *Broadcaster) ServeSignal(w http.ResponseWriter, r *http.Request) {
 }
 
 // newSession makes the peer connection, offers, and registers the session.
-func (b *Broadcaster) newSession(send func(Message) error, ice []webrtc.ICEServer) (*Session, error) {
+// input says whether the viewer's "hid" messages and microphone are taken.
+func (b *Broadcaster) newSession(send func(Message) error, ice []webrtc.ICEServer, input bool) (*Session, error) {
 	// The congestion-control interceptor reports its estimator for each new
 	// peer connection through a callback; holding mu pairs it with ours.
 	b.mu.Lock()
@@ -152,6 +166,8 @@ func (b *Broadcaster) newSession(send func(Message) error, ice []webrtc.ICEServe
 		return nil, err
 	}
 	s := &Session{b: b, pc: pc, estimator: est, send: send, done: make(chan struct{})}
+	s.input.Store(input)
+	s.ctx, s.cancel = context.WithCancel(context.Background())
 
 	tr, err := pc.AddTransceiverFromTrack(b.track, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendonly})
 	if err != nil {
@@ -186,7 +202,11 @@ func (b *Broadcaster) newSession(send func(Message) error, ice []webrtc.ICEServe
 		pc.Close()
 		return nil, err
 	}
-	hid.OnMessage(func(m webrtc.DataChannelMessage) { b.handleHID(m.Data) })
+	hid.OnMessage(func(m webrtc.DataChannelMessage) {
+		if s.input.Load() {
+			b.handleHID(s.ctx, m.Data)
+		}
+	})
 
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {
@@ -296,7 +316,9 @@ func (s *Session) onControl(data []byte) {
 		if err != nil || grant.HoldID != s.hold {
 			s.send(Message{Type: "error", Error: "hold: refresh refused"})
 			s.Close()
+			return
 		}
+		s.input.Store(grant.HasScope(station.ScopeInput))
 	}
 }
 
@@ -321,6 +343,7 @@ func (s *Session) sendStats() {
 func (s *Session) Close() {
 	s.closeOnce.Do(func() {
 		close(s.done)
+		s.cancel()
 		s.pc.Close()
 		s.b.removeSession(s)
 	})

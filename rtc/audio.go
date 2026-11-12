@@ -1,6 +1,7 @@
 package rtc
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"time"
@@ -32,20 +33,21 @@ const (
 
 // SetInput gives the broadcaster where input from viewers goes: hid takes
 // each message of the "hid" data channel, the JSON /api/hid/ws accepts,
-// and mic takes the viewer's microphone as 16 kHz mono 16-bit samples, the
-// way /api/mic does. Either may be nil.
-func (b *Broadcaster) SetInput(hid func(msg []byte), mic func(pcm []byte) error) {
+// with a context that ends when the viewer's session does, and mic takes
+// the viewer's microphone as 16 kHz mono 16-bit samples, the way /api/mic
+// does. Either may be nil.
+func (b *Broadcaster) SetInput(hid func(ctx context.Context, msg []byte), mic func(pcm []byte) error) {
 	b.mu.Lock()
 	b.hidHandler, b.micSink = hid, mic
 	b.mu.Unlock()
 }
 
-func (b *Broadcaster) handleHID(msg []byte) {
+func (b *Broadcaster) handleHID(ctx context.Context, msg []byte) {
 	b.mu.Lock()
 	h := b.hidHandler
 	b.mu.Unlock()
 	if h != nil {
-		h(msg)
+		h(ctx, msg)
 	}
 }
 
@@ -108,7 +110,9 @@ type micReader struct {
 
 func (m *micReader) run() {
 	mime := strings.ToUpper(m.track.Codec().MimeType)
-	owner := m.b.claimMic(m.s, mime)
+	// A viewer that may only watch never has the microphone: its packets
+	// are read and dropped, and the mic stays free for one who may speak.
+	owner := m.s.input.Load() && m.b.claimMic(m.s, mime)
 	defer m.b.releaseMic(m.s)
 	dec := g722.NewDecoder()
 	var up pcm.Upsample2
@@ -120,7 +124,7 @@ func (m *micReader) run() {
 		if err != nil {
 			return
 		}
-		if !owner || len(pkt.Payload) == 0 {
+		if !owner || !m.s.input.Load() || len(pkt.Payload) == 0 {
 			continue
 		}
 		samples = samples[:0]

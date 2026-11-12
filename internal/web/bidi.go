@@ -95,9 +95,9 @@ func (s *Server) bidiDrop(conn *websocket.Conn) {
 }
 
 func (s *Server) handleBiDi(w http.ResponseWriter, r *http.Request) {
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true,
-	})
+	// The default same-origin check, as for /api/mic: a page on another
+	// origin must not drive the target or read its screen.
+	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		log.Printf("bidi websocket accept: %v", err)
 		return
@@ -407,7 +407,10 @@ func (s *Server) bidiPerformActions(conn *websocket.Conn, ctx context.Context, c
 		}
 	}
 
-	// Execute tick by tick.
+	// Execute tick by tick. Through a station each action waits its turn
+	// on the hold's pace, and nothing more reaches the target once the
+	// hold has ended or the socket closed.
+	pace := holdPace(ctx)
 	for tick := 0; tick < maxTicks; tick++ {
 		for _, src := range params.Actions {
 			if tick >= len(src.Actions) {
@@ -418,8 +421,14 @@ func (s *Server) bidiPerformActions(conn *websocket.Conn, ctx context.Context, c
 			if src.Parameters != nil && src.Parameters.PointerType != "" {
 				ptrType = src.Parameters.PointerType
 			}
+			if pace != nil && action.Type != "pause" {
+				pace.WaitN(ctx, 1)
+			}
+			if ctx.Err() != nil {
+				return
+			}
 
-			if err := s.executeBiDiAction(sess, src.Type, ptrType, src.ID, action); err != nil {
+			if err := s.executeBiDiAction(ctx, sess, src.Type, ptrType, src.ID, action); err != nil {
 				writeJSON(conn, ctx, bidiErrorResp{
 					Type:    "error",
 					ID:      cmd.ID,
@@ -438,11 +447,34 @@ func (s *Server) bidiPerformActions(conn *websocket.Conn, ctx context.Context, c
 	})
 }
 
-// checkBiDiActions refuses, before any of it reaches the target, what the
-// target can't do as a whole: on one that takes touch as its pointer, a
-// gesture with more than one finger. Run tick by tick, it would press the
-// first finger and only then fail on the second.
+// What one input.performActions message may hold. Vibium, the client
+// this endpoint is for, waits 60 s for a command to answer and types text
+// as two key actions a character, so neither limit is near honest use: the
+// longest pause or move is that wait, and 20,000 actions is a text of
+// 10,000 characters.
+const (
+	bidiMaxActions    = 20000
+	bidiMaxDurationMs = 60000 // of one pause, or one pointerMove
+)
+
+// checkBiDiActions refuses, before any of it reaches the target, what is
+// too much for one message, and what the target can't do as a whole: on
+// one that takes touch as its pointer, a gesture with more than one finger.
+// Run tick by tick, it would press the first finger and only then fail on
+// the second.
 func (s *Server) checkBiDiActions(sources []bidiActionSource) error {
+	actions := 0
+	for _, src := range sources {
+		actions += len(src.Actions)
+		for _, a := range src.Actions {
+			if a.Duration > bidiMaxDurationMs {
+				return fmt.Errorf("an action lasts at most %d ms, not %d", bidiMaxDurationMs, a.Duration)
+			}
+		}
+	}
+	if actions > bidiMaxActions {
+		return fmt.Errorf("one message holds at most %d actions, not %d", bidiMaxActions, actions)
+	}
 	if !s.Platform.TouchAsPointer() {
 		return nil
 	}
@@ -464,11 +496,11 @@ func (s *Server) checkBiDiActions(sources []bidiActionSource) error {
 	return nil
 }
 
-func (s *Server) executeBiDiAction(sess *bidiSession, srcType, ptrType, srcID string, action bidiAction) error {
+func (s *Server) executeBiDiAction(ctx context.Context, sess *bidiSession, srcType, ptrType, srcID string, action bidiAction) error {
 	switch action.Type {
 	case "pause":
 		if action.Duration > 0 {
-			time.Sleep(time.Duration(action.Duration) * time.Millisecond)
+			sleepCtx(ctx, time.Duration(action.Duration)*time.Millisecond)
 		}
 		return nil
 
@@ -493,7 +525,7 @@ func (s *Server) executeBiDiAction(sess *bidiSession, srcType, ptrType, srcID st
 
 		// If duration > 0, interpolate the move over time.
 		if action.Duration > 0 {
-			return s.interpolateMove(sess, ptrType, srcID, startX, startY, endX, endY, action.Duration)
+			return s.interpolateMove(ctx, sess, ptrType, srcID, startX, startY, endX, endY, action.Duration)
 		}
 
 		hidX, hidY := s.bidiToHID(endX, endY)
@@ -620,8 +652,9 @@ func (s *Server) executeBiDiAction(sess *bidiSession, srcType, ptrType, srcID st
 // input.releaseActions
 
 // interpolateMove moves a pointer from (startX, startY) to (endX, endY) over
-// duration milliseconds, sending intermediate HID reports at ~60Hz.
-func (s *Server) interpolateMove(sess *bidiSession, ptrType, srcID string, startX, startY, endX, endY float64, durationMs int) error {
+// duration milliseconds, sending intermediate HID reports at ~60Hz. It
+// stops where it is when ctx ends.
+func (s *Server) interpolateMove(ctx context.Context, sess *bidiSession, ptrType, srcID string, startX, startY, endX, endY float64, durationMs int) error {
 	const stepInterval = 16 * time.Millisecond // ~60Hz
 	total := time.Duration(durationMs) * time.Millisecond
 	steps := int(total / stepInterval)
@@ -630,6 +663,9 @@ func (s *Server) interpolateMove(sess *bidiSession, ptrType, srcID string, start
 	}
 
 	for i := 1; i <= steps; i++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		t := float64(i) / float64(steps)
 		curX := startX + (endX-startX)*t
 		curY := startY + (endY-startY)*t
@@ -657,7 +693,7 @@ func (s *Server) interpolateMove(sess *bidiSession, ptrType, srcID string, start
 		}
 
 		if i < steps {
-			time.Sleep(stepInterval)
+			sleepCtx(ctx, stepInterval)
 		}
 	}
 	return nil

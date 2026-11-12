@@ -175,7 +175,7 @@ func TestRecorderKeepsSoundWithoutAnEncoder(t *testing.T) {
 			t.Errorf("%s from a host with no encoder", f.Name)
 		}
 	}
-	if left := leftIn(dir); len(left) != 0 {
+	if left := settled(dir); len(left) != 0 {
 		t.Errorf("left behind: %v", left)
 	}
 }
@@ -268,7 +268,7 @@ func TestRecorderKeepsWhatWentToTheMicrophone(t *testing.T) {
 	if videos := readVideoIndex(t, zr); len(videos) != 1 || !videos[0].Audio {
 		t.Errorf("videos %+v; want one with a sound track", videos)
 	}
-	if left := leftIn(dir); len(left) != 0 {
+	if left := settled(dir); len(left) != 0 {
 		t.Errorf("left behind: %v", left)
 	}
 }

@@ -21,9 +21,10 @@
 // PCM, the same shape the viewer's mic button sends. Under test the
 // microphone is a file Chromium plays back, so the audio is known.
 const params = new URLSearchParams(location.search);
-// Served by roadie, so /api/mic is on this same origin unless told
-// otherwise. Being same-origin is the point: /api/mic refuses anything else.
-const target = params.get('roadie') || location.host;
+// The microphone goes to the roadie that served this page and nowhere
+// else: a link to this page must not be able to send it to another host.
+// Being same-origin is also what /api/mic asks.
+const target = location.host;
 // A test harness can ask to be told what happened, by passing its own URL.
 // Reports go out as plain GETs so they need no CORS preflight.
 const reportTo = params.get('report');

@@ -69,6 +69,25 @@ address in ten minutes are refused with `429`. `/logout` clears the cookie.
 signs every browser out. With the other `--auth` modes `/login` just goes to
 `/`.
 
+### Requests from another origin
+
+A request that changes something, or opens a WebSocket, is refused with
+`403` when its `Origin` header names another host than the one it was sent
+to. That is every method but `GET` and `HEAD`, and every WebSocket. It holds
+in every `--auth` mode, so a page on another site cannot use a visitor's
+cookie, tailnet address or place on the network to drive the target.
+
+- Roadie's own pages are not affected. Each `/grid` panel is a frame on its
+  own Roadie, so its requests go to its own origin.
+- Clients that are not browsers send no `Origin` and are not affected: curl,
+  scripts, Vibium, a station's relay.
+- A request with a valid `Authorization: Bearer` token is taken from any
+  origin.
+- A proxy in front of Roadie must pass the `Host` header on unchanged.
+- Without `--auth`, the `Host` header must also be `localhost` or a loopback
+  address such as `127.0.0.1` or `[::1]`, with any port. Any other name gets
+  `403`.
+
 ### `GET /grid`
 Grid of several Roadie instances, one iframe per target. Carries no video itself —
 each panel loads its stream straight from its own Roadie, so frames travel
@@ -101,8 +120,9 @@ A microphone check page. Opens the browser's microphone, converts it to
 button uses, with a level meter and a status line.
 
 Served by roadie so that it is same-origin with `/api/mic`, which refuses
-connections from other origins. `make test-audio-browser` drives this page;
-it is also useful on its own for checking a microphone by hand.
+connections from other origins. The page streams only to the Roadie that
+served it, whatever its address says. `make test-audio-browser` drives this
+page; it is also useful on its own for checking a microphone by hand.
 
 Optional `?report=<url>` makes the page GET that URL once it is streaming,
 which is how the test knows audio is actually flowing before it listens.
@@ -190,10 +210,12 @@ Update settings. All fields are optional — only provided fields are changed. C
 |-------|-------|-------------|
 | `quality` | 30-95 | JPEG compression quality |
 | `fps` | 10-30 | Capture framerate |
-| `width` | | Capture width (must be set with `height`) |
-| `height` | | Capture height (must be set with `width`) |
+| `width` | 1920, 1280 or 640 | Capture width (must be set with `height`) |
+| `height` | 1080, 720 or 480 | Capture height (must be set with `width`): `1920`x`1080`, `1280`x`720` or `640`x`480` |
 | `autocrop` | `true`/`false` | Choose auto-crop (trim constant black bars) or no crop: the two-way form of [`/api/crop`](#get-put-post-delete-apicrop)'s choice, which also offers a saved crop. Kept across restarts. `GET` answers `true` only while auto-crop is chosen |
 | `glide` | `true`/`false` | Glide the pointer to each new spot instead of jumping (see [`/api/hid/mouse/move`](#post-apihidmousemove)). Off unless `--glide` was given; a change lasts until restart. `409` from an input that can't |
+
+An `fps` or a size outside these gets `400`, and nothing in the request is applied. The value in use is always accepted, so a frame rate or size set by a flag can be sent back as it is. `quality` outside its range is brought to the nearest end.
 
 **Response:**
 ```json
@@ -408,6 +430,9 @@ All HID endpoints require the relay board to be connected via USB serial, or
 with `--hid-backend linux-gadget`, the gadget's device nodes to be open.
 Returns `503` if HID is not available.
 
+A request body, here and on every other endpoint, holds at most 64 KiB. A
+larger one gets `400`.
+
 The two backends accept the same commands with the same meaning. With the
 gadget, a command that cannot reach the phone returns `500` with the reason
 (for instance, no phone attached), text with characters a US keyboard cannot
@@ -453,6 +478,8 @@ where the port path does not embed the board's serial number.
 
 ### `POST /api/hid/type`
 Type text on the target device. Text longer than 29 characters is automatically chunked.
+
+One request types at most 4096 characters. A longer text gets `400` and none of it is typed, so send it as several requests. The text goes to the target a piece at a time. When the request ends early, because the client left or its hold on a station ended, typing stops at the end of the piece under way.
 
 **Request:**
 ```json
@@ -611,6 +638,7 @@ WebSocket for real-time HID control. Accepts the same JSON command format used b
 ```
 
 No server-to-client messages. Connection auto-reconnects on the `/test` page.
+A `type` holds at most 4096 characters, as on [`/api/hid/type`](#post-apihidtype); a longer one is dropped.
 While [`/api/rotate`](#post-apirotate) turns the screen, messages are dropped
 unless they only let go of something (`key_release`, `mouse_release`, a
 `touch` with no finger down). `tap` is a whole tap in one command — a touch down at the point, a 60 ms hold and the lift — for viewers on links where the gap between separate down and up messages would stretch; `mouse_click` is the same for the mouse.
@@ -692,7 +720,7 @@ Roadie implements a minimal subset of BiDi — only the methods that map to hard
 | `browsingContext.getTree` | Returns a single context (`"screen"`) representing the target display |
 | `browsingContext.captureScreenshot` | Returns a base64-encoded JPEG of the current frame. Right after input, it first waits for the screen to show it: at least 300 ms, then until the picture stops changing (at most 2 s after the input) |
 | `roadie:screen.getViewport` | Returns the current viewport (cropped image) width and height |
-| `input.performActions` | Execute keyboard, mouse, touch and wheel actions. On an iPhone touch arrives as the pointer, one finger at a time; a gesture with more fingers is refused before any of it runs (see [`/api/hid/touch`](#post-apihidtouch)). A `wheel` source's `scroll` turns the wheel with the pointer at `x`, `y` (viewport origin only), then puts the pointer back; `deltaY` (vertical only) becomes notches of [the wheel](#post-apihidmousescroll): on an iPhone as many as scroll about that far, elsewhere one per 32nd of the viewport |
+| `input.performActions` | Execute keyboard, mouse, touch and wheel actions. On an iPhone touch arrives as the pointer, one finger at a time; a gesture with more fingers is refused before any of it runs (see [`/api/hid/touch`](#post-apihidtouch)). A `wheel` source's `scroll` turns the wheel with the pointer at `x`, `y` (viewport origin only), then puts the pointer back; `deltaY` (vertical only) becomes notches of [the wheel](#post-apihidmousescroll): on an iPhone as many as scroll about that far, elsewhere one per 32nd of the viewport. One message holds at most 20,000 actions, and one `pause` or `pointerMove` lasts at most 60 s (`duration` 60000); more is refused whole with `invalid argument` before any of it runs. Actions not yet run are dropped when, through a station, the hold ends |
 | `input.releaseActions` | Release all held keys, buttons, and touches |
 | `roadie:audio.clock` | Returns `{now}`: Roadie's monotonic clock in milliseconds, the clock every audio time below is on |
 | `roadie:audio.play` | Play a clip into the target's microphone and answer when it has played out. See [Audio over BiDi](#audio-over-bidi) |
@@ -864,7 +892,7 @@ Files, next to the local token in Roadie's config directory (`~/.config/roadie` 
 | `rig-state.json` | The hold state: the current hold per device and the highest sequence seen, so a restart cannot be made to accept an older hold |
 | `recordings/` | Hold recordings an upload could not deliver, as `rec_<hex>.zip` with a sidecar naming the station, device and hold; sent again at the next start. While a hold is recorded its video and sound are kept here as `.part` files, which the next start removes if a crash left them |
 
-**Recording a hold.** With `record` set for a station (`roadie enroll --record`, or the field in `rig.json`), every hold from that station is recorded in Vibium's recording format: a frame of the screen as the hold found it, then one step per burst of input (inputs less than 250 ms apart are one step, listed in the step's parameters up to sixteen with the count) with a frame of what the screen showed 400 ms after the burst, and a frame as the hold left it. A step names its first input (`Keyboard.type ×2`, `Touch`, `Pointer.click`). After 600 frames or 64 MB the steps keep coming without frames. When the hold ends the zip is written under `recordings/`. Its name is `rec_` and the digits of the hold's id, so hold `hld_9f3c0a11` gives `rec_9f3c0a11.zip`. It is uploaded to that station's Record Store under the rig key with the device and hold named in the authorization (`PUT /upload`, see the station's API reference), and removed once the station has it; the station's file event records it against the hold. `/health` shows `record` per station. Roadie says so in its announcement to that station, whose Devices page notes "records sessions" under the host and whose viewer shows REC to the person driving a session, with what is recorded as the hover text, so a person holding the device knows.
+**Recording a hold.** With `record` set for a station (`roadie enroll --record`, or the field in `rig.json`), every hold from that station is recorded in Vibium's recording format: a frame of the screen as the hold found it, then one step per burst of input (inputs less than 250 ms apart are one step, listed in the step's parameters up to sixteen with the count) with a frame of what the screen showed 400 ms after the burst, and a frame as the hold left it. A step names its first input (`Keyboard.type ×2`, `Touch`, `Pointer.click`). After 600 frames or 64 MB the steps keep coming without frames. When the hold ends the zip is written under `recordings/`. Its name is `rec_` and the digits of the hold's id, so hold `hld_9f3c0a11` gives `rec_9f3c0a11.zip`. A hold whose id would not make a plain file name (letters, digits, `_`, `-` and `.` only) is not recorded, and the log says so. It is uploaded to that station's Record Store under the rig key with the device and hold named in the authorization (`PUT /upload`, see the station's API reference), and removed once the station has it; the station's file event records it against the hold. `/health` shows `record` per station. Roadie says so in its announcement to that station, whose Devices page notes "records sessions" under the host and whose viewer shows REC to the person driving a session, with what is recorded as the hover text, so a person holding the device knows.
 
 **Video and sound in a recording.** A recorded hold also keeps a video of the screen, what the device played, and what was sent to its microphone.
 
@@ -886,7 +914,7 @@ Files, next to the local token in Roadie's config directory (`~/.config/roadie` 
 
 Through the tunnel the station reaches only an allowlist of endpoints, each with the scope a grant must carry, and every request presents a hold grant, either in `Authorization: Hold <base64url event>` for plain requests or in the first message of a WebSocket. Today that is:
 
-- [`/api/webrtc/signal`](#ws-apiwebrtcsignal) (`view`; the hello carries `"grant"`)
+- [`/api/webrtc/signal`](#ws-apiwebrtcsignal) (`view`; the hello carries `"grant"`). The session's `hid` messages and its microphone reach the target only while its latest grant also carries `input`. With `view` alone they are dropped.
 - `GET /health` (`view`)
 - [`GET /stream`](#get-stream) (`view`, capped at `--relay-fps`, 5 a second by default, for the station's MJPEG fallback)
 - [`GET /snapshot`](#get-snapshot) (`view`)
@@ -898,7 +926,7 @@ Through the tunnel the station reaches only an allowlist of endpoints, each with
 - the HID REST under `/api/hid/` and `/api/rotate` (`input`)
 - `/api/settings`, `/api/crop` and the resets (`admin`, which the rig policy grants only with `roadie enroll --admin`)
 
-Each hold is limited to 120 requests and messages a second (burst 240), one stream, one audio and one mic socket, one BiDi socket and two HID sockets; a hold that ends closes every connection admitted on it. A grant through a station with a TURN server names it (`stun` and `turn` tags), and Roadie's peer connection uses those servers, so the WebRTC path works across NATs. The grant is checked on the Pi, which accepts it only when it is:
+Each hold is limited to 120 requests and messages a second (burst 240), one stream, one audio and one mic socket, one BiDi socket and two HID sockets; a hold that ends closes every connection admitted on it. Text typed with `type` counts a character at a time against that limit, and each BiDi action but a `pause` counts as one. A grant through a station with a TURN server names it (`stun` and `turn` tags), and Roadie's peer connection uses those servers, so the WebRTC path works across NATs. The grant is checked on the Pi, which accepts it only when it is:
 
 - signed by a station in the policy
 - for this rig and device

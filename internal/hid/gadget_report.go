@@ -110,16 +110,26 @@ var USASCII = [128]byte{
 	'{': 0xaf, '|': 0xb1, '}': 0xb0, '~': 0xb5, 0x7f: 0x4c,
 }
 
+// Typeable says whether every character of text has a key on a US
+// keyboard, and names the first that has none. The server asks before it
+// sends a long text in pieces, so such a text is still rejected whole.
+func Typeable(text string) error {
+	for i, r := range text {
+		if r >= 128 || USASCII[r] == 0 {
+			return fmt.Errorf("cannot type %q (character %d): no key for it on a US keyboard", r, i)
+		}
+	}
+	return nil
+}
+
 // typeReports returns the reports that type text, starting from the keys
 // already held. Per character it does what KeyboardLayoutUS.write does on the
 // HID board: shift down on its own, then the key, then release everything --
 // including keys held by an earlier key_press. Text containing anything
 // without a US key is rejected whole, before a single report is produced.
 func TypeReports(held KeyboardState, text string) ([][]byte, error) {
-	for i, r := range text {
-		if r >= 128 || USASCII[r] == 0 {
-			return nil, fmt.Errorf("cannot type %q (character %d): no key for it on a US keyboard", r, i)
-		}
+	if err := Typeable(text); err != nil {
+		return nil, err
 	}
 	var out [][]byte
 	for i := 0; i < len(text); i++ {

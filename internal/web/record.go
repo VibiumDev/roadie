@@ -75,6 +75,7 @@ type recorder struct {
 
 	mu      sync.Mutex
 	active  map[string]*holdRecording // by hold id
+	refused string                    // the last hold id turned away, so it is logged once
 	writing sync.WaitGroup            // zips on their way to disk
 }
 
@@ -218,6 +219,16 @@ func (r *recorder) Input(kind string, params map[string]any) {
 	defer r.mu.Unlock()
 	rec := r.active[holdID]
 	if rec == nil {
+		// The hold's id names the recording's files, and a station chose
+		// it. One that is not a plain file name could put them anywhere,
+		// so that hold is not recorded.
+		if !plainFileName(recordName(holdID)) {
+			if r.refused != holdID {
+				r.refused = holdID
+				r.logf("record: hold id %q is not a file name; not recording that hold", holdID)
+			}
+			return
+		}
 		rec = &holdRecording{entry: entry, key: key, deviceID: deviceID, holdID: holdID, started: now, frames: map[string][]byte{}}
 		rec.lines = append(rec.lines, map[string]any{
 			// libraryName says whose format this is, which is what the Record
@@ -368,9 +379,27 @@ func (r *recorder) EndAll() {
 }
 
 // recordName is a recording's file name without its extension: rec_ and
-// the digits of its hold's id, so the two are easy to pair.
+// the digits of its hold's id, so the two are easy to pair. Input starts a
+// recording only when this is a plain file name.
 func recordName(holdID string) string {
 	return "rec_" + strings.TrimPrefix(holdID, "hld_")
+}
+
+// plainFileName says whether name can only be a file in the directory it
+// is joined to: letters, digits, "_", "-" and "." and nothing else, and not
+// dots alone. So no separator, no "..", nothing a shell or a glob reads.
+func plainFileName(name string) bool {
+	if len(name) > 128 || strings.Trim(name, ".") == "" {
+		return false
+	}
+	for _, c := range []byte(name) {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '_', c == '-', c == '.':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // recordingMeta rides next to a zip that waits for its upload.
