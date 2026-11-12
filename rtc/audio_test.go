@@ -1,14 +1,25 @@
 package rtc
 
 import (
+	"context"
 	"encoding/binary"
+	"encoding/json"
 	"math"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"fiatjaf.com/nostr"
 	"github.com/VibiumDev/roadie/audio/g722"
 	"github.com/VibiumDev/roadie/encoder"
+	"github.com/VibiumDev/station"
+	"github.com/VibiumDev/station/rig"
+	"github.com/VibiumDev/station/token"
+	"github.com/coder/websocket"
+	"github.com/pion/ice/v4"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 )
@@ -152,7 +163,7 @@ func TestSessionAudioAndInput(t *testing.T) {
 	})
 
 	msgs := make(chan Message, 64)
-	s, err := b.newSession(func(m Message) error { msgs <- m; return nil }, nil)
+	s, err := b.newSession(func(m Message) error { msgs <- m; return nil }, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,5 +269,188 @@ func TestSessionAudioAndInput(t *testing.T) {
 	select {
 	case <-hidOpen:
 	default:
+	}
+}
+
+// noFrames is a capture with nothing to show, for sessions that come and go.
+type noFrames struct{}
+
+func (noFrames) AddSink(FrameSink)    {}
+func (noFrames) RemoveSink(FrameSink) {}
+
+// Through a station, a grant that carries the view scope alone gets the
+// picture and the sound. What it sends on the "hid" channel and its
+// microphone are dropped; with the input scope both reach the target.
+func TestViewGrantSessionTakesNoInput(t *testing.T) {
+	onlyLoopback := func(name string) bool { return name == "lo" }
+	b, err := New(noFrames{}, Options{
+		Loopback: true, Interfaces: onlyLoopback, Logf: t.Logf,
+		OpenEncoder: func(encoder.Config) (encoder.Encoder, string, error) { return nil, "", encoder.ErrUnavailable },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	hidGot := make(chan string, 16)
+	micGot := make(chan struct{}, 1024)
+	heard := make(chan struct{}, 16)
+	b.SetInput(func(m []byte) { hidGot <- string(m) }, func([]byte) error {
+		select {
+		case micGot <- struct{}{}:
+		default:
+		}
+		return nil
+	})
+	b.OnViewerRecording(func() { heard <- struct{}{} })
+
+	// The rig's gate in front of the signaling socket, as a station's
+	// tunnel reaches it: the grant is in the hello and needs view.
+	stationKey, rigKey := nostr.Generate(), nostr.Generate()
+	gate := &rig.Gate{Key: rigKey.Public(), Devices: func() []string { return []string{"rig_1/phone"} }, Logf: t.Logf,
+		Policy: &rig.Policy{Stations: []*rig.StationEntry{{Name: "st", Npub: rig.Npub(stationKey.Public()), RigID: "rig_1", Scopes: []string{"view", "input"}}}}}
+	ts := httptest.NewServer(gate.Middleware(rig.Allowlist{{Path: "/api/webrtc/signal", Scope: station.ScopeView, FirstMessage: true}}, http.HandlerFunc(b.ServeSignal)))
+	defer ts.Close()
+
+	// connect opens a session with a grant of these scopes, sends one
+	// "hid" message and a tone on the microphone, and returns once the
+	// host has taken a control message sent after them.
+	connect := func(scopes ...station.Scope) {
+		t.Helper()
+		grant, err := token.SignGrant(stationKey, token.Grant{Rig: rigKey.Public(), RigID: "rig_1", DeviceID: "rig_1/phone",
+			Subject: "someone", HoldID: "hld_1", Seq: 1, Scopes: scopes})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		ws, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http")+"/api/webrtc/signal", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer ws.CloseNow()
+		ws.SetReadLimit(1 << 20)
+		var wmu sync.Mutex
+		send := func(v any) {
+			data, _ := json.Marshal(v)
+			wmu.Lock()
+			defer wmu.Unlock()
+			ws.Write(ctx, websocket.MessageText, data)
+		}
+		send(map[string]any{"type": "hello", "grant": grant})
+
+		m := &webrtc.MediaEngine{}
+		if err := m.RegisterDefaultCodecs(); err != nil {
+			t.Fatal(err)
+		}
+		se := webrtc.SettingEngine{}
+		se.SetIncludeLoopbackCandidate(true)
+		se.SetInterfaceFilter(onlyLoopback)
+		se.SetICEMulticastDNSMode(ice.MulticastDNSModeDisabled)
+		viewer, err := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithSettingEngine(se)).NewPeerConnection(webrtc.Configuration{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer viewer.Close()
+		mic, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeG722, ClockRate: 8000}, "mic", "viewer")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := viewer.AddTrack(mic); err != nil {
+			t.Fatal(err)
+		}
+		channels := make(chan *webrtc.DataChannel, 2)
+		viewer.OnDataChannel(func(dc *webrtc.DataChannel) { dc.OnOpen(func() { channels <- dc }) })
+		viewer.OnICECandidate(func(c *webrtc.ICECandidate) {
+			if c != nil {
+				send(map[string]any{"type": "candidate", "candidate": c.ToJSON()})
+			}
+		})
+		go func() {
+			for {
+				_, data, err := ws.Read(ctx)
+				if err != nil {
+					return
+				}
+				var msg Message
+				if json.Unmarshal(data, &msg) != nil {
+					continue
+				}
+				switch msg.Type {
+				case "offer":
+					if err := viewer.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: msg.SDP}); err != nil {
+						t.Error(err)
+						return
+					}
+					ans, err := viewer.CreateAnswer(nil)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					viewer.SetLocalDescription(ans)
+					send(map[string]any{"type": "answer", "sdp": ans.SDP})
+				case "candidate":
+					if msg.Candidate != nil {
+						viewer.AddICECandidate(*msg.Candidate)
+					}
+				case "error":
+					t.Errorf("signal: %s", msg.Error)
+				}
+			}
+		}()
+		open := map[string]*webrtc.DataChannel{}
+		for len(open) < 2 {
+			select {
+			case dc := <-channels:
+				open[dc.Label()] = dc
+			case <-ctx.Done():
+				t.Fatal("the data channels did not open")
+			}
+		}
+		// The microphone: a tone, 20 ms a packet, for half a second.
+		enc := g722.NewEncoder()
+		for n, i := 0, 0; i < 25; i++ {
+			samples := make([]int16, 320)
+			for j := range samples {
+				samples[j] = int16(8000 * math.Sin(2*math.Pi*300*float64(n)/16000))
+				n++
+			}
+			mic.WriteSample(media.Sample{Data: enc.Encode(nil, samples), Duration: 20 * time.Millisecond})
+			time.Sleep(20 * time.Millisecond)
+		}
+		open["hid"].SendText(`{"cmd":"type","text":"hello"}`)
+		open["control"].SendText(`{"type":"recording"}`)
+		select {
+		case <-heard:
+		case <-ctx.Done():
+			t.Fatal("the host did not take the control message")
+		}
+		time.Sleep(200 * time.Millisecond) // the two channels are not ordered with each other
+	}
+
+	connect(station.ScopeView)
+	select {
+	case got := <-hidGot:
+		t.Errorf("a grant to watch sent input: %s", got)
+	default:
+	}
+	select {
+	case <-micGot:
+		t.Error("a grant to watch spoke into the microphone")
+	default:
+	}
+
+	connect(station.ScopeView, station.ScopeInput)
+	select {
+	case got := <-hidGot:
+		if got != `{"cmd":"type","text":"hello"}` {
+			t.Errorf("hid message %q", got)
+		}
+	default:
+		t.Error("a grant with input sent none")
+	}
+	select {
+	case <-micGot:
+	default:
+		t.Error("a grant with input was not heard")
 	}
 }

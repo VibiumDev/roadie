@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"fiatjaf.com/nostr"
+	"github.com/VibiumDev/station"
 	"github.com/VibiumDev/station/rig"
 	"github.com/VibiumDev/station/token"
 	"github.com/coder/websocket"
@@ -29,6 +31,10 @@ type Session struct {
 	// check a refreshed grant goes through.
 	hold  string
 	check func(ev nostr.Event) (token.Grant, error)
+	// input says the viewer may drive the target and speak into it: a
+	// local viewer, or one whose latest grant carries the input scope. A
+	// grant to watch gets the picture and the sound only.
+	input atomic.Bool
 	// records is set once the viewer has said it keeps the stream.
 	records bool
 
@@ -81,6 +87,7 @@ func (b *Broadcaster) ServeSignal(w http.ResponseWriter, r *http.Request) {
 	// hello. On the LAN there is no check and no grant.
 	var hold string
 	var ice []webrtc.ICEServer
+	input := true
 	check := rig.FirstMessageCheck(ctx)
 	if check != nil {
 		var ev nostr.Event
@@ -94,13 +101,14 @@ func (b *Broadcaster) ServeSignal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		hold = grant.HoldID
+		input = grant.HasScope(station.ScopeInput)
 		// The grant names the station's STUN and TURN servers, with the
 		// hold's credentials, so this side can be reached across NATs.
 		for _, srv := range grant.ICE {
 			ice = append(ice, webrtc.ICEServer{URLs: srv.URLs, Username: srv.Username, Credential: srv.Credential})
 		}
 	}
-	s, err := b.newSession(send, ice)
+	s, err := b.newSession(send, ice, input)
 	if err != nil {
 		send(Message{Type: "error", Error: err.Error()})
 		return
@@ -142,7 +150,8 @@ func (b *Broadcaster) ServeSignal(w http.ResponseWriter, r *http.Request) {
 }
 
 // newSession makes the peer connection, offers, and registers the session.
-func (b *Broadcaster) newSession(send func(Message) error, ice []webrtc.ICEServer) (*Session, error) {
+// input says whether the viewer's "hid" messages and microphone are taken.
+func (b *Broadcaster) newSession(send func(Message) error, ice []webrtc.ICEServer, input bool) (*Session, error) {
 	// The congestion-control interceptor reports its estimator for each new
 	// peer connection through a callback; holding mu pairs it with ours.
 	b.mu.Lock()
@@ -154,6 +163,7 @@ func (b *Broadcaster) newSession(send func(Message) error, ice []webrtc.ICEServe
 		return nil, err
 	}
 	s := &Session{b: b, pc: pc, estimator: est, send: send, done: make(chan struct{})}
+	s.input.Store(input)
 
 	tr, err := pc.AddTransceiverFromTrack(b.track, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendonly})
 	if err != nil {
@@ -188,7 +198,11 @@ func (b *Broadcaster) newSession(send func(Message) error, ice []webrtc.ICEServe
 		pc.Close()
 		return nil, err
 	}
-	hid.OnMessage(func(m webrtc.DataChannelMessage) { b.handleHID(m.Data) })
+	hid.OnMessage(func(m webrtc.DataChannelMessage) {
+		if s.input.Load() {
+			b.handleHID(m.Data)
+		}
+	})
 
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {
@@ -298,7 +312,9 @@ func (s *Session) onControl(data []byte) {
 		if err != nil || grant.HoldID != s.hold {
 			s.send(Message{Type: "error", Error: "hold: refresh refused"})
 			s.Close()
+			return
 		}
+		s.input.Store(grant.HasScope(station.ScopeInput))
 	}
 }
 

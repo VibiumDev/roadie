@@ -905,7 +905,7 @@ Files, next to the local token in Roadie's config directory (`~/.config/roadie` 
 
 Through the tunnel the station reaches only an allowlist of endpoints, each with the scope a grant must carry, and every request presents a hold grant, either in `Authorization: Hold <base64url event>` for plain requests or in the first message of a WebSocket. Today that is:
 
-- [`/api/webrtc/signal`](#ws-apiwebrtcsignal) (`view`; the hello carries `"grant"`)
+- [`/api/webrtc/signal`](#ws-apiwebrtcsignal) (`view`; the hello carries `"grant"`). The session's `hid` messages and its microphone reach the target only while its latest grant also carries `input`. With `view` alone they are dropped.
 - `GET /health` (`view`)
 - [`GET /stream`](#get-stream) (`view`, capped at `--relay-fps`, 5 a second by default, for the station's MJPEG fallback)
 - [`GET /snapshot`](#get-snapshot) (`view`)

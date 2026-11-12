@@ -108,7 +108,9 @@ type micReader struct {
 
 func (m *micReader) run() {
 	mime := strings.ToUpper(m.track.Codec().MimeType)
-	owner := m.b.claimMic(m.s, mime)
+	// A viewer that may only watch never has the microphone: its packets
+	// are read and dropped, and the mic stays free for one who may speak.
+	owner := m.s.input.Load() && m.b.claimMic(m.s, mime)
 	defer m.b.releaseMic(m.s)
 	dec := g722.NewDecoder()
 	var up pcm.Upsample2
@@ -120,7 +122,7 @@ func (m *micReader) run() {
 		if err != nil {
 			return
 		}
-		if !owner || len(pkt.Payload) == 0 {
+		if !owner || !m.s.input.Load() || len(pkt.Payload) == 0 {
 			continue
 		}
 		samples = samples[:0]
