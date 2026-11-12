@@ -4,8 +4,8 @@
 #   sudo gadget/uninstall [--purge] [--keep-boot-config]
 #
 #   --purge             also remove /etc/roadie, /etc/default/roadie, the
-#                       phone's DHCP leases, /usr/local/bin/roadie and the
-#                       roadie group
+#                       phone's DHCP leases, /usr/local/bin/roadie, and the
+#                       roadie account and group with /var/lib/roadie
 #   --keep-boot-config  leave the USB-C controller in peripheral mode
 #
 # The phone loses its keyboard, audio and network at once. After a reboot

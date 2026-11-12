@@ -1,7 +1,7 @@
 #!/bin/bash
 # Roadie machine set-up: turn a fresh Raspberry Pi OS install into a Roadie.
 #
-# On the Pi, as the user Roadie should run as (not root; it uses sudo):
+# On the Pi, as your own user (not root; it uses sudo, and Roadie runs as the roadie account):
 #
 #   curl -fsSL https://raw.githubusercontent.com/VibiumDev/roadie/main/setup/machine-setup -o machine-setup
 #   bash machine-setup --gadget     # the Pi 4 itself drives the phone over USB-C
@@ -20,9 +20,9 @@
 #                   or when the system asks for it; an update only restarts roadie)
 #   --dry-run       print what would be done, change nothing
 #
-# Run it again at any time to update: it pulls, rebuilds and restarts Roadie
-# without rebooting, and leaves settings in /etc/roadie and /etc/default/roadie
-# alone.
+# Run it again at any time to update: it rebuilds and restarts Roadie without
+# rebooting, and leaves settings in /etc/roadie and /etc/default/roadie alone.
+# A copy outside the checkout pulls first; run from inside one, "git pull" first.
 # Guides: docs/how-to/install-os.md, docs/how-to/configure-os.md
 
 set -uo pipefail
@@ -105,7 +105,7 @@ if [ -z "$MODE" ]; then
 	exit 2
 fi
 if [ "$(id -u)" -eq 0 ]; then
-	echo "Run this as the user Roadie should run as, not as root; it uses sudo itself." >&2
+	echo "Run this as your own user, not as root; it uses sudo itself." >&2
 	exit 1
 fi
 case "$PLATFORM" in android|ios|mac|windows|linux) ;; *)
@@ -133,7 +133,7 @@ echo "======================="
 echo "Machine:   $MODEL"
 echo "OS:        $OS"
 echo "Hardware:  $([ "$MODE" = gadget ] && echo "linux-gadget (this Pi's USB-C port drives the phone)" || echo "RP2040 relay and HID boards")"
-echo "Runs as:   $USER_NAME"
+echo "Run by:    $USER_NAME (roadie.service runs as the roadie account)"
 echo "Checkout:  $DIR$([ "$IN_CHECKOUT" = 1 ] && echo " (this one, not pulled)")"
 echo "Roadie:    --platform $PLATFORM --name $NAME --port $PORT"
 [ "$MODE" = gadget ] && echo "Network:   $([ "$NETWORK" = 1 ] && echo "phone gets internet through this Pi's Ethernet" || echo "not shared with the phone")"
@@ -278,7 +278,7 @@ else
 	echo "      make -C $DIR flash-relay"
 	echo "  - Wiring: $DIR/docs/how-to/connect-a-phone.md"
 fi
-echo "  - Open http://$NAME.local:$PORT/view and sign in with the token from: sudo -u roadie roadie token"
+echo "  - Open http://$NAME.local:$PORT/drive and sign in with the token from: sudo -u roadie roadie token"
 
 NEED_REBOOT=$FIRST_INSTALL
 [ -e /run/reboot-required ] && NEED_REBOOT=1
