@@ -173,6 +173,14 @@ curl -X POST -H "$AUTH" http://localhost:8080/api/capture/reset
 ```
 This performs a USB unbind/rebind on the capture dongle, forcing HDMI re-negotiation. Requires the capture dongle's udev rule, which `machine-setup` and `make setup` both install.
 
+**No video, and the log repeats "3 consecutive read errors"**
+The dongle is stuck: every capture fails as soon as it starts, and the
+kernel log (`journalctl -k`) shows `uvcvideo … Non-zero status (-71)`.
+Roadie resets the dongle's USB by itself after three such failures in a
+row, and logs `resetting its USB device`. If it stays stuck, Roadie tries
+again after a minute, then less and less often. The reset above does the
+same thing at once.
+
 **HID or relay board unresponsive**
 Reset the boards from the settings panel (hold **Reset** next to **HID** or
 **Relay**), or:
