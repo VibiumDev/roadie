@@ -4,7 +4,7 @@ This folder holds a carrier PCB for the two QT Py RP2040 boards. It runs
 the UART and ground between them in copper.
 
 For prototyping, a breadboard and three wires does the same job. That is
-what the [parts list](../README.md#parts-needed-86--host-computer) buys and
+what the [parts list](../README.md#with-the-qt-py-boards-about-86-plus-a-host-computer) buys and
 what [docs/reference/boards.md](../docs/reference/boards.md) describes.
 
 ## The connection it carries

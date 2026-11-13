@@ -17,7 +17,7 @@ Automate Roadie with [Vibium](https://github.com/VibiumDev/vibium) or any browse
 - **Device provisioning**: automate OS setup assistants with an AI agent before SSH or VNC exist on the target
 - **Mobile device testing**: drive phones and tablets from a browser without touching them ([wiring and iOS setup](docs/how-to/connect-a-phone.md))
 - **Remote tech support**: view and control someone's device from another room or across the network 
-- **General IP-KVM**: same idea as PiKVM or TinyPilot, but with multi-touch support and a ~$86 BOM
+- **General IP-KVM**: same idea as PiKVM or TinyPilot, but with multi-touch support and off-the-shelf parts
 
 ## How It Works
 
@@ -57,7 +57,43 @@ Same web UI and API; the boards stay the default. See
 
 **MDM** tools manage devices over the network but require enrollment, platform-specific agents, and an already-configured OS. Roadie works at the hardware level — it doesn't care what OS is running or whether the device is enrolled in anything.
 
-## Parts Needed (~$86) + Host Computer
+## Parts Needed
+
+### Raspberry Pi 4 (about $383)
+
+This is the reference setup: a Raspberry Pi 4 drives a USB-C iPhone and
+acts as its USB keyboard, mouse and microphone itself, with no
+microcontroller boards. The wiring is in
+[Drive a Phone from a Raspberry Pi 4](docs/how-to/linux-gadget.md#wiring-and-power).
+
+For the phone (about $129):
+
+| Qty | Part | What it's for | Price | Link |
+|-----|------|---------------|------:|------|
+| 1x | Apple USB-C Digital AV Multiport Adapter | Plugs into the phone: HDMI out, a USB-A port and USB-C power in | $69.00 | [apple.com](https://www.apple.com/shop/product/mw5m3am/a/usb-c-digital-av-multiport-adapter) |
+| 1x | UGREEN HDMI to USB 3.0 video capture card | Captures the phone's screen, on one of the Pi's USB 3 ports | $22.99 | [amazon.com](https://www.amazon.com/dp/B0DT9DY312) |
+| 1x | HDMI male-to-male coupler (pack of 2, one needed) | Joins the multiport adapter's HDMI port to the capture card | $6.89 | [amazon.com](https://www.amazon.com/Adapter-Extender-Connector-Extension-Converter/dp/B096ZJ1L3T) |
+| 1x | USB-C OTG splitter cable | Lets the Pi's USB-C port take power from its own supply and data from the phone | $9.99 | [amazon.com](https://www.amazon.com/dp/B08C5FWQND) |
+| 1x | PortaPow USB power blocker | Cuts the phone's 5 V from the data line, so it never meets the Pi's supply | $9.99 | [amazon.com](https://www.amazon.com/dp/B094G4P3P4) |
+| 1x | USB-A male-to-male adapter (pack of 4, one needed) | Joins the multiport adapter's USB-A port to the splitter's data input | $9.99 | [amazon.com](https://www.amazon.com/AGVEE-Converter-Extension-Extender-Connector/dp/B09H48XVZW/) |
+
+The Pi (about $254):
+
+| Qty | Part | Price | Link |
+|-----|------|------:|------|
+| 1x | Raspberry Pi 4, 8 GB | $165.00 | [raspberrypi.com](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/?variant=raspberry-pi-4-model-b-8gb&resellerType=industry) |
+| 1x | Raspberry Pi 27W USB-C power supply | $12.00 | [raspberrypi.com](https://www.raspberrypi.com/products/27w-power-supply/) |
+| 1x | Samsung PRO Endurance microSD card, 128 GB | $76.99 | [samsung.com](https://www.samsung.com/us/memory-storage/memory-card/pro-endurance-adapter-microsdxc-128gb-sku-mb-mj128ka-am/) |
+
+To keep the phone charged while it's connected, plug a USB-C charger into
+the multiport adapter's power input.
+
+### With the QT Py boards (about $86, plus a host computer)
+
+The two QT Py RP2040 boards send the keyboard, mouse and multi-touch
+input instead of the Pi. They work with any host that runs the `roadie`
+server, such as a Raspberry Pi 4 (2 GB or more), a Mac or a Linux PC, and
+they are the default input backend.
 
 | Qty | Part | Price | Link |
 |-----|------|------:|------|
@@ -69,8 +105,6 @@ Same web UI and API; the boards stay the default. See
 | 1x | HDMI male-to-male adapter | $5.99 | [amazon.com](https://www.amazon.com/dp/B09JSFVFF1) |
 | 1x | USB-C to HDMI + USB-A + USB-C PD hub | $17.99 | [amazon.com](https://www.amazon.com/dp/B08TWKNV13) |
 | 1x | USB-A to USB-C cable | $8.99 | [amazon.com](https://www.amazon.com/dp/B0C3LFTY71) |
-
-You also need a host computer to run the `roadie` server — a Raspberry Pi 4 (2GB+), Mac, or Linux PC.
 
 ## Quick Start
 
