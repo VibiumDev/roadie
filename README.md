@@ -14,9 +14,9 @@ Automate Roadie with [Vibium](https://github.com/VibiumDev/vibium) or any browse
 
 ## Sound, Both Ways
 
-Roadie is also the device's speaker and microphone, at the same time. It
-hears everything the device plays and can speak into its microphone, so you
-can test what screen-only tools can't: voice assistants, voice agents,
+Roadie is also the device's speaker and microphone, both at once: full
+duplex. It hears everything the device plays while it speaks into the
+device's microphone, so you can test what screen-only tools can't: voice assistants, voice agents,
 calls, and any app where sound matters.
 
 - **Hear the device**: its sound comes over HDMI, or over USB when a Pi 4
@@ -28,7 +28,8 @@ calls, and any app where sound matters.
   the device says back into text, with how long it took to answer. Speech
   runs on your own machine (Piper, whisper.cpp) or through OpenAI
   ([say and listen](https://github.com/VibiumDev/vibium/blob/main/docs/specs/say-listen-spec.md)).
-- **Keep it**: a recording keeps both sides of the conversation.
+- **Keep it**: a recording keeps both sides of the conversation, each in
+  its own file on one timeline, and both mixed into the video.
 
 ```bash
 # With a Vibium session open on the device:
