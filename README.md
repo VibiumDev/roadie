@@ -42,6 +42,7 @@ vibium listen --json                        # its answer as text, with the reply
 - **Voice apps and agents**: talk to a voice assistant, voice agent or call on the device, and check its spoken answers and how fast it replies
 - **Device provisioning**: automate OS setup assistants with an AI agent before SSH or VNC exist on the target
 - **Mobile device testing**: drive phones and tablets from a browser without touching them ([wiring and iOS setup](docs/how-to/connect-a-phone.md))
+- **Your own phone, from anywhere**: leave your real phone at home on a Roadie, enrolled with a [station](https://github.com/VibiumDev/station) in the cloud, and use it from any browser: read and send texts, and make and take calls. The phone you carry can be a blank one with nothing on it, which helps when you travel. All you need to remember is the station's address and your sign-in
 - **Remote tech support**: view and control someone's device from another room or across the network 
 - **General IP-KVM**: same idea as PiKVM or TinyPilot, but with multi-touch support and off-the-shelf parts
 
