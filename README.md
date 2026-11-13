@@ -1,6 +1,6 @@
 # 🎸 Roadie
 
-USB KVM (⌨️Keyboard, 🖥️Video, 🖱️Mouse / 👆🏽Multi-touch) controllable over HTTP.
+USB KVM (⌨️Keyboard, 🖥️Video / 🗣️Voice, 🖱️Mouse / 👆🏽Multi-touch) controllable over HTTP.
 
 *Controlling an Android phone over USB with touch and keyboard*
 ![Roadie controlling an Android phone browsing Hacker News](docs/screenshots/android-firefox.png)
