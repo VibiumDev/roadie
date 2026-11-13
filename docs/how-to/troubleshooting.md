@@ -173,6 +173,19 @@ curl -X POST -H "$AUTH" http://localhost:8080/api/capture/reset
 ```
 This performs a USB unbind/rebind on the capture dongle, forcing HDMI re-negotiation. Requires the capture dongle's udev rule, which `machine-setup` and `make setup` both install.
 
+**No video, and the log repeats "3 consecutive read errors"**
+The dongle is stuck: every capture fails as soon as it starts, and the
+kernel log (`journalctl -k`) shows `uvcvideo … Non-zero status (-71)`.
+Roadie resets the dongle's USB by itself after three such failures in a
+row, and logs `resetting its USB device`. If it stays stuck, Roadie tries
+again after a minute, then less and less often. The reset above does the
+same thing at once.
+
+Each of those log lines ends with the Pi's temperature, CPU clock and load,
+and Roadie logs the same reading every 10 minutes (`host: SoC 64.3 °C, CPU
+1800 of 1800 MHz, load 0.80`). A clock below its ceiling means the Pi is
+throttling. Comparing the two shows whether the failures follow heat.
+
 **HID or relay board unresponsive**
 Reset the boards from the settings panel (hold **Reset** next to **HID** or
 **Relay**), or:

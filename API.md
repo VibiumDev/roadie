@@ -335,6 +335,8 @@ Reset the USB capture device (unbind/rebind). Forces HDMI re-negotiation — use
 
 Only the dongle this instance is capturing from is reset, so it is safe to call when another Roadie instance is using a second dongle on the same host.
 
+Roadie also does this by itself when three captures in a row each fail within 15 seconds of starting, which is how a stuck dongle shows. While the dongle stays broken, it waits at least a minute before the next reset, then two, four and so on, up to 15 minutes.
+
 **Response:**
 ```json
 {"status": "ok"}

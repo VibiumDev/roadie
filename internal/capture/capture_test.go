@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 )
 
 // makeImage creates a w×h RGBA image filled with fillColor, then draws a
@@ -471,5 +472,66 @@ func TestCaptureNodesTriesTheWholeDevice(t *testing.T) {
 	}
 	if nodes := nativeNodes(nil, devices.DeviceInfo{Name: "camera", Label: "0x1234"}); nodes != nil {
 		t.Errorf("a label without a node: V4L2 tries %v", nodes)
+	}
+}
+
+// A dongle whose captures keep failing at once is reset after three in a
+// row, then less and less often while it stays broken; a capture that runs
+// clears it all.
+func TestStuckWatch(t *testing.T) {
+	var w stuckWatch
+	t0 := time.Unix(1_000_000, 0)
+	at := func(d time.Duration) time.Time { return t0.Add(d) }
+	quick := 30 * time.Millisecond
+
+	if w.ended(quick, at(0)) || w.ended(quick, at(3*time.Second)) {
+		t.Fatal("reset before three failures")
+	}
+	if !w.ended(quick, at(6*time.Second)) {
+		t.Fatal("no reset after three quick failures")
+	}
+	// Still failing: the next reset waits a minute, then two, then four.
+	for _, c := range []struct {
+		after time.Duration
+		want  bool
+	}{
+		{20 * time.Second, false},
+		{30 * time.Second, false},
+		{40 * time.Second, false},
+		{66 * time.Second, true}, // a minute after the first
+		{2 * time.Minute, false},
+		{3 * time.Minute, false},
+		{3*time.Minute + 2*time.Second, false}, // three failures, inside the gap
+		{3*time.Minute + 6*time.Second, true},  // two minutes after the second
+	} {
+		if got := w.ended(quick, at(c.after)); got != c.want {
+			t.Errorf("failure at %s: reset %v, want %v", c.after, got, c.want)
+		}
+	}
+	if w.gap != 4*time.Minute {
+		t.Errorf("gap after three resets: %s, want 4m", w.gap)
+	}
+	for range 10 {
+		w.gap = min(2*w.gap, maxResetGap)
+	}
+	if w.gap != maxResetGap {
+		t.Errorf("gap grows past %s", maxResetGap)
+	}
+
+	// A capture that ran clears the count and the gap.
+	if w.ended(time.Hour, at(time.Hour)) || w.fails != 0 || w.gap != 0 || !w.lastReset.IsZero() {
+		t.Fatalf("a working capture left %+v", w)
+	}
+	w.ended(quick, at(time.Hour+time.Second))
+	w.ended(quick, at(time.Hour+2*time.Second))
+	if !w.ended(quick, at(time.Hour+3*time.Second)) {
+		t.Error("after a working capture, three failures should reset at once")
+	}
+	// A capture that fails to start counts as a quick failure.
+	var s stuckWatch
+	s.ended(0, at(0))
+	s.ended(0, at(time.Second))
+	if !s.ended(0, at(2*time.Second)) {
+		t.Error("failed starts should count")
 	}
 }

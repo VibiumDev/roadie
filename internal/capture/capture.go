@@ -1310,7 +1310,7 @@ func runCapture(ctx context.Context, dev devices.DeviceInfo, reader frameReader,
 			if err != nil {
 				consecutiveErrors++
 				if consecutiveErrors >= audio.MaxConsecutiveErrors {
-					log.Printf("device %q: %d consecutive read errors, treating as disconnected", dev.Name, consecutiveErrors)
+					log.Printf("device %q: %d consecutive read errors, treating as disconnected (%s)", dev.Name, consecutiveErrors, devices.ReadHeat())
 					buf.Clear()
 					return
 				}
@@ -1511,6 +1511,7 @@ func (cm *CaptureManager) NotifySettingsChanged() {
 func (cm *CaptureManager) Run() {
 	retryDelay := 2 * time.Second
 	const maxRetryDelay = 30 * time.Second
+	var stuck stuckWatch
 
 	for {
 		cm.Buf.SetStatus(StatusConnecting)
@@ -1546,10 +1547,14 @@ func (cm *CaptureManager) Run() {
 		log.Printf("device %q detected, starting capture", dev.Name)
 
 		captureCtx, captureCancel := context.WithCancel(cm.ctx)
+		started := time.Now()
 		done, err := StartCapture(captureCtx, dev, cm.Buf.Width(), cm.Buf.Height(), cm.Buf.FPS(), cm.Buf)
 		if err != nil {
 			captureCancel()
 			log.Printf("failed to start capture on %q: %v", dev.Name, err)
+			if stuck.ended(0, time.Now()) {
+				cm.resetStuck(dev)
+			}
 			select {
 			case <-cm.ctx.Done():
 				return
@@ -1632,6 +1637,9 @@ func (cm *CaptureManager) Run() {
 			return
 		case "disconnect":
 			log.Printf("device %q disconnected", dev.Name)
+			if stuck.ended(time.Since(started), time.Now()) {
+				cm.resetStuck(dev)
+			}
 			select {
 			case <-cm.ctx.Done():
 				return
@@ -1641,9 +1649,66 @@ func (cm *CaptureManager) Run() {
 			log.Printf("settings changed, restarting capture on %q", dev.Name)
 		case "reset":
 			cm.Buf.Clear()
+			stuck = stuckWatch{}
 			log.Printf("USB reset on %q, restarting capture", dev.Name)
 		}
 	}
+}
+
+// A dongle can get into a state where every capture fails at once, and
+// reopening it never helps; unbinding and rebinding its USB device does.
+// stuckWatch decides when the capture loop does that itself, as POST
+// /api/capture/reset does: after resetAfter captures in a row that each
+// ended within quickFail of starting. Repeated resets stay at least a gap
+// apart, a gap that doubles up to maxResetGap while the dongle stays
+// broken. A capture that lasts quickFail or longer clears it all.
+type stuckWatch struct {
+	fails     int
+	gap       time.Duration
+	lastReset time.Time
+}
+
+const (
+	quickFail     = 15 * time.Second
+	resetAfter    = 3
+	firstResetGap = time.Minute
+	maxResetGap   = 15 * time.Minute
+)
+
+// ended records a capture that ended by itself after running for lasted,
+// and says whether to reset the dongle's USB now.
+func (w *stuckWatch) ended(lasted time.Duration, now time.Time) bool {
+	if lasted >= quickFail {
+		*w = stuckWatch{}
+		return false
+	}
+	w.fails++
+	if w.fails < resetAfter {
+		return false
+	}
+	if !w.lastReset.IsZero() && now.Sub(w.lastReset) < w.gap {
+		return false
+	}
+	if w.lastReset.IsZero() {
+		w.gap = firstResetGap
+	} else {
+		w.gap = min(2*w.gap, maxResetGap)
+	}
+	w.fails, w.lastReset = 0, now
+	return true
+}
+
+// resetStuck unbinds and rebinds the USB device of a dongle whose captures
+// keep failing.
+func (cm *CaptureManager) resetStuck(dev devices.DeviceInfo) {
+	node := dev.VideoNode()
+	log.Printf("capture on %q failed %d times in a row; resetting its USB device (%s)", dev.Name, resetAfter, node)
+	if err := devices.ResetCaptureUSB(node); err != nil {
+		log.Printf("USB reset failed: %v", err)
+		return
+	}
+	cm.Buf.Clear()
+	log.Println("USB capture device reset complete")
 }
 
 // monitorCapture watches for device disconnect, shutdown, settings change, or USB reset.
