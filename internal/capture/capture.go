@@ -1310,7 +1310,7 @@ func runCapture(ctx context.Context, dev devices.DeviceInfo, reader frameReader,
 			if err != nil {
 				consecutiveErrors++
 				if consecutiveErrors >= audio.MaxConsecutiveErrors {
-					log.Printf("device %q: %d consecutive read errors, treating as disconnected", dev.Name, consecutiveErrors)
+					log.Printf("device %q: %d consecutive read errors, treating as disconnected (%s)", dev.Name, consecutiveErrors, devices.ReadHeat())
 					buf.Clear()
 					return
 				}

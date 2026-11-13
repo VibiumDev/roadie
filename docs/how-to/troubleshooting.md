@@ -181,6 +181,11 @@ row, and logs `resetting its USB device`. If it stays stuck, Roadie tries
 again after a minute, then less and less often. The reset above does the
 same thing at once.
 
+Each of those log lines ends with the Pi's temperature, CPU clock and load,
+and Roadie logs the same reading every 10 minutes (`host: SoC 64.3 °C, CPU
+1800 of 1800 MHz, load 0.80`). A clock below its ceiling means the Pi is
+throttling. Comparing the two shows whether the failures follow heat.
+
 **HID or relay board unresponsive**
 Reset the boards from the settings panel (hold **Reset** next to **HID** or
 **Relay**), or:

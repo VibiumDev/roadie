@@ -21,6 +21,7 @@ import (
 
 	"github.com/VibiumDev/roadie/internal/audio"
 	"github.com/VibiumDev/roadie/internal/capture"
+	"github.com/VibiumDev/roadie/internal/devices"
 	"github.com/VibiumDev/roadie/internal/gadget"
 	"github.com/VibiumDev/roadie/internal/hid"
 	"github.com/VibiumDev/roadie/internal/platform"
@@ -389,6 +390,8 @@ func main() {
 	if mux != nil {
 		go mux.Run(muxCtx)
 	}
+	// A baseline for the reading each capture failure logs.
+	go devices.LogHeat(muxCtx, 10*time.Minute)
 
 	// Print startup banner.
 	fmt.Println()
