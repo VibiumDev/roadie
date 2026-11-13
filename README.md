@@ -8,7 +8,7 @@ USB KVM (⌨️Keyboard, 🖥️Video, 🖱️Mouse / 👆🏽Multi-touch) contr
 *Automating a Mac Setup Assistant*
 ![Roadie controlling a Mac Setup Assistant](docs/screenshots/mac-setup-assistant.png)
 
-Roadie turns a low-cost HDMI capture dongle and a pair of microcontroller boards into a browser-based KVM that works with anything that has a screen and a USB port: laptops, desktops, phones, tablets, servers, embedded devices. View the target's display in a browser, and send keyboard, mouse, and multi-touch input back to it — no software required on the target.
+Roadie turns a low-cost HDMI capture dongle, plus either a Raspberry Pi 4 or a pair of microcontroller boards, into a browser-based KVM that works with anything that has a screen and a USB port: laptops, desktops, phones, tablets, servers, embedded devices. View the target's display in a browser, and send keyboard, mouse, and multi-touch input back to it — no software required on the target.
 
 Automate Roadie with [Vibium](https://github.com/VibiumDev/vibium) or any browser automation library — Selenium, Puppeteer, WebDriverIO, etc.
 
@@ -21,11 +21,36 @@ Automate Roadie with [Vibium](https://github.com/VibiumDev/vibium) or any browse
 
 ## How It Works
 
-Roadie uses one device to set up or control another. It grabs video from an HDMI-to-USB capture dongle and serves it over HTTP, turning a remote device's physical display into a web page. A pair of microcontroller boards act as a USB KVM, sending keyboard, mouse, and multi-touch input to the target device. An AI agent (or a human) can view the screen in a browser, grab frames for vision analysis, and send input back — all over HTTP.
+Roadie uses one device to set up or control another. It grabs video from an HDMI-to-USB capture dongle and serves it over HTTP, turning a remote device's physical display into a web page. Input goes back to the target over USB, as its keyboard, mouse, touchscreen and microphone, in one of two ways: a Raspberry Pi 4 does it through its own USB-C port, or a pair of microcontroller boards does it for any host. An AI agent (or a human) can view the screen in a browser, grab frames for vision analysis, and send input back — all over HTTP.
+
+### On a Raspberry Pi 4
 
 ```mermaid
 flowchart TB
-    B["Browser<br/>HTTP · WebSocket"]
+    B["Browser<br/>HTTP · WebSocket · WebRTC"]
+    S["Go server (roadie)<br/>Raspberry Pi 4"]
+    D["HDMI capture dongle"]
+    A["USB-C multiport adapter<br/>HDMI · USB-A · power in"]
+    T["Target device<br/>phone or tablet, USB-C"]
+
+    B <--> S
+    S ---|"USB 3: video + audio"| D
+    D ---|"HDMI"| A
+    S -- "USB, the Pi as a USB device: keyboard, mouse,<br/>touch, microphone, speaker, network" --> A
+    A ---|"USB-C"| T
+```
+
+With `--hid-backend linux-gadget`, the Pi's USB-C port becomes the phone's
+keyboard, mouse, touchscreen, microphone, speaker and Ethernet adapter, and
+the phone's internet is shared from the Pi's Ethernet. A splitter powers the
+Pi from its own supply and keeps the phone's 5 V off it. The wiring is in
+[Drive a Phone from a Raspberry Pi 4](docs/how-to/linux-gadget.md).
+
+### With the QT Py boards
+
+```mermaid
+flowchart TB
+    B["Browser<br/>HTTP · WebSocket · WebRTC"]
     S["Go server (roadie)<br/>Host: Pi, Mac, Linux"]
     R["Relay board — QT Py<br/>JSON → binary"]
     H["HID board — QT Py<br/>binary → USB HID"]
@@ -41,13 +66,10 @@ flowchart TB
     D ---|"HDMI"| T
 ```
 
-### Without the boards: Raspberry Pi 4 as the USB device
-
-On a Raspberry Pi 4, `--hid-backend linux-gadget` makes the Pi's own USB-C
-port the phone's keyboard, mouse, touchscreen, microphone, speaker and
-Ethernet adapter, with the phone's internet shared from the Pi's Ethernet.
-Same web UI and API; the boards stay the default. See
-[Drive a Phone from a Raspberry Pi 4](docs/how-to/linux-gadget.md).
+The boards are the default input, and they work with any host that runs
+roadie: a Raspberry Pi, a Mac or a Linux PC. The relay board takes commands
+from roadie over USB serial and passes them to the HID board, which is the
+target's keyboard, mouse, touchscreen and microphone.
 
 ### Why not VNC/KVM/MDM?
 
