@@ -1,6 +1,6 @@
 # 🎸 Roadie
 
-USB KVM (⌨️Keyboard, 🖥️Video, 🖱️Mouse / 👆🏽Multi-touch) controllable over HTTP.
+USB KVM (⌨️Keyboard, 🖥️Video / 🗣️Voice, 🖱️Mouse / 👆🏽Multi-touch) controllable over HTTP.
 
 *Controlling an Android phone over USB with touch and keyboard*
 ![Roadie controlling an Android phone browsing Hacker News](docs/screenshots/android-firefox.png)
@@ -8,24 +8,76 @@ USB KVM (⌨️Keyboard, 🖥️Video, 🖱️Mouse / 👆🏽Multi-touch) contr
 *Automating a Mac Setup Assistant*
 ![Roadie controlling a Mac Setup Assistant](docs/screenshots/mac-setup-assistant.png)
 
-Roadie turns a low-cost HDMI capture dongle and a pair of microcontroller boards into a browser-based KVM that works with anything that has a screen and a USB port: laptops, desktops, phones, tablets, servers, embedded devices. View the target's display in a browser, and send keyboard, mouse, and multi-touch input back to it — no software required on the target.
+Roadie turns a low-cost HDMI capture dongle, plus either a Raspberry Pi 4 or a pair of microcontroller boards, into a browser-based KVM that works with anything that has a screen and a USB port: laptops, desktops, phones, tablets, servers, embedded devices. View the target's display in a browser, and send keyboard, mouse, and multi-touch input back to it — no software required on the target.
 
 Automate Roadie with [Vibium](https://github.com/VibiumDev/vibium) or any browser automation library — Selenium, Puppeteer, WebDriverIO, etc.
 
+## Sound, Both Ways
+
+Roadie is also the device's speaker and microphone, both at once: full
+duplex. It hears everything the device plays while it speaks into the
+device's microphone, so you can test what screen-only tools can't: voice assistants, voice agents,
+calls, and any app where sound matters.
+
+- **Hear the device**: its sound comes over HDMI, or over USB when a Pi 4
+  is the device's USB audio.
+- **Talk to it**: your microphone in the viewer, or a script, reaches the
+  device's microphone. It works in live phone calls.
+- **Automate and check it with [Vibium](https://github.com/VibiumDev/vibium)**:
+  `vibium say` speaks text into the device, and `vibium listen` turns what
+  the device says back into text, with how long it took to answer. Speech
+  runs on your own machine (Piper, whisper.cpp) or through OpenAI
+  ([say and listen](https://github.com/VibiumDev/vibium/blob/main/docs/specs/say-listen-spec.md)).
+- **Keep it**: a recording keeps both sides of the conversation, each in
+  its own file on one timeline, and both mixed into the video.
+
+```bash
+# With a Vibium session open on the device:
+vibium say "What's the weather tomorrow?"   # spoken into the device's microphone
+vibium listen --json                        # its answer as text, with the reply time
+```
+
 ## Use Cases
 
+- **Voice apps and agents**: talk to a voice assistant, voice agent or call on the device, and check its spoken answers and how fast it replies
 - **Device provisioning**: automate OS setup assistants with an AI agent before SSH or VNC exist on the target
 - **Mobile device testing**: drive phones and tablets from a browser without touching them ([wiring and iOS setup](docs/how-to/connect-a-phone.md))
+- **Your own phone, from anywhere**: leave your real phone at home on a Roadie, enrolled with a [station](https://github.com/VibiumDev/station) in the cloud, and use it from any browser: read and send texts, and make and take calls. The phone you carry can be a blank one with nothing on it, which helps when you travel. All you need to remember is the station's address and your sign-in
 - **Remote tech support**: view and control someone's device from another room or across the network 
 - **General IP-KVM**: same idea as PiKVM or TinyPilot, but with multi-touch support and off-the-shelf parts
 
 ## How It Works
 
-Roadie uses one device to set up or control another. It grabs video from an HDMI-to-USB capture dongle and serves it over HTTP, turning a remote device's physical display into a web page. A pair of microcontroller boards act as a USB KVM, sending keyboard, mouse, and multi-touch input to the target device. An AI agent (or a human) can view the screen in a browser, grab frames for vision analysis, and send input back — all over HTTP.
+Roadie uses one device to set up or control another. It grabs video from an HDMI-to-USB capture dongle and serves it over HTTP, turning a remote device's physical display into a web page. Input goes back to the target over USB, as its keyboard, mouse, touchscreen and microphone, in one of two ways: a Raspberry Pi 4 does it through its own USB-C port, or a pair of microcontroller boards does it for any host. An AI agent (or a human) can view the screen in a browser, grab frames for vision analysis, and send input back — all over HTTP.
+
+### On a Raspberry Pi 4
 
 ```mermaid
 flowchart TB
-    B["Browser<br/>HTTP · WebSocket"]
+    B["Browser<br/>HTTP · WebSocket · WebRTC"]
+    S["Go server (roadie)<br/>Raspberry Pi 4"]
+    D["HDMI capture dongle"]
+    A["USB-C multiport adapter<br/>HDMI · USB-A · power in"]
+    T["Target device<br/>phone or tablet, USB-C"]
+
+    B <--> S
+    S ---|"USB 3: video + audio"| D
+    D ---|"HDMI"| A
+    S -- "USB, the Pi as a USB device: keyboard, mouse,<br/>touch, microphone, speaker, network" --> A
+    A ---|"USB-C"| T
+```
+
+With `--hid-backend linux-gadget`, the Pi's USB-C port becomes the phone's
+keyboard, mouse, touchscreen, microphone, speaker and Ethernet adapter, and
+the phone's internet is shared from the Pi's Ethernet. A splitter powers the
+Pi from its own supply and keeps the phone's 5 V off it. The wiring is in
+[Drive a Phone from a Raspberry Pi 4](docs/how-to/linux-gadget.md).
+
+### With the QT Py boards
+
+```mermaid
+flowchart TB
+    B["Browser<br/>HTTP · WebSocket · WebRTC"]
     S["Go server (roadie)<br/>Host: Pi, Mac, Linux"]
     R["Relay board — QT Py<br/>JSON → binary"]
     H["HID board — QT Py<br/>binary → USB HID"]
@@ -41,13 +93,10 @@ flowchart TB
     D ---|"HDMI"| T
 ```
 
-### Without the boards: Raspberry Pi 4 as the USB device
-
-On a Raspberry Pi 4, `--hid-backend linux-gadget` makes the Pi's own USB-C
-port the phone's keyboard, mouse, touchscreen, microphone, speaker and
-Ethernet adapter, with the phone's internet shared from the Pi's Ethernet.
-Same web UI and API; the boards stay the default. See
-[Drive a Phone from a Raspberry Pi 4](docs/how-to/linux-gadget.md).
+The boards are the default input, and they work with any host that runs
+roadie: a Raspberry Pi, a Mac or a Linux PC. The relay board takes commands
+from roadie over USB serial and passes them to the HID board, which is the
+target's keyboard, mouse, touchscreen and microphone.
 
 ### Why not VNC/KVM/MDM?
 
@@ -156,8 +205,7 @@ To drive more than one device from the same host, see
 - **Hot-swap**: plug/unplug devices without restarting
 - **Auto-crop**: detects and removes black bars from HDMI capture (pillarbox/letterbox), remaps touch coordinates to match
 - **Runtime settings**: adjust quality, FPS, and resolution on the fly from the viewer
-- **Audio streaming**: optional PCM audio over WebSocket
-- **Voice input**: microphone button in the viewer streams your voice to the target, which hears it as a USB microphone — works in live phone calls
+- **Sound both ways**: the device's sound to the browser (WebRTC, or PCM over a WebSocket) and to scripts, and voice into its USB microphone from the viewer's mic button or from `roadie:audio.play` over WebDriver BiDi, which also captures what the device plays, timed by its own samples. It works in live phone calls, and a hold's recording keeps both sides
 - **Bonjour/mDNS**: discoverable as `roadie.local` on your network when it listens beyond localhost (with `--auth`)
 - **Multiple targets**: run one instance per target on a single host, each pinned to its own capture dongle and relay board, with a `/grid` page to view and drive them together
 - **Platform-aware input**: `--platform` adapts pointer mapping and input mode to Android, iOS, macOS, Windows, or Linux targets

@@ -14,7 +14,7 @@ Design and decisions: [linux-gadget-plan.md](../linux-gadget-plan.md).
 | Raspberry Pi 4 Model B, Raspberry Pi OS (Debian 13 trixie), 64-bit, kernel 6.18 | Built and tested here (Rev 1.4, `6.18.50+rpt-rpi-v8`) |
 | Other Pis with a DWC2 USB-C/OTG port (Zero 2 W, CM4) | Untested; endpoint budget may differ |
 | Android phone with USB-C DisplayPort alt mode | Validate with the [checklist](#hardware-validation-checklist) |
-| iPhone (USB-C) | Mouse and phone audio to `/drive` work; audio switches to USB by itself on plugging in. Keyboard, microphone and Ethernet not yet checked; touch never works (iOS limitation) |
+| iPhone (USB-C) | Mouse, keyboard, microphone and phone audio work, sound both ways at once included; audio switches to USB by itself on plugging in. Ethernet not yet checked; touch never works (iOS limitation) |
 
 ## Wiring and power
 
