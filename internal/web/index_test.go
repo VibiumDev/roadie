@@ -1,6 +1,8 @@
 package web
 
 import (
+	"encoding/json"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -59,6 +61,29 @@ func TestDriveAndViewPages(t *testing.T) {
 		}
 		if c.watch && !strings.HasPrefix(html, "<!DOCTYPE") && !strings.Contains(html, "<title>Watching") {
 			t.Errorf("%s: title should say Watching", c.path)
+		}
+	}
+}
+
+// The viewer is told the device's name, which names the screenshots it
+// saves: the label, else the model, else nothing.
+func TestViewerConfigNamesTheDevice(t *testing.T) {
+	for _, c := range []struct{ label, model, want string }{
+		{"", "", ""},
+		{"", "iPhone 15 Pro Max", "iPhone 15 Pro Max"},
+		{"Test phone", "iPhone 15 Pro Max", "Test phone"},
+	} {
+		s := &Server{Name: "bench", Label: c.label, Model: c.model}
+		rec := httptest.NewRecorder()
+		s.handleDrive(rec, httptest.NewRequest(http.MethodGet, "/drive", nil))
+		_, rest, _ := strings.Cut(rec.Body.String(), `data-config="`)
+		raw, _, _ := strings.Cut(rest, `"`)
+		var cfg struct{ Name string }
+		if err := json.Unmarshal([]byte(html.UnescapeString(raw)), &cfg); err != nil {
+			t.Fatalf("label %q, model %q: config: %v", c.label, c.model, err)
+		}
+		if cfg.Name != c.want {
+			t.Errorf("label %q, model %q: the viewer's name is %q, want %q", c.label, c.model, cfg.Name, c.want)
 		}
 	}
 }

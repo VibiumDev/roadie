@@ -101,6 +101,15 @@ func (s *Server) pageTitle() string {
 	return "Roadie — " + s.Name
 }
 
+// deviceTitle is the device's name for people: its label, else its model.
+// It is empty when Roadie was told neither.
+func (s *Server) deviceTitle() string {
+	if s.Label != "" {
+		return s.Label
+	}
+	return s.Model
+}
+
 // effectiveInputMode is the mode viewers actually start in: --input when
 // given, otherwise whatever the platform implies. Reported by /health so the
 // answer is visible rather than inferred from two flags.
@@ -511,7 +520,7 @@ func (s *Server) viewerPage(w http.ResponseWriter, r *http.Request, watch bool) 
 	if mode != "touch" && mode != "mouse" {
 		mode = s.EffectiveInputMode()
 	}
-	cfg := viewer.Config{Mode: "local", Watch: watch, Name: s.pageTitle(), API: viewer.Local(), InputMode: mode,
+	cfg := viewer.Config{Mode: "local", Watch: watch, Name: s.deviceTitle(), API: viewer.Local(), InputMode: mode,
 		WebRTC: s.RTC != nil && s.RTC.Available(), Extras: "/viewer/extras.js", Info: s.viewerInfo()}
 	// ?transport=webrtc or mjpeg sets the picture's transport for this
 	// page load; the page remembers the menu's choice otherwise.
