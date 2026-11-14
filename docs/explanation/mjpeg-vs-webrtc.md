@@ -221,11 +221,12 @@ only spends that when something is moving.
 - **Left alone, the connection chooses.** The viewer's browser reports what
   arrives and when, and the rig moves its target between 0.3 and 4 Mbps
   accordingly. On the same network it climbs to 4 Mbps within seconds; on a
-  struggling link it falls. Below 0.6 Mbps Roadie also halves the frame rate so
-  that each frame keeps enough bytes to stay legible: at a 300 kbps cap the
-  stream measured 15 frames a second, at 1.5 and 4 Mbps the full 30.
-- **It does not change** the frame rate (30 a second, as captured), the
-  picture's size, or the delay by more than a few milliseconds. A lower cap
+  struggling link it falls. Under about 0.35 Mbps Roadie sends a phone's
+  picture at 20 frames a second and gives the encoder the bits that saves, so
+  each frame is sharper; see [Frame rate](frame-rate.md).
+- **It does not change** the frame rate above that (30 a second, as
+  captured), the picture's size, or the delay by more than a few
+  milliseconds. A lower cap
   makes motion softer; once the screen settles, the next keyframe restores
   full sharpness.
 

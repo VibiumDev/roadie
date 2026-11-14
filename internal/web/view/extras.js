@@ -28,11 +28,12 @@
   }
 
   // --- The capture's own settings: quality (the MJPEG stream's JPEG),
-  // frame rate and size, kept by the host and remembered by this browser.
+  // frame rate and size. They are the host's: read from it, and sent to
+  // it only when someone changes one here.
   var qualityRow = row('Quality', '<input id="qrange" type="range" min="30" max="95"><span id="qval" class="qval"></span>', 'JPEG quality of the MJPEG stream');
   qualityRow.id = 'qualityRow';
   qualityRow.style.marginTop = '0'; qualityRow.style.marginBottom = '8px';
-  var fpsRow = row('FPS', '<select id="fpsSelect"><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="30">30</option></select>');
+  var fpsRow = row('FPS', '<select id="fpsSelect"><option value="auto">Auto</option><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="30">30</option></select>');
   fpsRow.style.marginTop = '0'; fpsRow.style.marginBottom = '8px';
   var sizeRow = row('Size', '<select id="resSelect"><option value="1920x1080">1080p</option><option value="1280x720">720p</option><option value="640x480">480p</option></select>');
   sizeRow.style.marginTop = '0';
@@ -43,33 +44,27 @@
   shell.set({quality: function () { return parseInt(qrange.value, 10) || 0; }});
   function applyToUI(d) {
     if (d.quality !== undefined) { qrange.value = d.quality; qval.textContent = d.quality; }
-    if (d.fps !== undefined) fpsSelect.value = d.fps;
+    if (d.fps !== undefined) fpsSelect.value = d.fps_auto ? 'auto' : d.fps;
     if (d.width !== undefined && d.height !== undefined) resSelect.value = d.width + 'x' + d.height;
   }
   var settingsTimer = null;
   function sendSettings(obj) {
     clearTimeout(settingsTimer);
-    shell.saveSettings(obj);
     settingsTimer = setTimeout(function () {
       hostFetch('/api/settings', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(obj)}).catch(function () {});
     }, 300);
   }
   (function loadSettings() {
-    var saved = shell.settings();
-    var mine = {};
-    ['quality', 'fps', 'width', 'height'].forEach(function (k) { if (k in saved) mine[k] = saved[k]; });
-    if (Object.keys(mine).length > 0 && shell.admin()) {
-      applyToUI(mine);
-      hostFetch('/api/settings', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(mine)}).catch(function () {});
-    } else {
-      hostFetch('/api/settings').then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }).then(applyToUI).catch(function () {
-        // Not ours to change (no admin on this hold): the rows go.
-        [qualityRow, fpsRow, sizeRow].forEach(function (r) { r.style.display = 'none'; r.hidden = true; });
-      });
-    }
+    hostFetch('/api/settings').then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }).then(applyToUI).catch(function () {
+      // Not ours to change (no admin on this hold): the rows go.
+      [qualityRow, fpsRow, sizeRow].forEach(function (r) { r.style.display = 'none'; r.hidden = true; });
+    });
   })();
   qrange.oninput = function () { qval.textContent = qrange.value; sendSettings({quality: parseInt(qrange.value, 10)}); };
-  fpsSelect.onchange = function () { sendSettings({fps: parseInt(fpsSelect.value, 10)}); };
+  fpsSelect.onchange = function () {
+    if (fpsSelect.value === 'auto') sendSettings({fps_auto: true});
+    else sendSettings({fps: parseInt(fpsSelect.value, 10), fps_auto: false});
+  };
   resSelect.onchange = function () { var parts = resSelect.value.split('x'); sendSettings({width: parseInt(parts[0], 10), height: parseInt(parts[1], 10)}); };
 
   // --- The crop: auto, off, or the one saved for the way the device is
