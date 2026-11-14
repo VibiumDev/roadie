@@ -8,10 +8,10 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/hashicorp/mdns v1.0.7
 	github.com/pion/ice/v4 v4.0.13
-	github.com/pion/interceptor v0.1.42
+	github.com/pion/interceptor v0.1.51
 	github.com/pion/mediadevices v0.9.4
-	github.com/pion/rtcp v1.2.16
-	github.com/pion/rtp v1.8.26
+	github.com/pion/rtcp v1.2.20
+	github.com/pion/rtp v1.10.6
 	github.com/pion/webrtc/v4 v4.1.8
 	go.bug.st/serial v1.6.4
 	golang.org/x/sys v0.49.0
