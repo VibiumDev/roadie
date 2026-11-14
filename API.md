@@ -195,11 +195,11 @@ Get current settings.
 
 **Response:**
 ```json
-{"quality": 80, "fps": 30, "width": 1920, "height": 1080, "autocrop": true, "glide": false}
+{"quality": 80, "fps": 30, "fps_auto": true, "width": 1920, "height": 1080, "autocrop": true, "glide": false}
 ```
 
 ### `PUT /api/settings`
-Update settings. All fields are optional — only provided fields are changed. Changing `fps`, `width`, or `height` triggers a capture restart.
+Update settings. All fields are optional — only provided fields are changed. Changing `fps`, `width`, or `height` triggers a capture restart. Quality, frame rate and size last until Roadie restarts, when its flags apply again.
 
 **Request:**
 ```json
@@ -209,7 +209,8 @@ Update settings. All fields are optional — only provided fields are changed. C
 | Field | Range | Description |
 |-------|-------|-------------|
 | `quality` | 30-95 | JPEG compression quality |
-| `fps` | 10-30 | Capture framerate |
+| `fps` | 10-30 | Capture framerate. A rate that differs from the one in use is a choice and ends Auto, unless `fps_auto` is sent too |
+| `fps_auto` | `true`/`false` | `true`, as Roadie starts, captures at `--fps` and lets Roadie hold frames back from WebRTC viewers on a thin link or a hot host (see [Frame rate](docs/explanation/frame-rate.md)). `false` sends every captured frame |
 | `width` | 1920, 1280 or 640 | Capture width (must be set with `height`) |
 | `height` | 1080, 720 or 480 | Capture height (must be set with `width`): `1920`x`1080`, `1280`x`720` or `640`x`480` |
 | `autocrop` | `true`/`false` | Choose auto-crop (trim constant black bars) or no crop: the two-way form of [`/api/crop`](#get-put-post-delete-apicrop)'s choice, which also offers a saved crop. Kept across restarts. `GET` answers `true` only while auto-crop is chosen |
@@ -324,7 +325,7 @@ Service status and device info.
 | `rotating` | `true` while [`/api/rotate`](#post-apirotate) is turning the screen, and absent otherwise. `/drive` holds back its input meanwhile |
 | `input_mode` | The mode viewers start in: `--input`, else the platform default |
 | `host` | The machine Roadie runs on: Roadie's own CPU use (`cpu_percent`, 100 is one core), the 1-minute load average, the CPU temperature in °C, total memory in MB, and the percentage of memory in use (not available to new programs). Whatever the machine doesn't tell is left out |
-| `webrtc` | Present when the host can encode H.264 (see `--encoder`): the encoder in use or available, how many viewers are connected over WebRTC, the target bitrate in bits per second, and while encoding the picture's size, the frames encoded in the last second and the frames skipped (`dropped`); `audio` (`G722`) and `audio_kbps` while the phone's sound is being sent, `mic` and `mic_kbps` while a viewer's microphone is coming in. Absent means `/drive?transport=webrtc` falls back to MJPEG |
+| `webrtc` | Present when the host can encode H.264 (see `--encoder`): the encoder in use or available, how many viewers are connected over WebRTC, the target bitrate in bits per second, and while encoding the picture's size, the frames encoded in the last second and the frames skipped (`dropped`); `fps_limit` and `limited_by` (`link`, `host` or `floor`) while Roadie holds frames back (see [Frame rate](docs/explanation/frame-rate.md)); `audio` (`G722`) and `audio_kbps` while the phone's sound is being sent, `mic` and `mic_kbps` while a viewer's microphone is coming in. Absent means `/drive?transport=webrtc` falls back to MJPEG |
 
 ---
 

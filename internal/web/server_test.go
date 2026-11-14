@@ -361,6 +361,64 @@ func TestAPISettingsRefusesOddNumbers(t *testing.T) {
 	}
 }
 
+// The frame rate is Auto until someone chooses one. A number that differs
+// from the capture's ends Auto, and Auto brings the capture back to
+// Roadie's own rate.
+func TestAPISettingsFrameRateAuto(t *testing.T) {
+	s, mux := newTestServer()
+	s.DefaultFPS = 30
+	put := func(body string) (fps float64, auto bool) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("PUT", "/api/settings", strings.NewReader(body)))
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", body, w.Code, w.Body)
+		}
+		var data map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &data); err != nil {
+			t.Fatal(err)
+		}
+		return data["fps"].(float64), data["fps_auto"].(bool)
+	}
+	for _, c := range []struct {
+		body string
+		fps  float64
+		auto bool
+		why  string
+	}{
+		{`{"quality":70}`, 30, true, "Auto is where it starts"},
+		{`{"quality":70,"fps":30}`, 30, true, "the rate in use sent back is not a choice"},
+		{`{"fps":15}`, 15, false, "another rate is"},
+		{`{"fps":15}`, 15, false, "and stays chosen"},
+		{`{"fps_auto":true}`, 30, true, "Auto goes back to Roadie's rate"},
+		{`{"fps":30,"fps_auto":false}`, 30, false, "the capture's own rate can be chosen too"},
+		{`{"fps":15,"fps_auto":true}`, 30, true, "Auto wins over a number sent with it"},
+	} {
+		if fps, auto := put(c.body); fps != c.fps || auto != c.auto {
+			t.Errorf("%s: fps %v, auto %v; want %v, %v (%s)", c.body, fps, auto, c.fps, c.auto, c.why)
+		}
+		if got := s.Buf.FPS(); float64(got) != c.fps {
+			t.Errorf("%s: the capture is at %d fps", c.body, got)
+		}
+	}
+}
+
+// The picture's settings are the host's. Neither page sends what a
+// browser kept from an earlier visit back to it.
+func TestPagesDoNotReplaySavedPictureSettings(t *testing.T) {
+	_, mux := newTestServer()
+	_, _, settings := get(t, mux, "/settings")
+	_, _, extras := get(t, mux, "/viewer/extras.js")
+	for name, page := range map[string]string{"/settings": settings, "/viewer/extras.js": extras} {
+		if !strings.Contains(page, `<option value="auto">Auto</option>`) {
+			t.Errorf("%s has no Auto frame rate", name)
+		}
+		if strings.Contains(page, "body: JSON.stringify(saved)") || strings.Contains(page, "body: JSON.stringify(mine)") {
+			t.Errorf("%s sends saved settings to the host", name)
+		}
+	}
+}
+
 func TestSettingsPage(t *testing.T) {
 	_, mux := newTestServer()
 	code, hdr, body := get(t, mux, "/settings")

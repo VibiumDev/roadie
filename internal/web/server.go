@@ -19,6 +19,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -48,6 +49,13 @@ type Server struct {
 	SourceType  string // "hardware" or "http"
 	HID         hid.HIDBackend
 	Capture     *capture.CaptureManager
+	// DefaultFPS is --fps: what the capture goes back to when the frame
+	// rate is set to Auto. Zero leaves the capture's rate alone.
+	DefaultFPS int
+	// fpsFixed says someone chose a frame rate; until then it is Auto,
+	// and Roadie chooses how many of the captured frames viewers get.
+	fpsFixed atomic.Bool
+
 	// RTC sends the picture over WebRTC; nil when this host has no way to
 	// encode H.264 or frames come from an HTTP source.
 	RTC *rtc.Broadcaster
@@ -306,15 +314,15 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 
 <h2 class="h2">Picture {{template "help" "picture"}}</h2>
 <div class="helptext" id="help-picture" hidden>
-<p>What Roadie asks of the capture dongle and how it serves the MJPEG stream. Picture and Crop are the host's: saved there, used for everyone who views, and the same settings the viewer's menu changes. WebRTC uses the same capture with its own H.264 encoder, capped by the viewer's Bitrate slider.</p>
+<p>What Roadie asks of the capture dongle and how it serves the MJPEG stream. Picture and Crop are the host's: used for everyone who views, and the same settings the viewer's menu changes. Picture settings last until Roadie restarts, when its flags apply again; no browser sends them back. WebRTC uses the same capture with its own H.264 encoder, capped by the viewer's Bitrate slider.</p>
 <p><b>Quality.</b> The JPEG quality of each MJPEG frame, 30 to 95. Higher is sharper and heavier on the link; 80 suits a LAN, lower helps a slow link. The viewer's Quality slider is this same setting.</p>
-<p><b>Frames per second.</b> How many frames a second are asked of the dongle, for MJPEG and WebRTC alike. 30 is smooth; 10 or 15 spare the host and the link.</p>
+<p><b>Frames per second.</b> Auto, the default, captures at Roadie's own rate (<code>--fps</code>, 30 unless set) and sends WebRTC viewers as many of those frames as stay sharp: fewer while the link is thin or the host is hot. A number asks the dongle for that many frames a second, for MJPEG and WebRTC alike, and sends them all; 10 or 15 spare the host and the link.</p>
 <p><b>Capture size.</b> The frame size asked of the dongle. A phone's output is 1920x1080 whatever its screen, and the picture is cropped to the screen from that; a smaller size costs the host less and shows less.</p>
 </div>
 <div class="setting"><label for="quality">Quality <span class="val" id="qval"></span></label>
 <input id="quality" type="range" min="30" max="95"></div>
 <div class="setting"><label for="fps">Frames per second</label>
-<select id="fps"><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="30">30</option></select></div>
+<select id="fps"><option value="auto">Auto</option><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="30">30</option></select></div>
 <div class="setting"><label for="res">Capture size</label>
 <select id="res"><option value="1920x1080">1080p</option><option value="1280x720">720p</option><option value="640x480">480p</option></select></div>
 
@@ -359,7 +367,7 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 
   function applyToUI(d) {
     if (d.quality !== undefined) { slider.value = d.quality; valSpan.textContent = d.quality; }
-    if (d.fps !== undefined) { fpsSelect.value = d.fps; }
+    if (d.fps !== undefined) { fpsSelect.value = d.fps_auto ? 'auto' : d.fps; }
     if (d.width !== undefined && d.height !== undefined) { resSelect.value = d.width + 'x' + d.height; }
   }
   function showZoom(z) {
@@ -373,25 +381,19 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
   (function loadSettings() {
     var saved = {};
     try { saved = JSON.parse(localStorage.getItem('roadie-settings')) || {}; } catch(e) {}
-    // The crop is chosen on the server (see /api/crop); replaying an old
-    // autocrop from this browser would undo that.
-    if ('autocrop' in saved) {
-      delete saved.autocrop;
+    // The picture and the crop are the host's (see /api/settings and
+    // /api/crop). A browser that kept old ones must not send them back.
+    var stale = false;
+    ['autocrop', 'quality', 'fps', 'width', 'height'].forEach(function(k){
+      if (k in saved) { delete saved[k]; stale = true; }
+    });
+    if (stale) {
       try { localStorage.setItem('roadie-settings', JSON.stringify(saved)); } catch(e) {}
     }
     showZoom(saved.zoom);
-    if (Object.keys(saved).length > 0) {
-      applyToUI(saved);
-      fetch('/api/settings', {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(saved)
-      });
-    } else {
-      fetch('/api/settings').then(function(r){ return r.json(); }).then(function(d){
-        applyToUI(d);
-      });
-    }
+    fetch('/api/settings').then(function(r){ return r.json(); }).then(function(d){
+      applyToUI(d);
+    });
   })();
 
   function saveSettings(obj) {
@@ -403,7 +405,6 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
 
   function sendSettings(obj) {
     clearTimeout(timer);
-    saveSettings(obj);
     timer = setTimeout(function(){
       fetch('/api/settings', {
         method: 'PUT',
@@ -419,7 +420,8 @@ var pages = template.Must(template.New("").Parse(`{{define "head"}}<!DOCTYPE htm
   };
 
   fpsSelect.onchange = function(){
-    sendSettings({fps: parseInt(fpsSelect.value)});
+    if (fpsSelect.value === 'auto') sendSettings({fps_auto: true});
+    else sendSettings({fps: parseInt(fpsSelect.value), fps_auto: false});
   };
 
   resSelect.onchange = function(){
@@ -787,6 +789,7 @@ func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 		m := map[string]interface{}{
 			"quality":  s.Buf.Quality(),
 			"fps":      s.Buf.FPS(),
+			"fps_auto": !s.fpsFixed.Load(),
 			"width":    s.Buf.Width(),
 			"height":   s.Buf.Height(),
 			"autocrop": s.Buf.Autocrop(),
@@ -805,6 +808,7 @@ func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Quality  *int  `json:"quality"`
 			FPS      *int  `json:"fps"`
+			FPSAuto  *bool `json:"fps_auto"`
 			Width    *int  `json:"width"`
 			Height   *int  `json:"height"`
 			Autocrop *bool `json:"autocrop"`
@@ -848,9 +852,25 @@ func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 			s.cropMu.Unlock()
 		}
 		captureChanged := false
+		// Auto goes back to Roadie's own capture rate. A frame rate that
+		// differs from the capture's is a choice, and ends Auto unless
+		// the caller says otherwise; the rate in use sent back is not.
+		fixed := s.fpsFixed.Load()
+		if body.FPSAuto != nil {
+			fixed = !*body.FPSAuto
+		} else if body.FPS != nil && *body.FPS != s.Buf.FPS() {
+			fixed = true
+		}
+		if !fixed && s.DefaultFPS > 0 {
+			body.FPS = &s.DefaultFPS
+		}
 		if body.FPS != nil && *body.FPS != s.Buf.FPS() {
 			s.Buf.SetFPS(*body.FPS)
 			captureChanged = true
+		}
+		s.fpsFixed.Store(fixed)
+		if s.RTC != nil {
+			s.RTC.SetAuto(!fixed)
 		}
 		if body.Width != nil && body.Height != nil && (*body.Width != s.Buf.Width() || *body.Height != s.Buf.Height()) {
 			s.Buf.SetWidth(*body.Width)

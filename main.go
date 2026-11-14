@@ -436,6 +436,7 @@ func main() {
 		Source:         buf,
 		Buf:            buf,
 		RelayFPS:       *relayFPS,
+		DefaultFPS:     *fps,
 		Device:         deviceName,
 		AudioBroadcast: ab,
 		SourceType:     sourceType,
