@@ -54,6 +54,9 @@ type Options struct {
 	Loopback bool
 	// Audio is the phone's sound for the speaker track; nil sends none.
 	Audio AudioSource
+	// HostTemp reads the host's temperature in °C; ok is false where it
+	// cannot be read. nil never holds frames back for heat.
+	HostTemp func() (celsius float64, ok bool)
 }
 
 // FrameSource is where frames come from: the capture loop.
@@ -75,8 +78,12 @@ type Status struct {
 	Bitrate  int    `json:"bitrate,omitempty"` // current target, bits per second
 	Width    int    `json:"width,omitempty"`   // of the picture being encoded
 	Height   int    `json:"height,omitempty"`
-	FPS      int    `json:"fps,omitempty"`     // encoded in the last second
-	Dropped  int    `json:"dropped,omitempty"` // frames skipped by the encoder
+	FPS      int    `json:"fps,omitempty"` // encoded in the last second
+	// FPSLimit is the most frames a second being sent when some captured
+	// frames are held back, and LimitedBy why: link, host or floor.
+	FPSLimit  int    `json:"fps_limit,omitempty"`
+	LimitedBy string `json:"limited_by,omitempty"`
+	Dropped   int    `json:"dropped,omitempty"` // frames skipped by the encoder
 	// Audio is the speaker track's codec while sound is being sent, and
 	// AudioKbps its rate over the last second; Mic is the codec of the
 	// viewer's microphone being passed to the phone, if one is.
@@ -111,19 +118,22 @@ type Broadcaster struct {
 	tapN         int
 	onRecorded   func()
 
-	encMu     sync.Mutex
-	enc       encoder.Encoder
-	encName   string
-	encSize   image.Point
-	encDone   chan struct{}
-	sinking   bool
-	bitrate   int
-	lastTS    time.Duration
-	sps, pps  []byte
-	keyAt     time.Time
-	wantKey   bool
-	frameSkip bool // under heavy congestion, every other frame
-	frameN    int
+	encMu      sync.Mutex
+	enc        encoder.Encoder
+	encName    string
+	encSize    image.Point
+	encDone    chan struct{}
+	sinking    bool
+	bitrate    int // what the link carries
+	encBitrate int // what the encoder is asked for; see encoderBitrate
+	lastTS     time.Duration
+	sps, pps   []byte
+	keyAt      time.Time
+	wantKey    bool
+	gov        governor
+	pace       pacer
+	arriving   rateMeter
+	lastDrops  int
 
 	statMu       sync.Mutex
 	frames       int
@@ -143,7 +153,6 @@ const (
 	defaultMinBitrate   = 300_000
 	defaultMaxBitrate   = 4_000_000
 	defaultStartBitrate = 1_500_000
-	lowBitrate          = 600_000 // below this, halve the frame rate
 )
 
 var fmtp = "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
@@ -170,13 +179,15 @@ func New(src FrameSource, opts Options) (*Broadcaster, error) {
 		opts.Interfaces = defaultInterfaceFilter
 	}
 	b := &Broadcaster{
-		opts:      opts,
-		src:       src,
-		sessions:  map[*Session]struct{}{},
-		caps:      map[*Session]int{},
-		taps:      map[int]SampleSink{},
-		bitrate:   opts.StartBitrate,
-		stopStats: make(chan struct{}),
+		opts:       opts,
+		src:        src,
+		sessions:   map[*Session]struct{}{},
+		caps:       map[*Session]int{},
+		taps:       map[int]SampleSink{},
+		bitrate:    opts.StartBitrate,
+		encBitrate: opts.StartBitrate,
+		gov:        governor{auto: true},
+		stopStats:  make(chan struct{}),
 	}
 	if opts.OpenEncoder == nil {
 		opts.OpenEncoder = func(cfg encoder.Config) (encoder.Encoder, string, error) {
@@ -286,6 +297,7 @@ func (b *Broadcaster) Status() Status {
 	b.mu.Unlock()
 	b.encMu.Lock()
 	st := Status{Encoder: b.probe, Sessions: n, Bitrate: b.bitrate}
+	st.FPSLimit, _, st.LimitedBy = b.gov.plan()
 	if b.enc != nil {
 		st.Encoder = b.encName
 		st.Width, st.Height = b.encSize.X, b.encSize.Y
@@ -433,7 +445,22 @@ func (b *Broadcaster) feed() {
 		b.sinking = false
 		b.src.RemoveSink(b)
 		b.closeEncoderLocked()
+		b.gov.forgetLink()
+		b.pace, b.arriving = pacer{}, rateMeter{}
+		b.applyBitrateLocked()
 	}
+}
+
+// SetAuto says whether Roadie chooses how many of the captured frames to
+// send. It does until told otherwise; off, every frame goes out.
+func (b *Broadcaster) SetAuto(on bool) {
+	b.encMu.Lock()
+	defer b.encMu.Unlock()
+	if b.gov.auto == on {
+		return
+	}
+	b.gov.auto = on
+	b.applyBitrateLocked()
 }
 
 // Frame is the capture loop's hand-off: convert and queue this frame,
@@ -457,7 +484,7 @@ func (b *Broadcaster) Frame(img image.Image, crop image.Rectangle, ts time.Durat
 		b.closeEncoderLocked()
 	}
 	if b.enc == nil {
-		enc, name, err := b.opts.OpenEncoder(encoder.Config{Width: size.X, Height: size.Y, FPS: b.opts.FPS, Bitrate: b.bitrate})
+		enc, name, err := b.opts.OpenEncoder(encoder.Config{Width: size.X, Height: size.Y, FPS: encoderFPS, Bitrate: b.encBitrate})
 		if err != nil {
 			if b.encName != "failed" {
 				b.opts.Logf("webrtc: encoder: %v", err)
@@ -468,12 +495,13 @@ func (b *Broadcaster) Frame(img image.Image, crop image.Rectangle, ts time.Durat
 		b.enc, b.encName, b.encSize = enc, name, size
 		b.encDone = make(chan struct{})
 		b.lastTS = 0
+		b.lastDrops = 0
 		b.sps, b.pps = nil, nil
 		b.opts.Logf("webrtc: encoding %dx%d with %s", size.X, size.Y, name)
 		go b.pump(enc, b.encDone)
 	}
-	b.frameN++
-	if b.frameSkip && b.frameN&1 == 1 {
+	b.arriving.add(ts)
+	if limit, _, _ := b.gov.plan(); !b.pace.take(ts, limit) {
 		return
 	}
 	if b.wantKey {
@@ -556,7 +584,7 @@ func (b *Broadcaster) requestKeyframe() {
 	b.wantKey = true
 }
 
-// setBitrate moves the encoder's target, clamped to the options' range.
+// setBitrate takes what the link carries, clamped to the options' range.
 func (b *Broadcaster) setBitrate(bps int) {
 	if bps < b.opts.MinBitrate {
 		bps = b.opts.MinBitrate
@@ -566,19 +594,65 @@ func (b *Broadcaster) setBitrate(bps int) {
 	}
 	b.encMu.Lock()
 	defer b.encMu.Unlock()
-	diff := bps - b.bitrate
+	b.bitrate = bps
+	b.applyBitrateLocked()
+}
+
+// applyBitrateLocked asks the encoder for what makes the frames it is
+// given add up to the link's bitrate; the caller holds encMu.
+func (b *Broadcaster) applyBitrateLocked() {
+	limit, halve, _ := b.gov.plan()
+	fps := b.arriving.fps()
+	if limit > 0 && float64(limit) < fps {
+		fps = float64(limit)
+	}
+	want := encoderBitrate(b.bitrate, fps, halve)
+	diff := want - b.encBitrate
 	if diff < 0 {
 		diff = -diff
 	}
-	if diff*20 < b.bitrate { // under 5%: not worth a change
+	if diff*20 < b.encBitrate { // under 5%: not worth a change
 		return
 	}
-	b.bitrate = bps
-	b.frameSkip = bps < lowBitrate
+	b.encBitrate = want
 	if b.enc != nil {
-		if err := b.enc.SetBitrate(bps); err != nil {
+		if err := b.enc.SetBitrate(want); err != nil {
 			b.opts.Logf("webrtc: set bitrate: %v", err)
 		}
+	}
+}
+
+// govern gives the governor its reading and follows a changed plan.
+func (b *Broadcaster) govern(now time.Time) {
+	r := reading{now: now, floor: b.opts.MinBitrate}
+	if b.opts.HostTemp != nil {
+		r.tempC, r.hasTemp = b.opts.HostTemp()
+	}
+	b.statMu.Lock()
+	r.sent = b.kbps * 1000
+	b.statMu.Unlock()
+	b.encMu.Lock()
+	defer b.encMu.Unlock()
+	r.bitrate = b.bitrate
+	if b.enc != nil {
+		r.pixels = b.encSize.X * b.encSize.Y
+		d := b.enc.Dropped()
+		r.dropped, b.lastDrops = max(d-b.lastDrops, 0), d
+	}
+	changed := b.gov.update(r)
+	b.applyBitrateLocked()
+	if !changed {
+		return
+	}
+	switch limit, _, why := b.gov.plan(); why {
+	case "link":
+		b.opts.Logf("webrtc: sending %d frames a second: the link carries %d kbps", limit, r.bitrate/1000)
+	case "host":
+		b.opts.Logf("webrtc: sending %d frames a second: the host is hot or the encoder is behind", limit)
+	case "floor":
+		b.opts.Logf("webrtc: sending %d frames a second at half the bitrate: the link is at its lowest", limit)
+	default:
+		b.opts.Logf("webrtc: sending every frame again")
 	}
 }
 
@@ -616,6 +690,9 @@ func (b *Broadcaster) statsLoop() {
 		case n == 0 && taps > 0:
 			// No viewer's network to follow: a tap gets the starting rate.
 			b.setBitrate(b.opts.StartBitrate)
+		}
+		if n > 0 || taps > 0 {
+			b.govern(time.Now())
 		}
 		b.statMu.Lock()
 		if since := time.Since(b.statAt); since >= time.Second {

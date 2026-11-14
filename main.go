@@ -329,7 +329,10 @@ func main() {
 		if udp == 0 {
 			udp = listenPort
 		}
-		opts := rtc.Options{UDPPort: udp, Encoder: *encoderSpec, FPS: *fps}
+		opts := rtc.Options{UDPPort: udp, Encoder: *encoderSpec, FPS: *fps, HostTemp: func() (float64, bool) {
+			h := devices.ReadHeat()
+			return h.TempC, h.TempC > 0
+		}}
 		if ab != nil {
 			opts.Audio = rtcAudio{ab}
 		}
