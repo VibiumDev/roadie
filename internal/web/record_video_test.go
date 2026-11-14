@@ -43,6 +43,9 @@ type fakeTap struct {
 	taps    int
 	stopped int
 	viewer  bool // a viewer is recording the stream
+	// stamp turns the time since the tap began into a frame's stamp; nil
+	// stamps frames with that time.
+	stamp func(time.Duration) time.Duration
 }
 
 func (f *fakeTap) Available() bool { return true }
@@ -65,11 +68,15 @@ func (f *fakeTap) Tap(sink rtc.SampleSink) func() {
 			f.mu.Lock()
 			sps := f.sps
 			f.mu.Unlock()
+			ts := time.Since(start)
+			if f.stamp != nil {
+				ts = f.stamp(ts)
+			}
 			if !bytes.Equal(sps, was) {
 				was = sps
-				sink(annexB(sps, somePPS, []byte{0x25, 0x88, 0x84}), true, time.Since(start))
+				sink(annexB(sps, somePPS, []byte{0x25, 0x88, 0x84}), true, ts)
 			} else {
-				sink(annexB([]byte{0x21, 0x9a, 0x02}), false, time.Since(start))
+				sink(annexB([]byte{0x21, 0x9a, 0x02}), false, ts)
 			}
 			select {
 			case <-quit:
@@ -209,6 +216,67 @@ func TestRecorderKeepsAVideoOfTheHold(t *testing.T) {
 	}
 	if left := settled(dir); len(left) != 0 {
 		t.Errorf("left behind: %v", left)
+	}
+}
+
+// Frames stamped by another clock for a stretch, as the dark frame that
+// stands in for a capture card's No Signal screen once was, do not stretch
+// the video: it runs as long as the hold.
+func TestRecorderKeepsAVideoItsLengthWhenStampsJump(t *testing.T) {
+	const boot = 500 * time.Hour
+	tap := &fakeTap{sps: tallSPS, stamp: func(since time.Duration) time.Duration {
+		if since > 60*time.Millisecond && since < 90*time.Millisecond {
+			return since // a stand-in frame, on the process's clock
+		}
+		return boot + since // the capture driver's clock
+	}}
+	zr, _ := recordAHold(t, tap, 8<<20, func(*recorder) { time.Sleep(200 * time.Millisecond) })
+
+	videos := readVideoIndex(t, zr)
+	if len(videos) != 1 {
+		t.Fatalf("videos: %+v", videos)
+	}
+	if d := videos[0].DurationMs; d < 150 || d > 1000 {
+		t.Errorf("a hold of about 200 ms has a video of %d ms", d)
+	}
+}
+
+func TestSteadyFollowsStampsUntilTheyJump(t *testing.T) {
+	var s steady
+	arrived := time.Unix(1000, 0)
+	const frame = 33 * time.Millisecond
+	step := func(ts time.Duration, wait time.Duration) (time.Duration, bool) {
+		arrived = arrived.Add(wait)
+		return s.at(ts, arrived)
+	}
+	first, _ := step(500*time.Hour, 0)
+	// Stamps that agree with the arrivals are written as they are, also
+	// when frames come in a bunch or the capture stalls for a while.
+	for _, c := range []struct{ stamp, wait time.Duration }{{frame, frame}, {frame, time.Millisecond}, {frame, 60 * time.Millisecond}, {10 * time.Second, 10 * time.Second}} {
+		prev := s.lastTS
+		got, jumped := step(prev+c.stamp, c.wait)
+		if jumped || got-prev != c.stamp {
+			t.Errorf("a stamp %v on, arriving %v on: written %v on, jumped %v", c.stamp, c.wait, got-prev, jumped)
+		}
+	}
+	if first != 500*time.Hour {
+		t.Errorf("the first frame was written at %v", first)
+	}
+	// A stamp from another clock, and back: each carries on by arrival.
+	prev := s.lastTS
+	got, jumped := step(3*time.Second, frame)
+	if !jumped || got-prev != frame {
+		t.Errorf("a jump back: written %v on, jumped %v", got-prev, jumped)
+	}
+	prev = got
+	got, jumped = step(3*time.Second+frame, frame)
+	if jumped || got-prev != frame {
+		t.Errorf("the next frame on the other clock: written %v on, jumped %v", got-prev, jumped)
+	}
+	prev = got
+	got, jumped = step(500*time.Hour+time.Minute, frame)
+	if !jumped || got-prev != frame {
+		t.Errorf("the jump forward again: written %v on, jumped %v", got-prev, jumped)
 	}
 }
 

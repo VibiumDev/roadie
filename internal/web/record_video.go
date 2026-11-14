@@ -56,6 +56,33 @@ type holdVideo struct {
 	parts   []videoPart
 	bytes   int64
 	full    bool
+	clock   steady
+}
+
+// steady keeps a video's frame times on one clock. A frame whose stamp
+// moved more than a second differently from when it arrived was stamped
+// by another clock. The stamps from there on are shifted to carry on from
+// the frame before it, by the arrival times.
+type steady struct {
+	begun  bool
+	lastTS time.Duration // as written
+	lastAt time.Time
+	shift  time.Duration
+}
+
+// at returns the time to write for a frame stamped ts that arrived at
+// arrived, and whether the clock was found to have jumped.
+func (s *steady) at(ts time.Duration, arrived time.Time) (time.Duration, bool) {
+	out, jumped := ts+s.shift, false
+	if s.begun {
+		byStamp, byArrival := out-s.lastTS, arrived.Sub(s.lastAt)
+		if d := byStamp - byArrival; d > time.Second || d < -time.Second {
+			s.shift += byArrival - byStamp
+			out, jumped = s.lastTS+byArrival, true
+		}
+	}
+	s.begun, s.lastTS, s.lastAt = true, out, arrived
+	return out, jumped
 }
 
 type videoUnit struct {
@@ -146,7 +173,11 @@ func (v *holdVideo) add(u videoUnit) {
 		}
 		v.cur, v.curPath, v.curAt = w, path, u.at
 	}
-	err := v.cur.Add(u.data, u.ts)
+	ts, jumped := v.clock.at(u.ts, u.at)
+	if jumped {
+		v.logf("record: video: a frame's time jumped; carrying on by when frames arrive")
+	}
+	err := v.cur.Add(u.data, ts)
 	switch {
 	case errors.Is(err, mp4.ErrChanged):
 		v.closePart("")
