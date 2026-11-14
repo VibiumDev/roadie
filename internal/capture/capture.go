@@ -1319,6 +1319,14 @@ func runCapture(ctx context.Context, dev devices.DeviceInfo, reader frameReader,
 			consecutiveErrors = 0
 			frameCount++
 
+			// The frame's own stamp, read before anything stands in for the
+			// picture. A stand-in has none, and a time from another clock
+			// would put it days from its neighbours.
+			var stamp time.Duration
+			if s, ok := img.(interface{ Stamp() time.Duration }); ok {
+				stamp = s.Stamp()
+			}
+
 			// The dongle's own No Signal screen (see nosignal.go) is never
 			// shown: a dark frame goes out in its place, and counts as no
 			// signal. It is recognised once, then by its fingerprint while
@@ -1422,9 +1430,9 @@ func runCapture(ctx context.Context, dev devices.DeviceInfo, reader frameReader,
 			if rect == (image.Rectangle{}) {
 				rect = fullBounds
 			}
-			ts := time.Since(captureEpoch)
-			if s, ok := img.(interface{ Stamp() time.Duration }); ok && s.Stamp() != 0 {
-				ts = s.Stamp()
+			ts := stamp
+			if ts == 0 {
+				ts = time.Since(captureEpoch)
 			}
 			buf.UpdateRaw(img, release, rect)
 			buf.deliver(img, rect, ts)
