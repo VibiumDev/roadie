@@ -2,7 +2,10 @@
 
 `index.html` is a one-file page for checking a phone's speaker and microphone.
 **Speaker** plays five notes. **Mic** records for a few seconds and then plays
-back what it heard. `make test-e2e-iphone` uses it for the iPhone's microphone
+back what it heard. While a test runs, the page draws the sound as a large
+waveform over the two buttons. The drawing only listens: it changes neither
+the sound nor the timing. `make test-e2e-iphone` uses the page for the
+iPhone's microphone
 (see [Testing](../docs/how-to/testing.md#testing-a-phone-instead)).
 `?seconds=N` sets how long Mic records (2 to 30, default 8).
 
