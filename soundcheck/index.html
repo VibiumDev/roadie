@@ -116,14 +116,14 @@ function level(v) {
 }
 
 // --- waveform ------------------------------------------------------------------
-// Drawn across the buttons while a test runs: the sound as it is now, over
-// an outline of the test so far. It hears through an analyser beside the
+// Drawn across the buttons while a test runs, the way a voice memo draws
+// sound: one bar per slice of the test, as tall as the loudest moment in
+// it, filling in from the left. It hears through an analyser beside the
 // audio path, so nothing it does reaches the speaker or the recording, and
 // a fault in it must never stop a test: hence the try blocks.
 const wave = $('wave');
 const pen = wave.getContext('2d');
-const BARS = 64;
-const SPAN = 512;  // samples drawn: about a hundredth of a second
+const EDGE = 16, PITCH = 4.5;  // CSS pixels: the margin at each side, and from bar to bar
 let probe = null, heard = null, run = null, frame = 0;
 
 function hear(node) {
@@ -137,21 +137,21 @@ function hear(node) {
   } catch (e) {}
 }
 
-// Starts drawing for a test that lasts ms. Given a finished recording, its
-// outline is drawn whole and lights up as it plays.
+// Starts drawing for a test that lasts ms. Given a finished recording, all
+// of its bars are drawn at once, grey, and take their colour as it plays.
 function waveOn(ms, recording) {
   try {
     if (!probe) return;
-    const bars = new Float32Array(BARS);
+    const bars = new Float32Array(Math.max(24, Math.min(160, Math.round((wave.clientWidth - 2 * EDGE) / PITCH))));
     if (recording) {
-      const per = recording.length / BARS;
-      for (let i = 0; i < BARS; i++) {
+      const per = recording.length / bars.length;
+      for (let i = 0; i < bars.length; i++) {
         for (let j = Math.floor(i * per), end = Math.floor((i + 1) * per); j < end; j += 8) {
           bars[i] = Math.max(bars[i], Math.abs(recording[j]));
         }
       }
     }
-    run = {t0: performance.now(), ms, bars, whole: !!recording, seen: 0, tall: 0.05, loud: 0.05};
+    run = {t0: performance.now(), ms, bars, whole: !!recording, seen: 0, tall: 0.05};
     fit();
     wave.classList.add('on');
     if (!frame) frame = requestAnimationFrame(draw);
@@ -167,7 +167,7 @@ function fit() {
   const k = Math.min(2, window.devicePixelRatio || 1);
   wave.width = Math.round(box.width * k);
   wave.height = Math.round(box.height * k);
-  // The wave runs along the seam between the two buttons.
+  // The bars stand on the seam between the two buttons.
   const seam = (speakerBtn.getBoundingClientRect().bottom + micBtn.getBoundingClientRect().top) / 2;
   run.k = k;
   run.mid = (seam - box.top) * k;
@@ -186,60 +186,48 @@ function draw(now) {
 
 function paint(now) {
   const {k, mid, bars} = run;
-  const w = wave.width, h = wave.height;
+  const n = bars.length, w = wave.width, h = wave.height;
+  const left = EDGE * k, step = (w - 2 * left) / n;
   const reach = Math.min(mid, h - mid) - 6 * k;
   probe.getFloatTimeDomainData(heard);
   let peak = 0;
   for (let i = 0; i < heard.length; i += 2) peak = Math.max(peak, Math.abs(heard[i]));
 
-  // The outline: one bar per slice of the test, the loudest moment in it.
-  const head = Math.max(0, Math.min(BARS - 1, Math.floor((now - run.t0) / run.ms * BARS)));
+  const at = Math.max(0, Math.min(1, (now - run.t0) / run.ms));
+  const head = Math.min(n - 1, Math.floor(at * n));
   if (!run.whole) {
     // Every slice since the last frame, in case frames come slowly.
     for (let i = run.seen; i <= head; i++) bars[i] = Math.max(bars[i], peak);
     run.seen = head;
   }
+  // The loudest bar stands full height, and the scale eases after it.
   let top = 0.02;
-  for (let i = 0; i < BARS; i++) top = Math.max(top, bars[i]);
+  for (let i = 0; i < n; i++) top = Math.max(top, bars[i]);
   run.tall += (top - run.tall) * 0.2;
+
   pen.clearRect(0, 0, w, h);
-  pen.strokeStyle = run.ink;
-  pen.lineCap = pen.lineJoin = 'round';
-  pen.lineWidth = Math.max(2, w / BARS * 0.5);
-  for (const [from, to, alpha] of [[0, head + 1, 0.5], [head + 1, BARS, 0.16]]) {
-    pen.globalAlpha = alpha;  // bright up to now, dim for what is to come
+  pen.lineCap = 'round';
+  pen.lineWidth = Math.max(k, step * 0.5);
+  // In colour up to now. What is to come is grey: dots while the sound is
+  // live, and the bars of a recording yet to play.
+  for (const [from, to, ink] of [[0, head + 1, run.ink], [head + 1, n, '#55606f']]) {
+    pen.strokeStyle = ink;
     pen.beginPath();
     for (let i = from; i < to; i++) {
-      const x = (i + 0.5) * w / BARS;
-      const half = Math.max(k, Math.min(1, bars[i] / run.tall) * reach * 0.32);
+      const x = left + (i + 0.5) * step;
+      const half = Math.max(0.75 * k, Math.pow(Math.min(1, bars[i] / run.tall), 0.7) * reach * 0.46);
       pen.moveTo(x, mid - half);
       pen.lineTo(x, mid + half);
     }
     pen.stroke();
   }
-
-  // The sound now, from where it crosses zero on the way up, so that a
-  // steady note stands still. Its height follows the loudest recent moment.
-  run.loud = Math.max(peak, 0.02, run.loud * 0.97);
-  let start = 0, armed = false;
-  for (let i = 0; i < heard.length - SPAN; i++) {
-    if (heard[i] < -0.2 * peak) armed = true;
-    else if (armed && heard[i] >= 0) { start = i; break; }
-  }
+  const x = left + at * (w - 2 * left);  // where the test is now
+  pen.strokeStyle = '#e8eef6';
+  pen.lineWidth = 1.5 * k;
   pen.beginPath();
-  for (let i = 0; i <= SPAN; i += 2) {
-    const u = i / SPAN;
-    const held = 1 - Math.pow(2 * u - 1, 4);  // pinned to the seam at both edges
-    const v = Math.max(-1, Math.min(1, heard[start + Math.min(i, SPAN - 1)] / run.loud));
-    const y = mid - v * held * reach * 0.72;
-    if (i) pen.lineTo(u * w, y); else pen.moveTo(u * w, y);
-  }
-  for (const [width, alpha] of [[18, 0.07], [9, 0.16], [3, 1]]) {  // a glow, then the line
-    pen.globalAlpha = alpha;
-    pen.lineWidth = width * k;
-    pen.stroke();
-  }
-  pen.globalAlpha = 1;
+  pen.moveTo(x, mid - reach * 0.52);
+  pen.lineTo(x, mid + reach * 0.52);
+  pen.stroke();
 }
 
 // --- speaker -------------------------------------------------------------------
