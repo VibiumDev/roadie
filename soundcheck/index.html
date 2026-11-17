@@ -123,7 +123,7 @@ function level(v) {
 // a fault in it must never stop a test: hence the try blocks.
 const wave = $('wave');
 const pen = wave.getContext('2d');
-const EDGE = 16, PITCH = 4.5;  // CSS pixels: the margin at each side, and from bar to bar
+const EDGE = 16, PITCH = 6;  // CSS pixels: the margin at each side, and from bar to bar
 let probe = null, heard = null, run = null, frame = 0;
 
 function hear(node) {
@@ -207,7 +207,9 @@ function paint(now) {
 
   pen.clearRect(0, 0, w, h);
   pen.lineCap = 'round';
-  pen.lineWidth = Math.max(k, step * 0.5);
+  // Bars wider than the gaps keep their colour through a video capture,
+  // which carries colour at half the sharpness.
+  pen.lineWidth = Math.max(k, step * 0.6);
   // In colour up to now. What is to come is grey: dots while the sound is
   // live, and the bars of a recording yet to play.
   for (const [from, to, ink] of [[0, head + 1, run.ink], [head + 1, n, '#55606f']]) {
