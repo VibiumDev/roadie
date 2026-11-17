@@ -33,7 +33,8 @@
   header { padding: 14px 18px 8px; display: flex; align-items: baseline; gap: 10px; }
   header h1 { font-size: 20px; letter-spacing: .02em; }
   header span { color: var(--dim); font-size: 13px; }
-  main { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 6px 14px 14px; min-height: 0; }
+  main { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 6px 14px 14px; min-height: 0;
+    position: relative; }
   button {
     flex: 1; border: 1px solid var(--line); border-radius: 18px; background: var(--panel);
     color: var(--text); font: inherit; display: flex; flex-direction: column;
@@ -50,6 +51,9 @@
   #status.ok { color: var(--ok); }
   #status.bad { color: var(--accent2); }
   canvas { display: block; width: 100%; height: 34px; }
+  #wave { position: absolute; inset: 0; height: 100%; pointer-events: none;
+    opacity: 0; transition: opacity .35s; }
+  #wave.on { opacity: 1; }
   footer { padding: 6px 18px 14px; color: var(--dim); font-size: 12px; }
 </style>
 </head>
@@ -64,6 +68,7 @@
     <span class="icon">&#9679;</span><b>Mic</b>
     <small id="mic-hint">Records the microphone, then plays it back</small>
   </button>
+  <canvas id="wave" aria-hidden="true"></canvas>
 </main>
 <p id="status">Tap a test.</p>
 <canvas id="level" width="600" height="34"></canvas>
@@ -110,6 +115,133 @@ function level(v) {
   meter.fillRect(18, 8, Math.min(1, v * 4) * (w - 36), h - 16);
 }
 
+// --- waveform ------------------------------------------------------------------
+// Drawn across the buttons while a test runs: the sound as it is now, over
+// an outline of the test so far. It hears through an analyser beside the
+// audio path, so nothing it does reaches the speaker or the recording, and
+// a fault in it must never stop a test: hence the try blocks.
+const wave = $('wave');
+const pen = wave.getContext('2d');
+const BARS = 64;
+const SPAN = 512;  // samples drawn: about a hundredth of a second
+let probe = null, heard = null, run = null, frame = 0;
+
+function hear(node) {
+  try {
+    if (!probe) {
+      probe = ctx.createAnalyser();
+      probe.fftSize = 2048;
+      heard = new Float32Array(probe.fftSize);
+    }
+    node.connect(probe);
+  } catch (e) {}
+}
+
+// Starts drawing for a test that lasts ms. Given a finished recording, its
+// outline is drawn whole and lights up as it plays.
+function waveOn(ms, recording) {
+  try {
+    if (!probe) return;
+    const bars = new Float32Array(BARS);
+    if (recording) {
+      const per = recording.length / BARS;
+      for (let i = 0; i < BARS; i++) {
+        for (let j = Math.floor(i * per), end = Math.floor((i + 1) * per); j < end; j += 8) {
+          bars[i] = Math.max(bars[i], Math.abs(recording[j]));
+        }
+      }
+    }
+    run = {t0: performance.now(), ms, bars, whole: !!recording, seen: 0, tall: 0.05, loud: 0.05};
+    fit();
+    wave.classList.add('on');
+    if (!frame) frame = requestAnimationFrame(draw);
+  } catch (e) { waveOff(); }
+}
+function waveOff() {
+  run = null;  // the last frame stays while the canvas fades
+  wave.classList.remove('on');
+}
+
+function fit() {
+  const box = wave.getBoundingClientRect();
+  const k = Math.min(2, window.devicePixelRatio || 1);
+  wave.width = Math.round(box.width * k);
+  wave.height = Math.round(box.height * k);
+  // The wave runs along the seam between the two buttons.
+  const seam = (speakerBtn.getBoundingClientRect().bottom + micBtn.getBoundingClientRect().top) / 2;
+  run.k = k;
+  run.mid = (seam - box.top) * k;
+  run.ink = pen.createLinearGradient(0, 0, wave.width, 0);
+  run.ink.addColorStop(0, '#e8343a');
+  run.ink.addColorStop(1, '#ff8000');
+}
+window.addEventListener('resize', () => { try { if (run) fit(); } catch (e) {} });
+
+function draw(now) {
+  frame = 0;
+  if (!run) return;
+  frame = requestAnimationFrame(draw);
+  try { paint(now); } catch (e) { waveOff(); }
+}
+
+function paint(now) {
+  const {k, mid, bars} = run;
+  const w = wave.width, h = wave.height;
+  const reach = Math.min(mid, h - mid) - 6 * k;
+  probe.getFloatTimeDomainData(heard);
+  let peak = 0;
+  for (let i = 0; i < heard.length; i += 2) peak = Math.max(peak, Math.abs(heard[i]));
+
+  // The outline: one bar per slice of the test, the loudest moment in it.
+  const head = Math.max(0, Math.min(BARS - 1, Math.floor((now - run.t0) / run.ms * BARS)));
+  if (!run.whole) {
+    // Every slice since the last frame, in case frames come slowly.
+    for (let i = run.seen; i <= head; i++) bars[i] = Math.max(bars[i], peak);
+    run.seen = head;
+  }
+  let top = 0.02;
+  for (let i = 0; i < BARS; i++) top = Math.max(top, bars[i]);
+  run.tall += (top - run.tall) * 0.2;
+  pen.clearRect(0, 0, w, h);
+  pen.strokeStyle = run.ink;
+  pen.lineCap = pen.lineJoin = 'round';
+  pen.lineWidth = Math.max(2, w / BARS * 0.5);
+  for (const [from, to, alpha] of [[0, head + 1, 0.5], [head + 1, BARS, 0.16]]) {
+    pen.globalAlpha = alpha;  // bright up to now, dim for what is to come
+    pen.beginPath();
+    for (let i = from; i < to; i++) {
+      const x = (i + 0.5) * w / BARS;
+      const half = Math.max(k, Math.min(1, bars[i] / run.tall) * reach * 0.32);
+      pen.moveTo(x, mid - half);
+      pen.lineTo(x, mid + half);
+    }
+    pen.stroke();
+  }
+
+  // The sound now, from where it crosses zero on the way up, so that a
+  // steady note stands still. Its height follows the loudest recent moment.
+  run.loud = Math.max(peak, 0.02, run.loud * 0.97);
+  let start = 0, armed = false;
+  for (let i = 0; i < heard.length - SPAN; i++) {
+    if (heard[i] < -0.2 * peak) armed = true;
+    else if (armed && heard[i] >= 0) { start = i; break; }
+  }
+  pen.beginPath();
+  for (let i = 0; i <= SPAN; i += 2) {
+    const u = i / SPAN;
+    const held = 1 - Math.pow(2 * u - 1, 4);  // pinned to the seam at both edges
+    const v = Math.max(-1, Math.min(1, heard[start + Math.min(i, SPAN - 1)] / run.loud));
+    const y = mid - v * held * reach * 0.72;
+    if (i) pen.lineTo(u * w, y); else pen.moveTo(u * w, y);
+  }
+  for (const [width, alpha] of [[18, 0.07], [9, 0.16], [3, 1]]) {  // a glow, then the line
+    pen.globalAlpha = alpha;
+    pen.lineWidth = width * k;
+    pen.stroke();
+  }
+  pen.globalAlpha = 1;
+}
+
 // --- speaker -------------------------------------------------------------------
 function playMotif() {
   session('playback');
@@ -124,6 +256,7 @@ function playMotif() {
     gain.gain.setValueAtTime(0.5, t + secs - 0.005);
     gain.gain.linearRampToValueAtTime(0, t + secs);
     osc.connect(gain).connect(c.destination);
+    hear(gain);
     osc.start(t);
     osc.stop(t + secs + 0.01);
     t += secs + GAP;
@@ -135,7 +268,8 @@ speakerBtn.addEventListener('click', () => {
   busy(speakerBtn, true);
   say('Playing five notes…');
   const ms = playMotif();
-  setTimeout(() => { busy(speakerBtn, false); say('Played the five notes.', 'ok'); }, ms + 200);
+  waveOn(ms);
+  setTimeout(() => { busy(speakerBtn, false); waveOff(); say('Played the five notes.', 'ok'); }, ms + 200);
 });
 
 // --- microphone ----------------------------------------------------------------
@@ -168,9 +302,11 @@ micBtn.addEventListener('click', async () => {
     level(Math.sqrt(sum / (data.length / 8)));
   };
   source.connect(tap);
+  hear(source);
   tap.connect(c.destination);  // silent, but a processor only runs when connected
 
   const started = performance.now();
+  waveOn(SECONDS * 1000);
   const tick = setInterval(() => {
     const left = Math.max(0, SECONDS - (performance.now() - started) / 1000);
     say(`Recording… ${left.toFixed(1)} s`);
@@ -181,6 +317,7 @@ micBtn.addEventListener('click', async () => {
   source.disconnect();
   stream.getTracks().forEach((t) => t.stop());
   level(0);
+  waveOff();
 
   // Play back what was heard, louder if it was quiet. Out of the speaker,
   // not the earpiece, where iOS puts sound while it records.
@@ -205,8 +342,10 @@ micBtn.addEventListener('click', async () => {
   const play = c.createBufferSource();
   play.buffer = buf;
   play.connect(c.destination);
-  play.onended = () => { busy(micBtn, false); say('Played back what the microphone heard.', 'ok'); };
+  hear(play);
+  play.onended = () => { busy(micBtn, false); waveOff(); say('Played back what the microphone heard.', 'ok'); };
   play.start();
+  waveOn(buf.duration * 1000, out);
 });
 </script>
 </body>
