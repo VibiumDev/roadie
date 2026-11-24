@@ -32,6 +32,16 @@ import (
 	"github.com/VibiumDev/station/sdnotify"
 )
 
+// stationLink is the server's link to the rig's stations, nil for a rig
+// with none. A nil *RigRunner put in the interface is not a nil interface,
+// and the server would call Status on it.
+func stationLink(rr *remote.RigRunner) web.StationLink {
+	if rr == nil {
+		return nil
+	}
+	return rr
+}
+
 // deviceHint shortens a capture device name to the part worth typing.
 // Driver names carry their own bus path -- "UGREEN 15389: UGREEN
 // 15389;usb-0000:01:00.0-1" -- and only the leading name is useful as a
@@ -501,7 +511,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("station: %v", err)
 	}
-	srv.Station = rigRun
+	srv.Station = stationLink(rigRun)
 	if rigRun != nil {
 		go recorder.Retry(rigRun.Rig.Policy, rigRun.Rig.Key)
 	}

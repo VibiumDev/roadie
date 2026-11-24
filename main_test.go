@@ -60,3 +60,9 @@ func TestSoundcheckPageStreamsToItsOwnHostOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestStationLinkWithoutRig(t *testing.T) {
+	if stationLink(nil) != nil {
+		t.Error("a rig with no station gives the server a station link: / and /health would call Status on it")
+	}
+}
