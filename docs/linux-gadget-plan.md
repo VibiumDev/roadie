@@ -290,5 +290,4 @@ These are not yet checked (see the
 - USB microphone and speaker recognition and streaming
 - Android Ethernet adoption and internet
 - the splitter/hub power checks
-- remote wakeup
 - long-running operation with real traffic

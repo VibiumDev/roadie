@@ -279,7 +279,8 @@ Roadie never re-enumerates on its own after an application error.
 | Binding failed | `dmesg \| tail` | Out of endpoints: don't re-enable UAC2 async feedback or volume controls; disable a function |
 | `usb_state: not attached` with a phone plugged in | Phone locked? Cable/splitter data path; phone USB role | iPhone: unlock it and allow the accessory, then `roadie-gadget reset`. Otherwise the phone must be host: the hub's USB-A port, not a charge-only path |
 | `usb_state` never reaches `configured`; `dmesg` repeats `new device is high-speed` with no `new address` | Phone unlocked, accessory allowed? | Reboot the Pi. Seen once, after `roadie-gadget down`/`up` while the iPhone was enumerating; `reset`, `rebind`, replugs and another cable didn't help |
-| `usb_state: suspended` | Phone screen off | Wake the phone; see remote wakeup under [limitations](#android-compatibility-and-limitations) |
+| `usb_state: suspended` | Phone screen off | Wake the phone by hand; see remote wakeup under [limitations](#android-compatibility-and-limitations) |
+| Android: input stops a few seconds after the last one; API: "the phone is not collecting input reports" | `roadie-gadget check` says "declares remote wakeup" | The gadget was built by an older Roadie: update, then reboot |
 | API: "no phone has enumerated the USB gadget" | `roadie-gadget status` | As above |
 | API: "cannot open keyboard: permission denied" | `ls -l /dev/hidg*` | User in group `roadie`, re-login or `systemctl restart roadie` |
 | No mic on the phone | `adb shell dumpsys audio \| grep -i usb` | `AUDIO=uac1` if the phone mishandles UAC2 |
@@ -304,8 +305,12 @@ Roadie never re-enumerates on its own after an application error.
   software volume.
 - **Audio routing:** with the speaker function, the phone's audio leaves by
   USB, not HDMI.
-- **Remote wakeup** is declared, but whether a sleeping phone wakes for
-  gadget input has not been tested.
+- **Remote wakeup** is not declared. An Android phone suspends an idle USB
+  device that declares it, about five seconds after its last input, and
+  waits for a wakeup that this gadget does not signal: input then stops
+  until the phone resumes the device for a reason of its own. So input
+  does not wake a phone that has suspended the bus; keep the phone awake
+  (Developer options → Stay awake).
 - **Stylus:** not exposed — Roadie's API has no pen commands. One spare IN
   endpoint would allow a pen digitizer later.
 - **One phone per Pi:** the Pi 4 has one device controller.
@@ -378,11 +383,15 @@ Record pass/fail and notes for each.
     flat.
 16. **Sleeping phone.** Screen off 5 min; send a key
     (`{"keycode":102,"action":"click"}`, 0x66 power). Note whether the phone
-    wakes (remote wakeup is untested).
+    wakes. The gadget declares no remote wakeup, so a phone that has
+    suspended the bus does not.
 17. **RP2040 unchanged.** With `--hid-backend rp2040` and the boards,
     `make test` passes.
 18. **iPhone.** AssistiveTouch on, Wi-Fi on the Pi's network, phone
     unlocked: `make test-e2e-iphone` passes.
+19. **Input after a pause.** Leave the phone alone for 30 s with its screen
+    on, then send a key (`{"keycode":129,"action":"click"}`, 0x81 volume
+    down). The phone's volume slider shows.
 
 ## Uninstall and rollback
 

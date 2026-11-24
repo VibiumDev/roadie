@@ -298,10 +298,11 @@ build() {
 	mkdir "$G/configs/c.1"
 	mkdir "$G/configs/c.1/strings/0x409"
 	echo "Roadie" > "$G/configs/c.1/strings/0x409/configuration"
-	# Self-powered with remote wakeup: the Pi has its own supply (the
-	# splitter cuts VBUS from the phone), and wakeup lets input reach a
-	# phone that has suspended the bus.
-	echo 0xE0 > "$G/configs/c.1/bmAttributes"
+	# Self-powered: the Pi has its own supply (the splitter cuts VBUS from
+	# the phone). No remote wakeup: an Android phone suspends an idle
+	# device that declares it and waits for a wakeup this gadget does not
+	# signal, so input stops a few seconds after the last report.
+	echo 0xC0 > "$G/configs/c.1/bmAttributes"
 	echo 2 > "$G/configs/c.1/MaxPower"
 
 	# Link order is interface order: input first, then audio, then network.
@@ -594,6 +595,11 @@ cmd_check() {
 		return 1
 	fi
 	if [ -n "$(cat "$G/UDC")" ]; then pass "bound to $(cat "$G/UDC")"; else fail "gadget is not bound"; fi
+	if (( $(cat "$G/configs/c.1/bmAttributes") & 0x20 )); then
+		fail "declares remote wakeup: an Android phone stops reading input after a few idle seconds (update Roadie, then reboot)"
+	else
+		pass "no remote wakeup declared"
+	fi
 
 	for fn in keyboard:8 mouse:6 touch:13; do
 		want=${fn#*:}; fn=${fn%:*}
